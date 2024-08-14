@@ -195,8 +195,17 @@ pub const components = struct {
 };
 
 const blocks = struct {
-    pub const TodoListBlock = struct {
+    pub const IntegratedTodoListBlock = struct {
         pub const Component = components.AppendOnlyList(components.NewestWinsValue(std.ArrayList(u8)));
+        // this should provide a default editor
+    };
+    pub const SeperateTodoListBlock = struct {
+        pub const Component = components.AppendOnlyList(components.BlockRef);
+        // provide a default editor
+    };
+    pub const SeperateTodoItem = struct {
+        pub const Component = components.NewestWinsValue(std.ArrayList(u8));
+        // provide a default editor
     };
 };
 
