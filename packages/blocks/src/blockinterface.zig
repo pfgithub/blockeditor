@@ -36,7 +36,33 @@ pub fn CreateBlockFromComponent(comptime Component: type) void {
     _ = Component;
 }
 
+/// a Component is part of a Block. Operations are applied to components:
+/// - A B C D
+/// a Component should preserve user intent if a new operation is inserted earlier in the history, ie:
+/// - A B [E] C D
+/// to insert early in the history:
+/// - D is physically undone. C is physically undone. E is applied. C is applied. D is applied
+///   - it is not enough to just apply D's undo operation. it needs to be fully undone as if it was never applied in the first place
+/// alternatively, we can require applyOperation to be a CRDT. This means these two are equivalent:
+/// - A B E C D is the same as A B C D E
+/// - This takes a bit of effort.
+///   - NewestWins is pretty easy to make into a CRDT, but AppendOnlyList? Should be alright if we introduce one layer of indirection
 pub const components = struct {
+    pub const Sample = struct {
+        pub const Operation = struct {
+            /// does not need to be called if it was applied
+            fn deinit(_: *Operation) void {}
+        };
+
+        fn deinit(_: *Sample) void {}
+
+        /// operation is consumed and no longer needs to be deinitialized. returns
+        /// an inverse operation which when applied undoes the operation.
+        fn applyOperation(_: *Sample, _: Operation) Operation {
+            return .{};
+        }
+    };
+
     pub const Counter = struct {
         pub const Operation = struct {
             change_by: i32,
@@ -54,18 +80,105 @@ pub const components = struct {
             self.value +%= operation.change_by;
         }
     };
-    pub fn List(comptime Child: type) type {
+
+    /// Child must have 'fn deinit()'
+    pub fn NewestWinsValue(comptime Child: type) type {
         return struct {
-            // essentially: each array of items we insert gets an ItemIdx
-            // an array of items can be moved. if this happens, the previous items are tombstoned
-            // and new items are created at the target location. but this is one operation so we can make
-            // sure that if it happens again
+            const Self = @This();
             pub const Operation = union(enum) {
-                insert_after: struct {},
+                set: struct {
+                    value: Child,
+                },
+
+                pub fn deinit(operation: *Operation) void {
+                    switch (operation) {
+                        .set => |*set_op| {
+                            set_op.value.deinit();
+                        },
+                    }
+                }
             };
-            const ItemIdx = enum(u64) {};
-            indices: std.ArrayList(ItemIdx),
-            items: std.ArrayList(Child),
+
+            value: Child,
+
+            fn deinit(self: *Self) void {
+                self.value.deinit();
+            }
+            fn applyOperation(self: *Self, operation: Operation) Operation {
+                switch (operation) {
+                    .set => |set_op| {
+                        const prev_val = self.value;
+                        self.value = set_op.value;
+                        return .{ .set = .{ .value = prev_val } };
+                    },
+                }
+            }
         };
     }
+
+    /// Child must be a component
+    pub fn AppendOnlyList(comptime Child: type) type {
+        return struct {
+            const Self = @This();
+            pub const Operation = union(enum) {
+                append: struct {
+                    new_child: Child,
+                },
+                set_deleted: struct {
+                    index: usize,
+                    deleted: bool,
+                },
+                mutate_child: struct {
+                    index: usize,
+                    operation: Child.Operation,
+                },
+
+                fn deinit(operation: *Operation) void {
+                    switch (operation) {
+                        .append => |*append_op| {
+                            append_op.new_child.deinit();
+                        },
+                        .set_deleted => |_| {},
+                        .mutate_child => |*mutate_child_op| {
+                            mutate_child_op.operation.deinit();
+                        },
+                    }
+                }
+            };
+            const Item = struct {
+                value: Child,
+                deleted: bool,
+            };
+            items: std.ArrayList(Item),
+
+            fn deinit(self: *Self) Operation {
+                for (self.items.items) |*item| item.value.deinit();
+                self.items.deinit();
+            }
+
+            fn applyOperation(self: *Self, operation: Operation) Operation {
+                switch (operation) {
+                    .append => |append_op| {
+                        const index = self.items.items.len;
+                        self.items.append(.{ .value = append_op.new_child, .deleted = false }) catch @panic("oom");
+                        return .{ .set_deleted = .{ .index = index, .deleted = true } };
+                    },
+                    .set_deleted => |set_deleted_op| {
+                        self.items.items[set_deleted_op.index].deleted = set_deleted_op.deleted;
+                        return .{ .set_deleted = .{ .index = set_deleted_op.index, .deleted = !set_deleted_op.deleted } };
+                    },
+                    .mutate_child => |mutate_child_op| {
+                        const res = self.items.item[mutate_child_op.index].value.applyOperation(mutate_child_op.operation);
+                        return .{ .mutate_child = .{ .index = mutate_child_op.index, .operation = res } };
+                    },
+                }
+            }
+        };
+    }
+};
+
+const blocks = struct {
+    pub const TodoListBlock = struct {
+        pub const Component = components.AppendOnlyList(components.NewestWinsValue(std.ArrayList(u8)));
+    };
 };
