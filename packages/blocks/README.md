@@ -1,4 +1,6 @@
 Terminology:
 
 - Block: A piece of data that is owned by a block and may reference blocks
-- Segment: A CRDT piece that can be composed with other segments into a block
+- Component: A CRDT piece that can be composed with other segments into a block
+  - Not CRDT yet, right now it just requires that if operations A B C D have been applied, if D C B
+    are unapplied, F is inserted, and B C D are reapplied it should preserve user intent.

@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) !void {
     const block_test = b.addTest(.{
         .target = target,
         .optimize = optimize,
-        .root_source_file = b.path("src/text_block.zig"),
+        .root_source_file = b.path("src/text_component.zig"),
     });
     const run_block_tests = b.addRunArtifact(block_test);
 

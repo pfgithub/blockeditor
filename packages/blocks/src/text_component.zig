@@ -572,6 +572,24 @@ pub const SegmentID = enum(u64) {
         }
     }
 };
+pub const MoveID = enum(u64) {
+    _,
+
+    pub fn format(
+        self: *const @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        const num = @intFromEnum(self.*);
+        const op_id = num >> 16;
+        const client_id = num & std.math.maxInt(u16);
+        try writer.print("*{d}", .{op_id});
+        if (client_id != 0) {
+            try writer.print("/{d}", .{client_id});
+        }
+    }
+};
 pub const DeleteID = enum(u64) {
     none = 0,
     _,
@@ -584,12 +602,12 @@ pub const DeleteID = enum(u64) {
     ) !void {
         const num = @intFromEnum(self.*);
         if (num == 0) {
-            try writer.print("E", .{});
+            try writer.print("-none", .{});
             return;
         }
         const op_id = num >> 16;
         const client_id = num & std.math.maxInt(u16);
-        try writer.print("-@{d}", .{op_id});
+        try writer.print("-{d}", .{op_id});
         if (client_id != 0) {
             try writer.print("/{d}", .{client_id});
         }
@@ -619,6 +637,19 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
     return struct {
         const Doc = @This();
         pub const Operation = union(enum) {
+            move: struct {
+                // To support using Document for lists, we need a 'move' operation. Otherwise, two people moving the same
+                // list item could cause it to duplicate.
+                start: Position,
+                len_within_segment: u64,
+                end: Position,
+                prev_move_id: MoveID, // only moves spans with this id
+                next_move_id: MoveID, // sets all moved spans to this id
+
+                // to find the spans to move, it gets the spans from start to start + len_within_segment (within
+                // a segment). deleted spans are not included. this is how it prevents duplication if two people
+                // move at once.
+            },
             insert: struct {
                 id: SegmentID,
                 pos: Position,
@@ -661,6 +692,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 writer: anytype,
             ) !void {
                 switch (self.*) {
+                    .move => |mop| {
+                        try writer.print("[M:{}/{}:{d}->{}/{}]", .{ mop.start, mop.prev_move_id, mop.len_within_segment, mop.end, mop.next_move_id });
+                    },
                     .insert => |iop| {
                         try writer.print("[I:{}:\"{}\"->{}]", .{ iop.pos, std.fmt.fmtSliceEscapeLower(iop.text), iop.id });
                     },
@@ -695,6 +729,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         pub const Span = struct {
             enabled_by_id: SegmentID,
             disabled_by_id: DeleteID,
+            last_move_id: MoveID,
             length: u64,
             start_segbyte: u64,
             bufbyte: u64,
@@ -813,6 +848,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     .start_segbyte = 0,
                     .length = 1,
                     .bufbyte = 0,
+                    .last_move_id = @enumFromInt(0),
                 },
             });
 
@@ -971,9 +1007,25 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         pub fn applyOperation(self: *Doc, op: Operation) void {
+            // TODO applyOperation should return the inverse operation for undo
+            // insert(3, "hello") -> delete(3, 5)
+            // delete(3, 5) -> insert(3, "hello") OR undelete(3-5)
+            // extend(3, "hello") -> delete(3, 5)
+            // move(@1: 3-5, @2: 6) -> move(@2: 6-8, @1: 3) (inverse move operations may need to split into multiple operations)
             switch (op) {
+                .move => |move_op| {
+                    _ = move_op;
+                    @panic("TODO physically move nodes.");
+                    // implementation:
+                    // - go to start. split the node to [A, B]
+                    // - go to start + segment_len. split the node to [C, D]
+                    // - go to end. split the node to [E, F]
+                    // - move all nodes from B to C to between E and F
+                    // This will require implementing delete for BalancedBinaryTree.
+                    // - Deleted pointers can be put in an ArrayList to be reused (push / pop).
+                },
                 .insert => |insert_op| {
-                    if (insert_op.text.len == 0) return; // nothing to do
+                    std.debug.assert(insert_op.text.len > 0);
 
                     const added_data_bufbyte = self.buffer.items.len;
                     self.buffer.appendSlice(insert_op.text) catch @panic("OOM");
@@ -983,6 +1035,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         .start_segbyte = 0,
                         .bufbyte = @intCast(added_data_bufbyte),
                         .length = @intCast(insert_op.text.len),
+                        .last_move_id = @enumFromInt(@intFromEnum(insert_op.id)),
                     };
 
                     // 0. find entry
@@ -998,6 +1051,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         .start_segbyte = span.start_segbyte,
                         .bufbyte = span.bufbyte,
                         .length = split_spanbyte,
+                        .last_move_id = span.last_move_id,
                     };
                     const e_rhs: Span = .{
                         .enabled_by_id = span.enabled_by_id,
@@ -1005,6 +1059,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         .start_segbyte = span.start_segbyte + split_spanbyte,
                         .bufbyte = span.bufbyte + split_spanbyte,
                         .length = span.length - split_spanbyte,
+                        .last_move_id = span.last_move_id,
                     };
 
                     // done! above pointers are invalidated after this
@@ -1050,6 +1105,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .start_segbyte = span.start_segbyte,
                                 .bufbyte = span.bufbyte,
                                 .length = split_spanbyte,
+                                .last_move_id = span.last_move_id,
                             };
                             const right_side: Span = .{
                                 .enabled_by_id = span.enabled_by_id,
@@ -1057,6 +1113,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .start_segbyte = span.start_segbyte + split_spanbyte,
                                 .bufbyte = span.bufbyte + split_spanbyte,
                                 .length = span.length - split_spanbyte,
+                                .last_move_id = span.last_move_id,
                             };
                             std.debug.assert(right_side.length > 0);
                             if (left_side.length > 0) {
@@ -1080,6 +1137,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .start_segbyte = span.start_segbyte,
                                 .bufbyte = span.bufbyte,
                                 .length = split_spanbyte,
+                                .last_move_id = span.last_move_id,
                             };
                             const right_side: Span = .{
                                 .enabled_by_id = span.enabled_by_id,
@@ -1087,6 +1145,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .start_segbyte = span.start_segbyte + split_spanbyte,
                                 .bufbyte = span.bufbyte + split_spanbyte,
                                 .length = span.length - split_spanbyte,
+                                .last_move_id = span.last_move_id,
                             };
                             if (left_side.length > 0) {
                                 self._replaceRange(span_idx, 1, &.{
@@ -1105,6 +1164,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .start_segbyte = span.start_segbyte,
                                 .bufbyte = span.bufbyte,
                                 .length = span.length,
+                                .last_move_id = span.last_move_id,
                             },
                         });
                         span = self.span_bbt.getNodeDataPtrConst(span_idx).?;
@@ -1133,6 +1193,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .start_segbyte = prev_span.start_segbyte,
                                 .bufbyte = prev_span.bufbyte,
                                 .length = @intCast(prev_span.length + extend_op.text.len),
+                                .last_move_id = prev_span.last_move_id,
                             },
                         });
                     } else {
@@ -1144,6 +1205,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .start_segbyte = @intCast(prev_span.start_segbyte + prev_span.length),
                                 .bufbyte = @intCast(newstr_start_bufbyte),
                                 .length = @intCast(extend_op.text.len),
+                                .last_move_id = prev_span.last_move_id,
                             },
                         });
                     }
@@ -1250,6 +1312,10 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             defer self.next_uuid += 1;
             return @enumFromInt((@as(u64, self.next_uuid) << 16) | self.client_id);
         }
+        pub fn moveUuid(self: *Doc) MoveID {
+            defer self.next_uuid += 1;
+            return @enumFromInt((@as(u64, self.next_uuid) << 16) | self.client_id);
+        }
 
         pub const Viewer = struct {
             doc: *Document,
@@ -1272,100 +1338,21 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
     };
 }
 
+fn testBlockEquals(block: *TextDocument, target: []const u8) !void {
+    const gpa = block.buffer.allocator;
+
+    try std.testing.expectEqual(target.len, block.length());
+
+    const actual = try gpa.alloc(u8, target.len);
+    defer gpa.free(actual);
+    block.readSlice(block.positionFromDocbyte(0), actual);
+    try std.testing.expectEqualStrings(target, actual);
+}
+
 pub fn main() !void {
     var gpa_alloc = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(gpa_alloc.deinit() == .ok);
     const gpa = gpa_alloc.allocator();
-
-    var arena_alloc = std.heap.ArenaAllocator.init(gpa);
-    defer arena_alloc.deinit();
-    const arena = arena_alloc.allocator();
-
-    var block = TextDocument.initEmpty(gpa);
-    defer block.deinit();
-
-    std.log.info("block: [{}]", .{block});
-
-    var opgen_demo = std.ArrayList(TextDocument.Operation).init(gpa);
-    defer opgen_demo.deinit();
-
-    const b0 = block.positionFromDocbyte(0);
-    std.log.info("pos: {}", .{b0});
-    std.debug.assert(block.length() == 0);
-
-    // TODO:
-    // applyOperations: genOperations( block.positionFromByteOffset(0), 0, "i held" )
-    // applyOperations: genOperations( block.positionFromByteOffset(4), 0, "llo wor" )
-    // applyOperations: genOperations( block.positionFromByteOffset(0), 2, "" )
-    block.applyOperation(.{
-        .insert = .{
-            .id = block.uuid(),
-            .pos = block.positionFromDocbyte(0),
-            .text = "i held",
-        },
-    });
-    std.debug.assert(block.length() == 6);
-    std.log.info("block: [{}]", .{block});
-
-    block.applyOperation(.{
-        .insert = .{
-            .id = block.uuid(),
-            .pos = block.positionFromDocbyte(4),
-            .text = "llo wor",
-        },
-    });
-    std.log.info("block: [{}]", .{block});
-    std.debug.assert(block.length() == 13);
-    block.applyOperation(.{
-        // deleting a range will generate multiple delete operations unfortunately
-        .delete = .{
-            .id = block.deleteUuid(),
-            .start = block.positionFromDocbyte(0),
-            .len_within_segment = 2,
-        },
-    });
-    std.log.info("block: {d}[{}]", .{ block.length(), block });
-    std.debug.assert(block.length() == 11);
-    block.applyOperation(.{
-        .extend = .{
-            .id = block.positionFromDocbyte(2).id,
-            .prev_len = 7,
-            .text = "R",
-        },
-    });
-    std.log.info("block: [{}]", .{block});
-    std.debug.assert(block.length() == 12);
-    block.applyOperation(.{
-        .extend = .{
-            .id = block.positionFromDocbyte(0).id,
-            .prev_len = 6,
-            .text = "!",
-        },
-    });
-    std.log.info("block: [{}]", .{block});
-    std.debug.assert(block.length() == 13);
-
-    opgen_demo.clearRetainingCapacity();
-    block.genOperations(&opgen_demo, block.positionFromDocbyte(0), 0, "Test\n");
-    for (opgen_demo.items) |op| {
-        std.log.info("  apply {}", .{op});
-        block.applyOperation(op);
-    }
-    std.log.info("block: [{}]", .{block});
-    std.debug.assert(block.length() == 18);
-
-    opgen_demo.clearRetainingCapacity();
-    block.genOperations(&opgen_demo, block.positionFromDocbyte(1), 18 - 2, "Cleared.");
-    for (opgen_demo.items) |op| {
-        std.log.info("  apply {}", .{op});
-        block.applyOperation(op);
-    }
-    std.log.info("block: [{}]", .{block});
-    std.debug.assert(block.length() == 10);
-
-    const blockcpy = try arena.alloc(u8, block.length());
-    block.readSlice(block.positionFromDocbyte(0), blockcpy);
-    std.log.info("block: {d}/`{s}`", .{ blockcpy.len, blockcpy });
 
     const testdocument_len = 100_000;
 
@@ -1387,6 +1374,102 @@ pub fn main() !void {
     std.log.info("- height: {d}", .{testres.final_height});
 }
 pub const std_options = .{ .log_level = .info };
+
+test "sample block" {
+    const gpa = std.testing.allocator;
+
+    var block = TextDocument.initEmpty(gpa);
+    defer block.deinit();
+
+    std.log.info("block: [{}]", .{block});
+
+    var opgen_demo = std.ArrayList(TextDocument.Operation).init(gpa);
+    defer opgen_demo.deinit();
+
+    const b0 = block.positionFromDocbyte(0);
+    std.log.info("pos: {}", .{b0});
+    std.debug.assert(block.length() == 0);
+
+    block.applyOperation(.{
+        .insert = .{
+            .id = block.uuid(),
+            .pos = block.positionFromDocbyte(0),
+            .text = "i held",
+        },
+    });
+    try testBlockEquals(&block, "i held");
+    std.log.info("block: [{}]", .{block});
+
+    block.applyOperation(.{
+        .insert = .{
+            .id = block.uuid(),
+            .pos = block.positionFromDocbyte(4),
+            .text = "llo wor",
+        },
+    });
+    try testBlockEquals(&block, "i hello world");
+    std.log.info("block: [{}]", .{block});
+    block.applyOperation(.{
+        // deleting a range will generate multiple delete operations unfortunately
+        .delete = .{
+            .id = block.deleteUuid(),
+            .start = block.positionFromDocbyte(0),
+            .len_within_segment = 2,
+        },
+    });
+    try testBlockEquals(&block, "hello world");
+    std.log.info("block: {d}[{}]", .{ block.length(), block });
+    block.applyOperation(.{
+        .extend = .{
+            .id = block.positionFromDocbyte(2).id,
+            .prev_len = 7,
+            .text = "R",
+        },
+    });
+    try testBlockEquals(&block, "hello worRld");
+    std.log.info("block: [{}]", .{block});
+
+    block.applyOperation(.{
+        .extend = .{
+            .id = block.positionFromDocbyte(0).id,
+            .prev_len = 6,
+            .text = "!",
+        },
+    });
+    try testBlockEquals(&block, "hello worRld!");
+    std.log.info("block: [{}]", .{block});
+
+    opgen_demo.clearRetainingCapacity();
+    block.genOperations(&opgen_demo, block.positionFromDocbyte(0), 0, "Test\n");
+    for (opgen_demo.items) |op| {
+        std.log.info("  apply {}", .{op});
+        block.applyOperation(op);
+    }
+    try testBlockEquals(&block, "Test\nhello worRld!");
+    std.log.info("block: [{}]", .{block});
+
+    opgen_demo.clearRetainingCapacity();
+    block.genOperations(&opgen_demo, block.positionFromDocbyte(1), 18 - 2, "Cleared.");
+    for (opgen_demo.items) |op| {
+        std.log.info("  apply {}", .{op});
+        block.applyOperation(op);
+    }
+    try testBlockEquals(&block, "TCleared.!");
+    std.log.info("block: [{}]", .{block});
+    std.debug.assert(block.length() == 10);
+
+    // block.applyOperation(.{
+    //     .move = .{
+    //         .start = block.positionFromDocbyte(2),
+    //         .end = block.positionFromDocbyte(8),
+    //         .len_within_segment = 5,
+    //         .prev_move_id = @enumFromInt(@intFromEnum(block.positionFromDocbyte(2).id)),
+    //         .next_move_id = block.moveUuid(),
+    //     },
+    // });
+    // try testBlockEquals(&block, "TCdleare.!");
+    // std.log.info("block: [{}]", .{block});
+}
 
 test "document" {
     // this is a fuzz test

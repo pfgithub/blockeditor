@@ -19,6 +19,12 @@ pub fn build(b: *std.Build) !void {
     });
     blockeditor_exe.step.dependOn(&format_step.step);
 
+    const texteditor_block_dep = b.dependency("texteditor_block", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    blockeditor_exe.root_module.addImport("texteditor_block", texteditor_block_dep.module("texteditor_block"));
+
     {
         // hack
         blockeditor_exe.step.owner = zig_gamedev_dep.builder;
