@@ -78,8 +78,25 @@ pub const components = struct {
 
         fn applyOperation(self: *Counter, operation: Operation) Operation {
             self.value +%= operation.change_by;
+            return .{ .change_by = -operation.change_by };
         }
     };
+    test Counter {
+        var my_counter = Counter{ .value = 0 };
+        defer my_counter.deinit();
+
+        var undo_1 = my_counter.applyOperation(.{ .change_by = 25 });
+        errdefer undo_1.deinit();
+        try std.testing.expectEqual(@as(i32, 25), my_counter.value);
+
+        var undo_2 = my_counter.applyOperation(undo_1);
+        errdefer undo_2.deinit();
+        try std.testing.expectEqual(@as(i32, 0), my_counter.value);
+
+        var undo_3 = my_counter.applyOperation(undo_2);
+        undo_3.deinit();
+        try std.testing.expectEqual(@as(i32, 25), my_counter.value);
+    }
 
     /// Child must have 'fn deinit()'
     pub fn NewestWinsValue(comptime Child: type) type {
@@ -182,3 +199,7 @@ const blocks = struct {
         pub const Component = components.AppendOnlyList(components.NewestWinsValue(std.ArrayList(u8)));
     };
 };
+
+test {
+    _ = components;
+}
