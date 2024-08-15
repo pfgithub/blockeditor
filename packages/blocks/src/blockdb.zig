@@ -43,10 +43,10 @@ test FSBlockDBInterface {
 
 const FSBlockDBInterface = struct {
     gpa: std.mem.Allocator,
-    thread: ?std.Thread,
 
     path_to_blockref_map: std.StringArrayHashMap(*BlockRef),
 
+    _fetch_thread: ?std.Thread,
     _thread_queue: std.ArrayList(ThreadInstruction), // only touch with locked mutex
     _thread_queue_mutex: std.Thread.Mutex,
     _thread_queue_condition: std.Thread.Condition, // trigger this whenever an item is added to the ArrayList
@@ -61,46 +61,45 @@ const FSBlockDBInterface = struct {
         const self = gpa.create(FSBlockDBInterface) catch @panic("oom");
         self.* = .{
             .gpa = gpa,
-            .thread = null,
 
             .path_to_blockref_map = std.StringArrayHashMap(*BlockRef).init(gpa),
 
+            ._fetch_thread = null,
             ._thread_queue = std.ArrayList(ThreadInstruction).init(gpa),
             ._thread_queue_mutex = .{},
             ._thread_queue_condition = .{},
         };
 
-        self.thread = std.Thread.spawn(.{}, workerThread, .{self}) catch @panic("thread spawn error");
+        self._fetch_thread = std.Thread.spawn(.{}, workerThread, .{self}) catch @panic("thread spawn error");
 
         return AnyBlockDB.from(FSBlockDBInterface, self);
     }
     fn deinit(any: AnyBlockDB) void {
         const self = any.cast(FSBlockDBInterface);
 
-        if (self.thread) |thread| {
-            // clear job queue and append kill command
-            {
-                self._thread_queue_mutex.lock();
-                defer self._thread_queue_mutex.unlock();
+        const thread = self._fetch_thread.?;
+        // clear job queue and append kill command
+        {
+            self._thread_queue_mutex.lock();
+            defer self._thread_queue_mutex.unlock();
 
-                for (self._thread_queue.items) |item| {
-                    switch (item) {
-                        .kill => unreachable,
-                        .fetch => |fetch_block| {
-                            fetch_block.unref();
-                        },
-                    }
+            for (self._thread_queue.items) |item| {
+                switch (item) {
+                    .kill => unreachable,
+                    .fetch => |fetch_block| {
+                        fetch_block.unref();
+                    },
                 }
-                self._thread_queue.clearRetainingCapacity();
-                self._thread_queue.append(.kill) catch @panic("oom");
             }
-            self._thread_queue_condition.signal();
-
-            // join thread
-            thread.join();
-
-            self._thread_queue.deinit(); // don't have to worry about the mutex anymore, the thread is gone
+            self._thread_queue.clearRetainingCapacity();
+            self._thread_queue.append(.kill) catch @panic("oom");
         }
+        self._thread_queue_condition.signal();
+
+        // join thread
+        thread.join();
+
+        self._thread_queue.deinit(); // don't have to worry about the mutex anymore, the thread is gone
 
         // blockrefs have a reference to the block interface so they better be gone
         std.debug.assert(self.path_to_blockref_map.values().len == 0);
