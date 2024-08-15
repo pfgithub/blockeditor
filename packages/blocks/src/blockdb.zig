@@ -54,6 +54,14 @@ const FSBlockDBInterface = struct {
     const ThreadInstruction = union(enum) {
         kill,
         fetch: *BlockRef,
+        // TODO: this thread can also save
+        // we add apply_operation: {*BlockRef, Operation}
+        // whenever an operation is applied, it is added to the queue
+
+        // consider using TCPBlockDBInterface instead of FSBlockDBInterface to start.
+        // - thread 1 can send out the TCP request saying 'download current version & watch for updates'
+        // - thread 2 can listen for TCP responses including 'here is current version' 'here is an update'
+        // that way we can test multi client
     };
 
     fn init(gpa: std.mem.Allocator) AnyBlockDB {
