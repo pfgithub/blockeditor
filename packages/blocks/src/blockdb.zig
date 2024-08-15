@@ -49,7 +49,7 @@ const FSBlockDBInterface = struct {
 
     _thread_queue: std.ArrayList(ThreadInstruction), // only touch with locked mutex
     _thread_queue_mutex: std.Thread.Mutex,
-    _thread_queue_condition: std.Thread.Condition,
+    _thread_queue_condition: std.Thread.Condition, // trigger this whenever an item is added to the ArrayList
 
     const ThreadInstruction = union(enum) {
         kill,
