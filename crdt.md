@@ -126,3 +126,12 @@ as long as only authoritative order is sent to clients, you're fine
 a client can accept writes just fine while offline - it applies them before its own writes
 
 it's basically rollback netcode isn't it? maybe?
+
+---
+
+the one problem with the replay method is that it relies on a source of truth for the history:
+
+- if you have four clients: A, B, C, D:
+  - if you sync client A and B and seperately sync client C and D, their histories are now unmergable
+    - well not really, you just have to go back to the point where they diverged, choose an order, and replay them together
+    - but you have to be careful about it, you can't just sync them randomly whenever you want
