@@ -143,6 +143,9 @@ const FSBlockDBInterface = struct {
                     std.log.info("TODO fetch & watch: '{}'", .{std.zig.fmtEscapes(block.path)});
                     std.time.sleep(300 * std.time.ns_per_ms); // simulate network latency
                     std.log.info("-> fetched", .{});
+
+                    // block._contents_or_undefined = ...;
+                    // block.loaded.store(true, .acquire); // acquire to make sure the previous store is in the right order
                     block.unref();
                 },
             }
@@ -179,7 +182,7 @@ const FSBlockDBInterface = struct {
         return new_blockref;
     }
     fn destroyBlock(any: AnyBlockDB, block: *BlockRef) void {
-        std.debug.assert(block.ref_count.load(.monotonic) == 0);
+        std.debug.assert(block.ref_count.load(.release) == 0);
 
         if (block.contents()) |contents| {
             contents.server_value.vtable.deinit(contents.server_value);
@@ -212,7 +215,7 @@ const BlockRef = struct {
     };
 
     pub fn contents(self: *BlockRef) ?*BlockRefContents {
-        if (!self.loaded.load(.monotonic)) return null;
+        if (!self.loaded.load(.acquire)) return null;
         return &self._contents_or_undefined;
     }
 
@@ -231,10 +234,10 @@ const BlockRef = struct {
     }
 
     pub fn ref(self: *BlockRef) void {
-        _ = self.ref_count.rmw(.Add, 1, .monotonic);
+        _ = self.ref_count.rmw(.Add, 1, .acquire);
     }
     pub fn unref(self: *BlockRef) void {
-        const prev_val = self.ref_count.rmw(.Sub, 1, .monotonic);
+        const prev_val = self.ref_count.rmw(.Sub, 1, .acquire);
         if (prev_val == 1) {
             self.db.vtable.destroyBlock(self.db, self);
         }
