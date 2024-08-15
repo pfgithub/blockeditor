@@ -20,11 +20,11 @@ pub const AnyUndoToken = struct {
 };
 
 pub const BlockInterface = struct {
-    deinit: fn (self: AnyBlock) void,
-    deinitOperation: fn (operation: AnyOperation) void,
+    deinit: *const fn (self: AnyBlock) void,
+    deinitOperation: *const fn (operation: AnyOperation) void,
 
     // returns an operation to undo the applied operation
-    applyOperation: fn (self: AnyBlock, operation: AnyOperation) AnyOperation,
+    applyOperation: *const fn (self: AnyBlock, operation: AnyOperation) AnyOperation,
 
     // TODO: all blocks have:
     // - parent
