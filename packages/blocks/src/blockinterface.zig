@@ -65,6 +65,8 @@ pub const components = struct {
 
     pub const Counter = struct {
         pub const Operation = struct {
+            // two people clicking 'zero' at the same time would both submit -30 change_by requests
+            // so this should be union(enum) {change_by: i32, set: i32}
             change_by: i32,
             fn deinit(_: *Operation) void {
                 // nothing to do
