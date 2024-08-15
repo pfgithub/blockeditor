@@ -217,10 +217,16 @@ const BlockRef = struct {
     }
 
     pub fn applyOperation(self: *BlockRef, op: bi.AnyOperation) void {
-        if (self.contents == null) @panic("cannot apply operation until BlockRef has loaded");
+        const content = self.contents() orelse @panic("cannot apply operation on a block that has not yet loaded");
         // apply it to contents and tell owning BlockDBInterface about the operation
 
+        // how to:
+        // 1. apply the operation to contents.client_value
+        // 2. tell the db to send the operation to the server
+        // 3. once the server has responded to accept the operation, it is dequeued and applied to server_value
+
         _ = op;
+        _ = content;
         @panic("TODO impl applyOperation");
     }
 
