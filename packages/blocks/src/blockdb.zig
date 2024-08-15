@@ -234,10 +234,10 @@ const BlockRef = struct {
     }
 
     pub fn ref(self: *BlockRef) void {
-        _ = self.ref_count.rmw(.Add, 1, .acquire);
+        _ = self.ref_count.rmw(.Add, 1, .acq_rel);
     }
     pub fn unref(self: *BlockRef) void {
-        const prev_val = self.ref_count.rmw(.Sub, 1, .acquire);
+        const prev_val = self.ref_count.rmw(.Sub, 1, .acq_rel);
         if (prev_val == 1) {
             self.db.vtable.destroyBlock(self.db, self);
         }
