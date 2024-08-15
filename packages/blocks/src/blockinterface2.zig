@@ -28,7 +28,7 @@ pub const AnyBlock = struct {
     }
 };
 const BlockVtable = struct {
-    applyOperation: *const fn (block: AnyBlock, operation: AlignedByteSlice) DeserializeError!void,
+    applyOperation: *const fn (block: AnyBlock, operation: AlignedByteSlice, undo_operation: *AlignedArrayList) DeserializeError!void,
 
     serialize: *const fn (block: AnyBlock, out: *AlignedArrayList) void,
     deserialize: *const fn (gpa: std.mem.Allocator, in: AlignedByteSlice) DeserializeError!AnyBlock,
@@ -80,14 +80,22 @@ const CounterBlock = struct {
         }
     };
 
-    fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice) DeserializeError!void {
+    fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: *AlignedArrayList) DeserializeError!void {
         const self = any.cast(CounterBlock);
         const operation = try Operation.deserialize(operation_serialized);
 
+        const undo_op: Operation = switch (operation) {
+            .add => |num| .{ .add = -%num },
+            .set => |_| .{ .set = self.count },
+            // undo for 'set' isn't perfect. correct set undo would require keeping the values before set and
+            // using a switch command to switch back to the previous counter. but it's fine enough for collaborative editing,
+            // problematic for offline editing.
+        };
         switch (operation) {
             .add => |num| self.count +%= num,
             .set => |num| self.count = num,
         }
+        undo_op.serialize(undo_operation);
     }
 
     fn serialize(any: AnyBlock, out: *AlignedArrayList) void {
@@ -125,7 +133,9 @@ test CounterBlock {
         .add = 12,
     };
     my_operation.serialize(&my_operation_al);
-    try mycounter.vtable.applyOperation(mycounter, my_operation_al.items);
+    var my_undo_operation_al = AlignedArrayList.init(gpa);
+    defer my_undo_operation_al.deinit();
+    try mycounter.vtable.applyOperation(mycounter, my_operation_al.items, &my_undo_operation_al);
 
     try std.testing.expectEqual(@as(i32, 12), mycounter.cast(CounterBlock).count);
 }

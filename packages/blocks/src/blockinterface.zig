@@ -140,6 +140,8 @@ pub const components = struct {
         return struct {
             const Self = @This();
             pub const Operation = union(enum) {
+                // doesn't work! append followed by set_deleted will operate on the wrong index if a new append comes in before
+                // this one. fix is simple, just give the items keys.
                 append: struct {
                     new_child: Child,
                 },
