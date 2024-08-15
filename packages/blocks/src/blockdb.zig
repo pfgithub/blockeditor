@@ -1,7 +1,10 @@
 //! blockdb
 
 const std = @import("std");
-const bi = @import("blockinterface.zig");
+const bi = @import("blockinterface2.zig");
+
+// TODO make a proper queue, it's basically an arraylist but the start moves right over time and whenever it gets reallocated it moves its start back to the front
+const Queue = std.ArrayList;
 
 const AnyBlockDB = struct {
     data: *anyopaque,
@@ -47,7 +50,7 @@ const FSBlockDBInterface = struct {
     path_to_blockref_map: std.StringArrayHashMap(*BlockRef),
 
     _fetch_thread: ?std.Thread,
-    _thread_queue: std.ArrayList(ThreadInstruction), // only touch with locked mutex
+    _thread_queue: Queue(ThreadInstruction), // only touch with locked mutex
     _thread_queue_mutex: std.Thread.Mutex,
     _thread_queue_condition: std.Thread.Condition, // trigger this whenever an item is added to the ArrayList
 
@@ -73,7 +76,7 @@ const FSBlockDBInterface = struct {
             .path_to_blockref_map = std.StringArrayHashMap(*BlockRef).init(gpa),
 
             ._fetch_thread = null,
-            ._thread_queue = std.ArrayList(ThreadInstruction).init(gpa),
+            ._thread_queue = Queue(ThreadInstruction).init(gpa),
             ._thread_queue_mutex = .{},
             ._thread_queue_condition = .{},
         };
@@ -159,6 +162,7 @@ const FSBlockDBInterface = struct {
             .path = path_copy,
 
             .ref_count = .{ .raw = 1 },
+            .unapplied_operations_queue = Queue(bi.AlignedByteSlice).init(self.gpa),
         };
 
         self.path_to_blockref_map.put(path, new_blockref) catch @panic("oom");
@@ -177,6 +181,12 @@ const FSBlockDBInterface = struct {
     fn destroyBlock(any: AnyBlockDB, block: *BlockRef) void {
         std.debug.assert(block.ref_count.load(.monotonic) == 0);
 
+        if (block.contents()) |contents| {
+            contents.server_value.vtable.deinit(contents.server_value);
+            contents.client_value.vtable.deinit(contents.client_value);
+        }
+        block.unapplied_operations_queue.deinit();
+
         const self = any.cast(FSBlockDBInterface);
 
         if (!self.path_to_blockref_map.swapRemove(block.path)) @panic("block not found");
@@ -191,12 +201,19 @@ const BlockRef = struct {
     ref_count: std.atomic.Value(u32),
     path: []const u8,
 
-    loaded: std.atomic.Value(bool) = .{ .raw = false },
-    _contents_or_undefined: bi.AnyBlock = undefined,
+    loaded: std.atomic.Value(bool) = .{ .raw = false }, // once this is true it will never turn false again.
+    _contents_or_undefined: BlockRefContents = undefined,
 
-    pub fn contents(self: BlockRef) ?bi.AnyBlock {
+    unapplied_operations_queue: Queue(bi.AlignedByteSlice),
+
+    const BlockRefContents = struct {
+        server_value: bi.AnyBlock,
+        client_value: bi.AnyBlock,
+    };
+
+    pub fn contents(self: *BlockRef) ?*BlockRefContents {
         if (!self.loaded.load(.monotonic)) return null;
-        return self._contents_or_undefined;
+        return &self._contents_or_undefined;
     }
 
     pub fn applyOperation(self: *BlockRef, op: bi.AnyOperation) void {
