@@ -82,3 +82,20 @@ test Queue {
     for ("Test increasing the queue size again! Amazing, brilliant!") |char| try std.testing.expectEqual(char, my_queue.dequeue());
     try std.testing.expectEqual(null, my_queue.dequeue());
 }
+
+test "linearfifo" {
+    var my_queue = std.fifo.LinearFifo(u8, .Dynamic).init(std.testing.allocator);
+    defer my_queue.deinit();
+
+    try std.testing.expectEqualSlices(u8, "", my_queue.readableSlice(0));
+    try my_queue.writeItem('H');
+    try std.testing.expectEqualSlices(u8, "H", my_queue.readableSlice(0));
+    for ("ello, World!") |char| try my_queue.writeItem(char);
+    try std.testing.expectEqualSlices(u8, "Hello, World!", my_queue.readableSlice(0));
+    try std.testing.expectEqual('H', my_queue.readItem());
+    for ("ello, World!") |char| try std.testing.expectEqual(char, my_queue.readItem());
+    try std.testing.expectEqual(null, my_queue.readItem());
+    for ("Test increasing the queue size again! Amazing, brilliant!") |char| try my_queue.writeItem(char);
+    for ("Test increasing the queue size again! Amazing, brilliant!") |char| try std.testing.expectEqual(char, my_queue.readItem());
+    try std.testing.expectEqual(null, my_queue.readItem());
+}
