@@ -67,26 +67,20 @@ fn BalancedBinaryTree(comptime Data: type) type {
         // ArrayList, ReleaseSafe, 100_000: 4.155s
         // SegmentedList, ReleaseSafe, 100_000: 7.023s
         // ArenaAllocator, ReleaseSafe, 100_000: 0.396s
-
-        // if we want to support removing while using an arena, whenever a node
-        // gets deleted we could put its pointer in an array and then when creating a new node
-        // prefer to pop() the array and write to that pointer over allocating a new one. that's
-        // pretty cool.
-        arena: std.heap.ArenaAllocator,
+        pool: std.heap.MemoryPool(Node), // this is internally an arena but it keeps a linked list of destroyed objects (why not an ArrayList? not sure)
         root_node: NodeIndex = .none,
 
-        /// alloc will be wrapped in an arena for memory bookkeeping. so don't pass an arena unless you want a double-arena!
         pub fn init(alloc: std.mem.Allocator) @This() {
             return .{
-                .arena = std.heap.ArenaAllocator.init(alloc),
+                .pool = std.heap.MemoryPool(Node).init(alloc),
             };
         }
         pub fn deinit(self: *@This()) void {
-            self.arena.deinit();
+            self.pool.deinit();
         }
 
         fn _addNode(self: *@This(), data: Data) !NodeIndex {
-            const slot = try self.arena.allocator().create(Node);
+            const slot = try self.pool.create();
             slot.* = .{
                 .height = 1,
                 .lhs_sum = Count.zero,
@@ -1354,7 +1348,10 @@ pub fn main() !void {
     defer std.debug.assert(gpa_alloc.deinit() == .ok);
     const gpa = gpa_alloc.allocator();
 
-    const testdocument_len = 100_000;
+    const testdocument_len = switch(@import("builtin").mode) {
+        .Debug => 100_000,
+        else => 1_000_000,
+    };
 
     const parent_progress_node = std.Progress.start(.{});
     defer parent_progress_node.end();
