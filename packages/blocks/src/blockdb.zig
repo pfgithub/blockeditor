@@ -3,6 +3,9 @@
 const std = @import("std");
 const bi = @import("blockinterface2.zig");
 
+// TODO: remove block paths in favour of block ids
+// - we'll start with sqlite or some key-value store before doing filesystem
+
 fn Queue(comptime T: type) type {
     return std.fifo.LinearFifo(T, .Dynamic);
 }
@@ -19,6 +22,7 @@ const AnyBlockDB = struct {
         const vtable = BlockDBInterface{
             .createBlock = T.createBlock,
             .fetchBlock = T.fetchBlock,
+            .submitOperation = T.submitOperation,
             .destroyBlock = T.destroyBlock,
             .deinit = T.deinit,
         };
@@ -30,7 +34,8 @@ const AnyBlockDB = struct {
 };
 const BlockDBInterface = struct {
     createBlock: *const fn (self: AnyBlockDB, initial_value: bi.AnyBlock) *BlockRef, // does not have a parent. After creating the block, you should link it.
-    fetchBlock: *const fn (self: AnyBlockDB, path: []const u8) *BlockRef,
+    fetchBlock: *const fn (self: AnyBlockDB, id: bi.BlockID) *BlockRef,
+    submitOperation: *const fn (self: AnyBlockDB, block: *BlockRef, operation: bi.AlignedByteSlice) void, // does not own operation! make a clone
 
     destroyBlock: *const fn (self: AnyBlockDB, block_ref: *BlockRef) void,
 
@@ -43,19 +48,31 @@ test FSBlockDBInterface {
     const interface = FSBlockDBInterface.init(gpa);
     defer interface.vtable.deinit(interface);
 
-    const my_block = interface.vtable.fetchBlock(interface, "packages/blockeditor/src/entrypoint.zig");
+    const my_block = interface.vtable.fetchBlock(interface, @enumFromInt(1));
     defer my_block.unref();
 
-    // const my_created_block = interface.vtable.createBlock(interface, bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
-    // defer my_created_block.unref();
+    const my_created_block = interface.vtable.createBlock(interface, bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
+    defer my_created_block.unref();
 
-    // my_created_block.applyOperation()
+    var my_operation_al = bi.AlignedArrayList.init(gpa);
+    defer my_operation_al.deinit();
+    const my_operation = bi.CounterBlock.Operation{
+        .add = 12,
+    };
+    my_operation.serialize(&my_operation_al);
+    var my_undo_operation_al = bi.AlignedArrayList.init(gpa);
+    defer my_undo_operation_al.deinit();
+    my_created_block.applyOperation(my_operation_al.items, &my_undo_operation_al);
+}
+
+fn simulateNetworkLatency() void {
+    std.time.sleep(300 * std.time.ns_per_ms);
 }
 
 const FSBlockDBInterface = struct {
     gpa: std.mem.Allocator,
 
-    path_to_blockref_map: std.StringArrayHashMap(*BlockRef),
+    path_to_blockref_map: std.AutoArrayHashMap(bi.BlockID, *BlockRef),
 
     _fetch_thread: ?std.Thread,
     _thread_queue: Queue(ThreadInstruction), // only touch with locked mutex
@@ -65,14 +82,25 @@ const FSBlockDBInterface = struct {
     const ThreadInstruction = union(enum) {
         kill,
         fetch: *BlockRef,
-        // TODO: this thread can also save
-        // we add apply_operation: {*BlockRef, Operation}
-        // whenever an operation is applied, it is added to the queue
+        create_block: struct { block: *BlockRef, initial_value_owned: bi.AlignedByteSlice },
+        apply_operation: struct { block: *BlockRef, operation_owned: bi.AlignedByteSlice },
 
-        // consider using TCPBlockDBInterface instead of FSBlockDBInterface to start.
-        // - thread 1 can send out the TCP request saying 'download current version & watch for updates'
-        // - thread 2 can listen for TCP responses including 'here is current version' 'here is an update'
-        // that way we can test multi client
+        fn deinit(self: ThreadInstruction, dbi: *FSBlockDBInterface) void {
+            switch (self) {
+                .kill => {},
+                .fetch => |ref| {
+                    ref.unref();
+                },
+                .create_block => |bl| {
+                    bl.block.unref();
+                    dbi.gpa.free(bl.initial_value_owned);
+                },
+                .apply_operation => |op| {
+                    op.block.unref();
+                    dbi.gpa.free(op.operation_owned);
+                },
+            }
+        }
     };
 
     fn init(gpa: std.mem.Allocator) AnyBlockDB {
@@ -81,7 +109,7 @@ const FSBlockDBInterface = struct {
         self.* = .{
             .gpa = gpa,
 
-            .path_to_blockref_map = std.StringArrayHashMap(*BlockRef).init(gpa),
+            .path_to_blockref_map = std.AutoArrayHashMap(bi.BlockID, *BlockRef).init(gpa),
 
             ._fetch_thread = null,
             ._thread_queue = Queue(ThreadInstruction).init(gpa),
@@ -104,12 +132,7 @@ const FSBlockDBInterface = struct {
             defer self._thread_queue_mutex.unlock();
 
             for (self._thread_queue.readableSlice(0)) |item| {
-                switch (item) {
-                    .kill => unreachable,
-                    .fetch => |fetch_block| {
-                        fetch_block.unref();
-                    },
-                }
+                item.deinit(self);
             }
             self._thread_queue.discard(self._thread_queue.readableLength());
             self._thread_queue.writeItem(.kill) catch @panic("oom");
@@ -127,6 +150,16 @@ const FSBlockDBInterface = struct {
 
         const gpa = self.gpa;
         gpa.destroy(self);
+    }
+
+    fn appendJobs(self: *FSBlockDBInterface, jobs: []const ThreadInstruction) void {
+        {
+            self._thread_queue_mutex.lock();
+            defer self._thread_queue_mutex.unlock();
+
+            self._thread_queue.write(jobs) catch @panic("oom");
+        }
+        self._thread_queue_condition.signal();
     }
 
     fn workerThread(self: *FSBlockDBInterface) void {
@@ -149,15 +182,37 @@ const FSBlockDBInterface = struct {
                     return;
                 },
                 .fetch => |block| {
-                    std.log.info("TODO fetch & watch: '{}'", .{std.zig.fmtEscapes(block.path)});
-                    std.time.sleep(300 * std.time.ns_per_ms); // simulate network latency
+                    std.log.info("TODO fetch & watch: '{}'", .{block.id});
+                    simulateNetworkLatency();
                     std.log.info("-> fetched", .{});
 
                     // block._contents_or_undefined = ...;
                     // block.loaded.store(true, .acquire); // acquire to make sure the previous store is in the right order
-                    block.unref();
+                },
+                .create_block => |block| {
+                    std.log.info("TODO create_block: '{}'", .{block.block.id});
+                    simulateNetworkLatency();
+                    std.log.info("-> created", .{});
+                },
+                .apply_operation => |block| {
+                    std.log.info("TODO apply operation to block: '{}'", .{block.block.id});
+                    simulateNetworkLatency();
+                    std.log.info("-> applied", .{});
+
+                    // TODO:
+                    // - we'll need a mutex or something:
+                    //   - apply operation to ServerValue
+                    //   - if std.mem.eql(unapplied_operations_queue[0], operation):
+                    //     - queue.readItem()
+                    //   - else:
+                    //     - client_value = clone ServerValue
+                    //     - for(unapplied_operations_queue.readableSlice(0)) |operation|
+                    //       - client_value.applyOperation(operation)
                 },
             }
+
+            // free job resources
+            job.deinit(self);
         }
     }
 
@@ -176,40 +231,73 @@ const FSBlockDBInterface = struct {
         //   - if we generate a properly random path, the server should not respond with an error
         // - Done
 
-        _ = self;
-        _ = initial_value;
-
-        @panic("TODO createBlock");
-    }
-
-    /// returns a ref'd BlockRef! make sure to unref it when you're done with it!
-    fn fetchBlock(any: AnyBlockDB, path: []const u8) *BlockRef {
-        const self = any.cast(FSBlockDBInterface);
-
-        const path_copy = self.gpa.dupe(u8, path) catch @panic("oom");
-        errdefer self.gpa.free(path_copy);
+        const generated_id = std.crypto.random.int(u128);
 
         const new_blockref = self.gpa.create(BlockRef) catch @panic("oom");
         new_blockref.* = .{
             .db = any,
-            .path = path_copy,
+            .id = @enumFromInt(generated_id),
 
             .ref_count = .{ .raw = 1 },
             .unapplied_operations_queue = Queue(bi.AlignedByteSlice).init(self.gpa),
+
+            .loaded = .{ .raw = true },
+            ._contents_or_undefined = .{
+                .server_value = initial_value,
+                .client_value = initial_value.clone(self.gpa),
+            },
         };
+        self.path_to_blockref_map.put(new_blockref.id, new_blockref) catch @panic("oom");
 
-        self.path_to_blockref_map.put(path, new_blockref) catch @panic("oom");
+        var initial_value_owned_al = bi.AlignedArrayList.init(self.gpa);
+        defer initial_value_owned_al.deinit();
 
-        {
-            self._thread_queue_mutex.lock();
-            defer self._thread_queue_mutex.unlock();
+        initial_value.vtable.serialize(initial_value, &initial_value_owned_al);
 
-            new_blockref.ref(); // to make sure it doesn't get deleted until after it has loaded
-            self._thread_queue.writeItem(.{ .fetch = new_blockref }) catch @panic("oom");
-        }
-        self._thread_queue_condition.signal();
+        new_blockref.ref();
+        self.appendJobs(&.{.{
+            .create_block = .{
+                .block = new_blockref,
+                .initial_value_owned = initial_value_owned_al.toOwnedSlice() catch @panic("oom"),
+            },
+        }});
 
         return new_blockref;
+    }
+
+    /// returns a ref'd BlockRef! make sure to unref it when you're done with it!
+    fn fetchBlock(any: AnyBlockDB, id: bi.BlockID) *BlockRef {
+        const self = any.cast(FSBlockDBInterface);
+
+        const new_blockref = self.gpa.create(BlockRef) catch @panic("oom");
+        new_blockref.* = .{
+            .db = any,
+            .id = id,
+
+            .ref_count = .{ .raw = 1 },
+            .unapplied_operations_queue = Queue(bi.AlignedByteSlice).init(self.gpa),
+
+            .loaded = .{ .raw = false },
+            ._contents_or_undefined = undefined,
+        };
+
+        self.path_to_blockref_map.put(id, new_blockref) catch @panic("oom");
+
+        new_blockref.ref();
+        self.appendJobs(&.{.{ .fetch = new_blockref }});
+
+        return new_blockref;
+    }
+    /// call this after the operation has been applied to client_value and added to the queue
+    /// to save it.
+    fn submitOperation(any: AnyBlockDB, block: *BlockRef, op_unowned: bi.AlignedByteSlice) void {
+        const self = any.cast(FSBlockDBInterface);
+
+        const op_owned = self.gpa.alignedAlloc(u8, 16, op_unowned.len) catch @panic("oom");
+        @memcpy(op_owned, op_unowned);
+
+        block.ref();
+        self.appendJobs(&.{.{ .apply_operation = .{ .block = block, .operation_owned = op_owned } }});
     }
     fn destroyBlock(any: AnyBlockDB, block: *BlockRef) void {
         std.debug.assert(block.ref_count.load(.acquire) == 0);
@@ -218,24 +306,28 @@ const FSBlockDBInterface = struct {
             contents.server_value.vtable.deinit(contents.server_value);
             contents.client_value.vtable.deinit(contents.client_value);
         }
+        for (block.unapplied_operations_queue.readableSlice(0)) |str| {
+            block.unapplied_operations_queue.allocator.free(str);
+        }
         block.unapplied_operations_queue.deinit();
 
         const self = any.cast(FSBlockDBInterface);
 
-        if (!self.path_to_blockref_map.swapRemove(block.path)) @panic("block not found");
+        if (!self.path_to_blockref_map.swapRemove(block.id)) @panic("block not found");
 
-        self.gpa.free(block.path);
         self.gpa.destroy(block);
     }
 };
 
 const BlockRef = struct {
+    // we could wrap this whole thing in a mutex and make every method call lock defer unlock
+
     db: AnyBlockDB,
     ref_count: std.atomic.Value(u32),
-    path: []const u8,
+    id: bi.BlockID,
 
-    loaded: std.atomic.Value(bool) = .{ .raw = false }, // once this is true it will never turn false again.
-    _contents_or_undefined: BlockRefContents = undefined,
+    loaded: std.atomic.Value(bool), // once this is true it will never turn false again.
+    _contents_or_undefined: BlockRefContents,
 
     unapplied_operations_queue: Queue(bi.AlignedByteSlice),
 
@@ -255,12 +347,11 @@ const BlockRef = struct {
         // clone operation (can't use dupe because it has to stay aligned)
         const op_clone = self.unapplied_operations_queue.allocator.alignedAlloc(u8, 16, op.len) catch @panic("oom");
         @memcpy(op_clone, op);
-        self.unapplied_operations_queue.append(op_clone);
 
-        // apply it to contents and tell owning BlockDBInterface about the operation
+        // apply it to client contents and tell owning BlockDBInterface about the operation to eventually get it into server value
         content.client_value.vtable.applyOperation(content.client_value, op, undo_op) catch @panic("Deserialize error only allowed on network operations");
-        self.unapplied_operations_queue.append(op_clone);
-        self.db.vtable.submitOperation(self.db, op);
+        self.unapplied_operations_queue.writeItem(op_clone) catch @panic("oom");
+        self.db.vtable.submitOperation(self.db, self, op);
     }
 
     pub fn ref(self: *BlockRef) void {

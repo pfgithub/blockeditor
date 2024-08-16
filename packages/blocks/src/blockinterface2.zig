@@ -5,6 +5,8 @@ pub const AlignedByteSlice = []align(16) const u8;
 
 const DeserializeError = error{DeserializeError};
 
+pub const BlockID = enum(u128) { _ };
+
 pub const AnyBlock = struct {
     data: *anyopaque,
     vtable: *const BlockVtable,
@@ -26,8 +28,22 @@ pub const AnyBlock = struct {
             .vtable = &vtable,
         };
     }
+
+    pub fn clone(self: AnyBlock, gpa: std.mem.Allocator) AnyBlock {
+        if (self.vtable.clone) |clone_fn| return clone_fn(self, gpa);
+
+        var srlz_res = AlignedArrayList.init(gpa);
+        defer srlz_res.deinit();
+
+        self.vtable.serialize(self, &srlz_res);
+        const cloned = self.vtable.deserialize(gpa, srlz_res.items) catch @panic("just-serialized block deserialize failed");
+
+        return cloned;
+    }
 };
 pub const BlockVtable = struct {
+    /// must be deterministic. given an initial block state and a list of operations, applying the same operations in the same order
+    /// must always yield a byte-for-byte identical serialized result.
     applyOperation: *const fn (block: AnyBlock, operation: AlignedByteSlice, undo_operation: *AlignedArrayList) DeserializeError!void,
 
     serialize: *const fn (block: AnyBlock, out: *AlignedArrayList) void,
@@ -36,7 +52,7 @@ pub const BlockVtable = struct {
 
     /// optional, if not provided will serialize and then deserialize to clone. use this to implement
     /// copy-on-write and ref-count deinit, or similar.
-    clone: ?*const fn (block: AnyBlock) AnyBlock,
+    clone: ?*const fn (block: AnyBlock, gpa: std.mem.Allocator) AnyBlock,
 };
 
 pub const CounterBlock = struct {
@@ -51,7 +67,7 @@ pub const CounterBlock = struct {
     const default_aligned: [4]u8 align(16) = .{ 0, 0, 0, 0 };
     pub const default: AlignedByteSlice = &default_aligned;
 
-    const Operation = union(enum) {
+    pub const Operation = union(enum) {
         add: i32,
         set: i32,
 
@@ -60,7 +76,7 @@ pub const CounterBlock = struct {
             value: i32,
         };
 
-        fn serialize(self: Operation, out: *AlignedArrayList) void {
+        pub fn serialize(self: Operation, out: *AlignedArrayList) void {
             const res: operation_serialized = switch (self) {
                 .add => |v| .{ .code = 0, .value = v },
                 .set => |v| .{ .code = 1, .value = v },
