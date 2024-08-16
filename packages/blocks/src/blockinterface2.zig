@@ -27,7 +27,7 @@ pub const AnyBlock = struct {
         };
     }
 };
-const BlockVtable = struct {
+pub const BlockVtable = struct {
     applyOperation: *const fn (block: AnyBlock, operation: AlignedByteSlice, undo_operation: *AlignedArrayList) DeserializeError!void,
 
     serialize: *const fn (block: AnyBlock, out: *AlignedArrayList) void,
@@ -39,7 +39,7 @@ const BlockVtable = struct {
     clone: ?*const fn (block: AnyBlock) AnyBlock,
 };
 
-const CounterBlock = struct {
+pub const CounterBlock = struct {
     // typically instead of making blocks, you make composable components. this is just an example.
 
     gpa: std.mem.Allocator, // to free self on deinit
@@ -103,7 +103,7 @@ const CounterBlock = struct {
         const res: counterblock_serialized = .{ .count = self.count };
         out.writer().writeStructEndian(res, .little) catch @panic("oom");
     }
-    fn deserialize(gpa: std.mem.Allocator, in: AlignedByteSlice) DeserializeError!AnyBlock {
+    pub fn deserialize(gpa: std.mem.Allocator, in: AlignedByteSlice) DeserializeError!AnyBlock {
         var fbs = std.io.fixedBufferStream(in);
         const values = fbs.reader().readStructEndian(counterblock_serialized, .little) catch return error.DeserializeError;
         if (fbs.pos != fbs.buffer.len) return error.DeserializeError;

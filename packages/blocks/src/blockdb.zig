@@ -16,6 +16,7 @@ const AnyBlockDB = struct {
 
     pub fn from(comptime T: type, self: *T) AnyBlockDB {
         const vtable = BlockDBInterface{
+            .createBlock = T.createBlock,
             .fetchBlock = T.fetchBlock,
             .destroyBlock = T.destroyBlock,
             .deinit = T.deinit,
@@ -27,6 +28,7 @@ const AnyBlockDB = struct {
     }
 };
 const BlockDBInterface = struct {
+    createBlock: *const fn (self: AnyBlockDB, initial_value: bi.AnyBlock) *BlockRef, // does not have a parent. After creating the block, you should link it.
     fetchBlock: *const fn (self: AnyBlockDB, path: []const u8) *BlockRef,
 
     destroyBlock: *const fn (self: AnyBlockDB, block_ref: *BlockRef) void,
@@ -42,6 +44,11 @@ test FSBlockDBInterface {
 
     const my_block = interface.vtable.fetchBlock(interface, "packages/blockeditor/src/entrypoint.zig");
     defer my_block.unref();
+
+    // const my_created_block = interface.vtable.createBlock(interface, bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
+    // defer my_created_block.unref();
+
+    // my_created_block.applyOperation()
 }
 
 const FSBlockDBInterface = struct {
@@ -90,6 +97,7 @@ const FSBlockDBInterface = struct {
 
         const thread = self._fetch_thread.?;
         // clear job queue and append kill command
+        // * maybe rather than clearing the job queue, we should try to allow it to drain? you could lose data
         {
             self._thread_queue_mutex.lock();
             defer self._thread_queue_mutex.unlock();
@@ -152,7 +160,28 @@ const FSBlockDBInterface = struct {
         }
     }
 
-    // returns a ref'd BlockRef! make sure to unref it when you're done with it!
+    /// Takes ownership of the passed-in AnyBlock. Returns a referenced BlockRef - make sure to unref when you're done with it!
+    fn createBlock(any: AnyBlockDB, initial_value: bi.AnyBlock) *BlockRef {
+        const self = any.cast(FSBlockDBInterface);
+
+        // TODO:
+        // - Create the BlockRef with:
+        //   - loaded is true
+        //   - server_value is initial_value
+        //   - client_value is initial_value cloned
+        //   - path is (????) we need to generate a uuid or something
+        // - Submit a request to the queue holding this BlockRef (& ref it) containing:
+        //   - create_block(path, initial_value)
+        //   - if we generate a properly random path, the server should not respond with an error
+        // - Done
+
+        _ = self;
+        _ = initial_value;
+
+        @panic("TODO createBlock");
+    }
+
+    /// returns a ref'd BlockRef! make sure to unref it when you're done with it!
     fn fetchBlock(any: AnyBlockDB, path: []const u8) *BlockRef {
         const self = any.cast(FSBlockDBInterface);
 
@@ -219,18 +248,18 @@ const BlockRef = struct {
         return &self._contents_or_undefined;
     }
 
-    pub fn applyOperation(self: *BlockRef, op: bi.AnyOperation) void {
-        const content = self.contents() orelse @panic("cannot apply operation on a block that has not yet loaded");
+    pub fn applyOperation(self: *BlockRef, op: bi.AlignedByteSlice, undo_op: *bi.AlignedArrayList) void {
+        const content: *BlockRefContents = self.contents() orelse @panic("cannot apply operation on a block that has not yet loaded");
+
+        // clone operation (can't use dupe because it has to stay aligned)
+        const op_clone = self.unapplied_operations_queue.allocator.alignedAlloc(u8, 16, op.len) catch @panic("oom");
+        @memcpy(op_clone, op);
+        self.unapplied_operations_queue.append(op_clone);
+
         // apply it to contents and tell owning BlockDBInterface about the operation
-
-        // how to:
-        // 1. apply the operation to contents.client_value
-        // 2. tell the db to send the operation to the server
-        // 3. once the server has responded to accept the operation, it is dequeued and applied to server_value
-
-        _ = op;
-        _ = content;
-        @panic("TODO impl applyOperation");
+        content.client_value.vtable.applyOperation(content.client_value, op, undo_op) catch @panic("Deserialize error only allowed on network operations");
+        self.unapplied_operations_queue.append(op_clone);
+        self.db.vtable.submitOperation(self.db, op);
     }
 
     pub fn ref(self: *BlockRef) void {
