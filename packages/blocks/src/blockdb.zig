@@ -3,8 +3,9 @@
 const std = @import("std");
 const bi = @import("blockinterface2.zig");
 
-// TODO make a proper queue, it's basically an arraylist but the start moves right over time and whenever it gets reallocated it moves its start back to the front
-const Queue = std.ArrayList;
+fn Queue(comptime T: type) type {
+    return std.fifo.LinearFifo(T, .Dynamic);
+}
 
 const AnyBlockDB = struct {
     data: *anyopaque,
@@ -102,7 +103,7 @@ const FSBlockDBInterface = struct {
             self._thread_queue_mutex.lock();
             defer self._thread_queue_mutex.unlock();
 
-            for (self._thread_queue.items) |item| {
+            for (self._thread_queue.readableSlice(0)) |item| {
                 switch (item) {
                     .kill => unreachable,
                     .fetch => |fetch_block| {
@@ -110,8 +111,8 @@ const FSBlockDBInterface = struct {
                     },
                 }
             }
-            self._thread_queue.clearRetainingCapacity();
-            self._thread_queue.append(.kill) catch @panic("oom");
+            self._thread_queue.discard(self._thread_queue.readableLength());
+            self._thread_queue.writeItem(.kill) catch @panic("oom");
         }
         self._thread_queue_condition.signal();
 
@@ -135,11 +136,11 @@ const FSBlockDBInterface = struct {
                 self._thread_queue_mutex.lock();
                 defer self._thread_queue_mutex.unlock();
 
-                while (self._thread_queue.items.len == 0) {
+                while (self._thread_queue.readableSlice(0).len == 0) {
                     self._thread_queue_condition.wait(&self._thread_queue_mutex);
                 }
 
-                break :blk self._thread_queue.orderedRemove(0);
+                break :blk self._thread_queue.readItem() orelse unreachable;
             };
 
             // execute job
@@ -204,7 +205,7 @@ const FSBlockDBInterface = struct {
             defer self._thread_queue_mutex.unlock();
 
             new_blockref.ref(); // to make sure it doesn't get deleted until after it has loaded
-            self._thread_queue.append(.{ .fetch = new_blockref }) catch @panic("oom");
+            self._thread_queue.writeItem(.{ .fetch = new_blockref }) catch @panic("oom");
         }
         self._thread_queue_condition.signal();
 
