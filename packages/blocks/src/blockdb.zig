@@ -182,7 +182,7 @@ const FSBlockDBInterface = struct {
         return new_blockref;
     }
     fn destroyBlock(any: AnyBlockDB, block: *BlockRef) void {
-        std.debug.assert(block.ref_count.load(.release) == 0);
+        std.debug.assert(block.ref_count.load(.acquire) == 0);
 
         if (block.contents()) |contents| {
             contents.server_value.vtable.deinit(contents.server_value);
