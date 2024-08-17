@@ -718,10 +718,13 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         };
         pub const Span = struct {
             id: SegmentID,
-            disabled_by_id: DeleteID,
             length: u64,
-            start_segbyte: u64, // null = deleted
-            bufbyte: u64,
+            start_segbyte: u64,
+            bufbyte: ?u64, // null = deleted
+
+            fn deleted(self: Span) bool {
+                return self.bufbyte == null;
+            }
 
             pub fn format(value: Span, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
                 if (value.disabled_by_id != .none) {
@@ -732,7 +735,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
 
             fn count(span: *const Span, bbt: *const BalancedBinaryTree(Span)) Count {
-                if (span.disabled_by_id != .none) return .{
+                if (span.deleted()) return .{
                     .byte_count = 0,
                     .newline_count = 0,
                 };
@@ -741,7 +744,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     .byte_count = span.length,
                     .newline_count = 0,
                 };
-                for (document.buffer.items[span.bufbyte..][0..span.length]) |char| {
+                for (document.buffer.items[span.bufbyte.?..][0..span.length]) |char| {
                     if (char == '\n') result.newline_count += 1;
                 }
                 return result;
@@ -802,14 +805,17 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 if (i != 0) try writer.print(" ", .{});
                 if (span.id == .end) {
                     std.debug.assert(span.length == 1);
-                    std.debug.assert(span.disabled_by_id == .none);
+                    std.debug.assert(!span.deleted());
                     try writer.print("E", .{});
                     continue;
                 }
-                const span_text = self.buffer.items[span.bufbyte..][0..span.length];
                 try writer.print("{}.{d}", .{ span.id, span.start_segbyte });
-                if (span.disabled_by_id != .none) try writer.print("{}", .{span.disabled_by_id});
-                try writer.print("\"{s}\"", .{std.fmt.fmtSliceEscapeLower(span_text)});
+                if (span.bufbyte) |bufbyte| {
+                    const span_text = self.buffer.items[bufbyte..][0..span.length];
+                    try writer.print("\"{s}\"", .{std.fmt.fmtSliceEscapeLower(span_text)});
+                } else {
+                    try writer.print("-", .{});
+                }
             }
         }
 
@@ -833,7 +839,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             res._insertBefore(.root, &[_]Span{
                 .{
                     .id = @enumFromInt(0),
-                    .disabled_by_id = .none,
                     .start_segbyte = 0,
                     .length = 1,
                     .bufbyte = 0,
@@ -920,9 +925,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             pub fn next(self: *ReadIterator) ?[]const u8 {
                 const span_index = self.span_it.next() orelse return null;
                 const span = self.doc.span_bbt.getNodeDataPtrConst(span_index).?;
-                if (span.disabled_by_id != .none) return "";
+                if (span.deleted()) return "";
                 if (span.id == .end) return null;
-                const span_text = self.doc.buffer.items[span.bufbyte..][0..span.length];
+                const span_text = self.doc.buffer.items[span.bufbyte.?..][0..span.length];
                 if (self.sliced) return span_text;
 
                 const span_count = self.doc.span_bbt.getCountForNode(span_index);
@@ -1019,7 +1024,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     self.buffer.appendSlice(insert_op.text) catch @panic("OOM");
                     const e_mid: Span = .{
                         .id = insert_op.id,
-                        .disabled_by_id = .none,
                         .start_segbyte = 0,
                         .bufbyte = @intCast(added_data_bufbyte),
                         .length = @intCast(insert_op.text.len),
@@ -1034,16 +1038,14 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
                     const e_lhs: Span = .{
                         .id = span.id,
-                        .disabled_by_id = span.disabled_by_id,
                         .start_segbyte = span.start_segbyte,
                         .bufbyte = span.bufbyte,
                         .length = split_spanbyte,
                     };
                     const e_rhs: Span = .{
                         .id = span.id,
-                        .disabled_by_id = span.disabled_by_id,
                         .start_segbyte = span.start_segbyte + split_spanbyte,
-                        .bufbyte = span.bufbyte + split_spanbyte,
+                        .bufbyte = if (span.bufbyte) |bufbyte| bufbyte + split_spanbyte else null,
                         .length = span.length - split_spanbyte,
                     };
 
@@ -1086,16 +1088,14 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                             const split_spanbyte = delete_op.start.segbyte - span.start_segbyte;
                             const left_side: Span = .{
                                 .id = span.id,
-                                .disabled_by_id = span.disabled_by_id,
                                 .start_segbyte = span.start_segbyte,
                                 .bufbyte = span.bufbyte,
                                 .length = split_spanbyte,
                             };
                             const right_side: Span = .{
                                 .id = span.id,
-                                .disabled_by_id = span.disabled_by_id,
                                 .start_segbyte = span.start_segbyte + split_spanbyte,
-                                .bufbyte = span.bufbyte + split_spanbyte,
+                                .bufbyte = if (span.bufbyte) |bufbyte| bufbyte + split_spanbyte else null,
                                 .length = span.length - split_spanbyte,
                             };
                             std.debug.assert(right_side.length > 0);
@@ -1116,16 +1116,14 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                             const split_spanbyte = (delete_op.start.segbyte + delete_op.len_within_segment) - span.start_segbyte;
                             const left_side: Span = .{
                                 .id = span.id,
-                                .disabled_by_id = span.disabled_by_id,
                                 .start_segbyte = span.start_segbyte,
                                 .bufbyte = span.bufbyte,
                                 .length = split_spanbyte,
                             };
                             const right_side: Span = .{
                                 .id = span.id,
-                                .disabled_by_id = span.disabled_by_id,
                                 .start_segbyte = span.start_segbyte + split_spanbyte,
-                                .bufbyte = span.bufbyte + split_spanbyte,
+                                .bufbyte = if (span.bufbyte) |bufbyte| bufbyte + split_spanbyte else null,
                                 .length = span.length - split_spanbyte,
                             };
                             if (left_side.length > 0) {
@@ -1141,9 +1139,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         self._replaceRange(span_idx, 1, &.{
                             .{
                                 .id = span.id,
-                                .disabled_by_id = delete_op.id,
                                 .start_segbyte = span.start_segbyte,
-                                .bufbyte = span.bufbyte,
+                                .bufbyte = null,
                                 .length = span.length,
                             },
                         });
@@ -1165,11 +1162,10 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
                     const newstr_start_bufbyte = self.buffer.items.len;
                     self.buffer.appendSlice(extend_op.text) catch @panic("oom");
-                    if (prev_span.bufbyte + prev_span.length == newstr_start_bufbyte and prev_span.disabled_by_id == .none) {
+                    if (!prev_span.deleted() and prev_span.bufbyte.? + prev_span.length == newstr_start_bufbyte) {
                         self._replaceRange(prev_span_idx, 1, &.{
                             .{
                                 .id = prev_span.id,
-                                .disabled_by_id = .none,
                                 .start_segbyte = prev_span.start_segbyte,
                                 .bufbyte = prev_span.bufbyte,
                                 .length = @intCast(prev_span.length + extend_op.text.len),
@@ -1180,7 +1176,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         self._insertAfter(prev_span_idx, &.{
                             .{
                                 .id = prev_span.id,
-                                .disabled_by_id = .none,
                                 .start_segbyte = @intCast(prev_span.start_segbyte + prev_span.length),
                                 .bufbyte = @intCast(newstr_start_bufbyte),
                                 .length = @intCast(extend_op.text.len),
@@ -1216,7 +1211,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     const span = self.span_bbt.getNodeDataPtrConst(span_i).?;
                     if (span.id == .end) @panic("unreachable");
 
-                    if (span.disabled_by_id != .none) continue;
+                    if (span.deleted()) continue;
 
                     const span_end_docbyte = span_start_docbyte + span.length;
                     const target_start_docbyte = @max(span_start_docbyte, doc_start_docbyte);
@@ -1252,7 +1247,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 const prev_data = self.span_bbt.getNodeDataPtrConst(prev_v.span_index).?;
 
                 // check if valid
-                std.debug.assert(prev_data.disabled_by_id == .none);
+                std.debug.assert(!prev_data.deleted());
 
                 // check if span is allowed
                 if (prev_data.id.owner() != self.client_id) break :blk;
@@ -1328,6 +1323,8 @@ pub fn main() !void {
     defer std.debug.assert(gpa_alloc.deinit() == .ok);
     const gpa = gpa_alloc.allocator();
 
+    try testSampleBlock(gpa);
+
     const testdocument_len = switch (@import("builtin").mode) {
         .Debug => 100_000,
         else => 1_000_000,
@@ -1352,9 +1349,7 @@ pub fn main() !void {
 }
 pub const std_options = .{ .log_level = .info };
 
-test "sample block" {
-    const gpa = std.testing.allocator;
-
+fn testSampleBlock(gpa: std.mem.Allocator) !void {
     var block = TextDocument.initEmpty(gpa);
     defer block.deinit();
 
@@ -1446,6 +1441,10 @@ test "sample block" {
     // });
     // try testBlockEquals(&block, "TCdleare.!");
     // std.log.info("block: [{}]", .{block});
+}
+test "sample block" {
+    const gpa = std.testing.allocator;
+    try testSampleBlock(gpa);
 }
 
 test "document" {
