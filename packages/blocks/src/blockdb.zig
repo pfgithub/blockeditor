@@ -349,6 +349,10 @@ const BlockRef = struct {
         if (!self.loaded.load(.acquire)) return null;
         return &self._contents_or_undefined;
     }
+    pub fn clientValue(self: *BlockRef) ?bi.AnyBlock {
+        if (self.contents()) |c| return c.client_value;
+        return null;
+    }
 
     pub fn applyOperation(self: *BlockRef, op: bi.AlignedByteSlice, undo_op: *bi.AlignedArrayList) void {
         const content: *BlockRefContents = self.contents() orelse @panic("cannot apply operation on a block that has not yet loaded");
