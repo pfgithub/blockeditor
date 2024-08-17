@@ -22,6 +22,7 @@ pub const AnyBlock = struct {
             .deserialize = T.deserialize,
             .deinit = T.deinit,
             .clone = if (@hasDecl(T, "clone")) T.clone else null,
+            .is_crdt = false,
         };
         return .{
             .data = @ptrCast(@alignCast(self)),
@@ -53,6 +54,11 @@ pub const BlockVtable = struct {
     /// optional, if not provided will serialize and then deserialize to clone. use this to implement
     /// copy-on-write and ref-count deinit, or similar.
     clone: ?*const fn (block: AnyBlock, gpa: std.mem.Allocator) AnyBlock,
+
+    /// if 'true', operations can be applied in any order (as long as dependencies are before dependants) and the serialized value
+    /// of the block will be byte-for-byte identical regardless of the order operations were applied in. This halves memory usage
+    /// for a block (only one copy needs to be kept in memory) and may improve performance
+    is_crdt: bool,
 };
 
 pub const CounterBlock = struct {
