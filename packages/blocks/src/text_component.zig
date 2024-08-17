@@ -644,6 +644,17 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 start: Position,
                 len_within_segment: u64,
             },
+            replace: struct {
+                // replaces text within a segment starting at [start] with [text]. undeletes any deleted text
+                // in this range. cannot change the length of a segment.
+
+                // this should be used for:
+                // - undoing a delete operation
+                // - checking or unchecking a markdown checkbox
+
+                start: Position,
+                text: []const T,
+            },
 
             pub fn format(
                 self: *const @This(),
@@ -656,13 +667,16 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         try writer.print("[M:{}:{d}->{}]", .{ mop.start, mop.len_within_segment, mop.end });
                     },
                     .insert => |iop| {
-                        try writer.print("[I:{}:\"{}\"->{}]", .{ iop.pos, std.fmt.fmtSliceEscapeLower(iop.text), iop.id });
+                        try writer.print("[I:{}:\"{}\"->{}]", .{ iop.pos, std.zig.fmtEscapes(iop.text), iop.id });
                     },
                     .delete => |dop| {
                         try writer.print("[D:{}:{d}]", .{ dop.start, dop.len_within_segment });
                     },
                     .extend => |xop| {
-                        try writer.print("[X:{}:{d}:\"{}\"]", .{ xop.id, xop.prev_len, std.fmt.fmtSliceEscapeLower(xop.text) });
+                        try writer.print("[X:{}:{d}:\"{}\"]", .{ xop.id, xop.prev_len, std.zig.fmtEscapes(xop.text) });
+                    },
+                    .replace => |rop| {
+                        try writer.print("[R:{}:\"{}\"]", .{ rop.start, std.zig.fmtEscapes(rop.text) });
                     },
                 }
             }
@@ -782,7 +796,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 try writer.print("{}.{d}", .{ span.id, span.start_segbyte });
                 if (span.bufbyte) |bufbyte| {
                     const span_text = self.buffer.items[bufbyte..][0..span.length];
-                    try writer.print("\"{s}\"", .{std.fmt.fmtSliceEscapeLower(span_text)});
+                    try writer.print("\"{}\"", .{std.zig.fmtEscapes(span_text)});
                 } else {
                     try writer.print("-", .{});
                 }
@@ -1152,6 +1166,10 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                             },
                         });
                     }
+                },
+                .replace => |replace_op| {
+                    _ = replace_op;
+                    @panic("TODO implement replace_op");
                 },
             }
         }
