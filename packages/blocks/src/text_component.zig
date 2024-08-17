@@ -986,7 +986,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         pub fn applyOperation(self: *Doc, op: Operation) void {
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
-            // delete(3, 5) -> insert(3, "hello") OR undelete(3-5)
+            // delete(3, 5) -> undelete(3, "hello")
             // extend(3, "hello") -> delete(3, 5)
             // move(@1: 3-5, @2: 6) -> move(@2: 6-8, @1: 3) (inverse move operations may need to split into multiple operations)
             switch (op) {
