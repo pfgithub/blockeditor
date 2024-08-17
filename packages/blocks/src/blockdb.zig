@@ -328,8 +328,42 @@ const FSBlockDBInterface = struct {
     }
 };
 
+fn AtomicMutexValue(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        mutex: std.Thread.Mutex,
+        raw: T,
+
+        fn lockAndUse(self: *Self) *T {
+            self.mutex.lock();
+            return self.raw;
+        }
+        fn unlock(self: *Self) void {
+            self.mutex.unlock();
+        }
+    };
+}
+
 const BlockRef = struct {
     // we could wrap this whole thing in a mutex and make every method call lock defer unlock
+
+    // right now:
+    // - reference counting is atomic
+    // - loaded is atomic
+    // but we need:
+    // - another thread can mutate server_value (make it AtomicMutexValue?)
+    // - another thread can atomically replace client_value (need `.clientValue()` to access it atomically, but it can return a regular pointer)
+    //   - it also needs to be able to delete the old client_value. oops. it can't do that until other threads are done with it.
+    // - another thread can mutate unapplied_operations_queue (make it AtomicMutexValue)
+    // - AnyBlock is (vtable, pointer). but vtable doesn't change, so we can pull it out and construct AnyBlock as needed?
+
+    // so this works. it's not lock-free but we're not locking for everything
+    // it doesn't allow multiple threads to hold BlockRefs and call applyOperation on them. only one thread can do that.
+
+    // the alternative is fully locking the entire thing. then it's fully thread-safe
+
+    // and the other alternative is only mutating it from the main thread. `db.poll()` called every frame to apply any BlockRef updates that
+    // are needed.
 
     db: AnyBlockDB,
     ref_count: std.atomic.Value(u32),
