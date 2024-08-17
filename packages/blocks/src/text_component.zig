@@ -1202,28 +1202,32 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         const span_start_offset = op_clamped_start_segbyte - span_start_segbyte;
                         const op_start_offset = op_clamped_start_segbyte - replace_op.start.segbyte;
                         const clamped_length = op_clamped_end_segbyte - op_clamped_start_segbyte;
+                        const replace_contents = replace_op.text[op_start_offset..][0..clamped_length];
 
                         if (span_value.bufbyte) |bufbyte| {
                             // - not deleted and partial or full coverage:
                             // update buffer
                             const full_range = self.buffer.items[bufbyte..][0..span_value.length];
                             const update_range = full_range[span_start_offset..][0..clamped_length];
-                            @memcpy(update_range, replace_op.text[op_start_offset..][0..clamped_length]);
+                            @memcpy(update_range, replace_contents);
 
                             // update newline points
                             self._replaceRange(affected_span_idx, 1, &.{span_value.*});
                         } else if (clamped_length == span_value.length) {
-                            // - deleted and full coverage:
-                            //   - append to buffer. replaceRange to set node & mark undeleted
-                            //     - note that we probably still have the old range reserved in the buffer, we're wasting memory
-                            //       storing duplicated stuff. that's fine for now.
-                            @panic("TODO deleted and full coverage branch");
+                            const new_bufbyte_start = self.buffer.items.len;
+                            self.buffer.appendSlice(replace_contents) catch @panic("oom");
+                            self._replaceRange(affected_span_idx, 1, &.{.{
+                                .id = span_value.id,
+                                .length = span_value.length,
+                                .start_segbyte = span_value.start_segbyte,
+                                .bufbyte = new_bufbyte_start,
+                            }});
                         } else {
                             // - deleted and partial coverage:
-                            //   - have to split and mark just one segment undeleted
+                            //   - have to split and mark just one span undeleted
                             //   - for now we can panic("TODO")
                             //   - ideally we should have a split function because it's such a common operation
-                            @panic("TODO deleted and partial coverage branch");
+                            @panic("TODO 'replace' op deleted partial coverage branch");
                         }
                     }
                 },
@@ -1476,10 +1480,27 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("block: [{}]", .{block});
 
     // replace part of live text
+    opgen_demo.clearRetainingCapacity();
+    block.applyOperation(.{ .replace = .{
+        .start = block.positionFromDocbyte(4),
+        .text = "!!!!",
+    } });
+    try testBlockEquals(&block, "TRep!!!!d!");
+    std.log.info("block: [{}]", .{block});
 
     // bring back full dead text
+    opgen_demo.clearRetainingCapacity();
+    block.applyOperation(.{ .replace = .{
+        .start = .{ .id = @enumFromInt(3 << 16), .segbyte = 1 },
+        .text = "ABCD",
+    } });
+    try testBlockEquals(&block, "TRep!!!!dABCD!");
+    std.log.info("block: [{}]", .{block});
 
     // bring back part of dead text
+    if (false) {
+        @panic("TODO");
+    }
 
     // move text
     if (false) {
