@@ -8,6 +8,15 @@ const bi = @import("blockinterface2.zig");
 // If operations are submitted as batched, they should be sent to the server as batched.
 // For now that is supported if the block supports multiple operations, but it's not supported across multiple blocks. We could support it
 // across multiple blocks.
+// - maybe we don't want this. two different blocks could be hosted on different servers and the app should still function.
+//   - with single source of truth, when you request a block from the server it needs to lock and assign a server to manage it.
+//     locking is impossible in a distributed system. so we should probably handle the case where two servers declare themselves the
+//     source of truth for one block. in that case, when they figure it out they need to: pick one server as the true one. send over all
+//     the operations that server 2 applied and server 1 will apply them. transfer server 2's clients to server 1. and then clients
+//     need to go to a bit of effort to get the new blocks with the merged histories and overlay their unsent operations.
+//   - we don't have to worry about this for a while which is good because it's complicated. with a crdt it would be simpler because
+//     we can just have every client apply all of server 2's operations (or server 1 for server 2 clients) and not worry about order
+//     at all
 
 fn Queue(comptime T: type) type {
     return std.fifo.LinearFifo(T, .Dynamic);
