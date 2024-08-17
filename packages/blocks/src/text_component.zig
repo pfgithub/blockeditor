@@ -111,12 +111,12 @@ fn BalancedBinaryTree(comptime Data: type) type {
             const res: *Node = @ptrFromInt(@intFromEnum(node_idx));
             return res;
         }
-        fn _getNodePtrConst(_: *const @This(), node_idx: NodeIndex) ?*Node {
+        fn _getNodePtrConst(_: *const @This(), node_idx: NodeIndex) ?*const Node {
             if (node_idx == .none or node_idx == .root) return null;
             const res: *Node = @ptrFromInt(@intFromEnum(node_idx));
             return res;
         }
-        pub fn getNodeDataPtrConst(_: *const @This(), node_idx: NodeIndex) ?*Data {
+        pub fn getNodeDataPtrConst(_: *const @This(), node_idx: NodeIndex) ?*const Data {
             if (node_idx == .none or node_idx == .root) return null;
             const res: *Node = @ptrFromInt(@intFromEnum(node_idx));
             return &res.value;
@@ -1168,7 +1168,37 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     }
                 },
                 .replace => |replace_op| {
-                    _ = replace_op;
+                    const affected_spans = blk: {
+                        const affected_spans_al_entry = self.segment_id_map.getEntry(replace_op.start.id).?;
+                        const affected_spans_al = affected_spans_al_entry.value_ptr;
+                        // affected_spans_al will be mutated when `replaceRange` is called, so we make a stable copy of it
+
+                        break :blk self.segment_id_map.allocator.dupe(BBT.NodeIndex, affected_spans_al.items) catch @panic("oom");
+                    };
+                    defer self.segment_id_map.allocator.free(affected_spans);
+
+                    for (affected_spans) |affected_span_idx| {
+                        // right we have to call replaceRange to update a span
+                        // replaceRange
+
+                        const span_value = self.span_bbt.getNodeDataPtrConst(affected_span_idx);
+                        _ = span_value;
+
+                        // branches:
+                        // - not deleted and partial or full coverage:
+                        //   - @memcpy into buffer
+                        // - deleted and full coverage:
+                        //   - append to buffer. replaceRange to set node & mark undeleted
+                        //     - note that we probably still have the old range reserved in the buffer, we're wasting memory
+                        //       storing duplicated stuff. that's fine for now.
+                        // - deleted and partial coverage:
+                        //   - have to split and mark just one segment undeleted
+                        //   - for now we can panic("TODO")
+                        //   - ideally we should have a split function because it's such a common operation
+                        // - off right end:
+                        //   - break
+                    }
+
                     @panic("TODO implement replace_op");
                 },
             }
