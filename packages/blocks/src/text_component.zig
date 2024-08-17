@@ -582,35 +582,6 @@ pub const MoveID = enum(u64) {
         }
     }
 };
-pub const DeleteID = enum(u64) {
-    none = 0,
-    _,
-
-    pub fn format(
-        self: *const @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        const num = @intFromEnum(self.*);
-        if (num == 0) {
-            try writer.print("-none", .{});
-            return;
-        }
-        const op_id = num >> 16;
-        const client_id = num & std.math.maxInt(u16);
-        try writer.print("-{d}", .{op_id});
-        if (client_id != 0) {
-            try writer.print("/{d}", .{client_id});
-        }
-    }
-};
-
-pub const UndoOperation = union(enum) {
-    // this shouldn't need to be tagged?
-    insert: SegmentID,
-    delete: DeleteID,
-};
 
 // indices into this are:
 // @id.segbyte
@@ -670,7 +641,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
                 // reminder: len_within_segment can span multiple spans
                 // of the same segment
-                id: DeleteID,
                 start: Position,
                 len_within_segment: u64,
             },
@@ -689,7 +659,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         try writer.print("[I:{}:\"{}\"->{}]", .{ iop.pos, std.fmt.fmtSliceEscapeLower(iop.text), iop.id });
                     },
                     .delete => |dop| {
-                        try writer.print("[D:{}:{d}->{}]", .{ dop.start, dop.len_within_segment, dop.id });
+                        try writer.print("[D:{}:{d}]", .{ dop.start, dop.len_within_segment });
                     },
                     .extend => |xop| {
                         try writer.print("[X:{}:{d}:\"{}\"]", .{ xop.id, xop.prev_len, std.fmt.fmtSliceEscapeLower(xop.text) });
@@ -1202,7 +1172,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 const doc_end_docbyte = doc_start_docbyte + delete_count;
                 // std.log.info("pos: {}, start byte: {d}, end byte: {d} / {d}", .{pos, doc_start_docbyte, doc_end_docbyte, self.length});
                 std.debug.assert(doc_end_docbyte <= self.length());
-                const delete_id = self.deleteUuid();
 
                 var span_start_docbyte = span_position.span_start_docbyte;
                 var iter = self.span_bbt.iterator(.{ .leftmost_node = span_position.span_index, .skip_empty = true });
@@ -1222,7 +1191,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
                     res.append(.{
                         .delete = .{
-                            .id = delete_id,
                             .start = .{
                                 .id = span.id,
                                 .segbyte = @intCast(target_segbyte),
@@ -1278,10 +1246,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         pub fn uuid(self: *Doc) SegmentID {
-            defer self.next_uuid += 1;
-            return @enumFromInt((@as(u64, self.next_uuid) << 16) | self.client_id);
-        }
-        pub fn deleteUuid(self: *Doc) DeleteID {
             defer self.next_uuid += 1;
             return @enumFromInt((@as(u64, self.next_uuid) << 16) | self.client_id);
         }
@@ -1384,7 +1348,6 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.applyOperation(.{
         // deleting a range will generate multiple delete operations unfortunately
         .delete = .{
-            .id = block.deleteUuid(),
             .start = block.positionFromDocbyte(0),
             .len_within_segment = 2,
         },
