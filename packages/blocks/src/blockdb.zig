@@ -211,6 +211,12 @@ const FSBlockDBInterface = struct {
                     //     - client_value = clone ServerValue
                     //     - for(unapplied_operations_queue.readableSlice(0)) |operation|
                     //       - client_value.applyOperation(operation)
+
+                    // instead of locking, we could also have this happen on the main thread?
+                    // like each tick call the fsblockdbinterface.update()
+                    // when we get a server response we put it in a queue for the main thread to
+                    // pick up and handle
+                    // that's possible. that's an option.
                 },
             }
 
