@@ -8,6 +8,8 @@
 //! - Buffer: raw unordered text data referenced by spans
 //!    - BufByte: index into the buffer
 
+const bi = @import("blockinterface2.zig");
+
 fn BalancedBinaryTree(comptime Data: type) type {
     return struct {
         const Count = Data.Count;
@@ -589,7 +591,7 @@ pub const MoveID = enum(u64) {
 
 pub const TextDocument = Document(u8, 0);
 /// The plan is for this to work for:
-/// - Text documents
+/// - Text documents (plain text or rich text with embedded blocks)
 /// - Reorderable lists ('move' op should be used rather than delete+insert)
 /// TODO: document needs to call deinit on T if it is available
 pub fn Document(comptime T: type, comptime T_empty: T) type {
@@ -655,6 +657,10 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 start: Position,
                 text: []const T,
             },
+
+            pub fn serialize(self: *const Operation, out: *bi.AlignedArrayList) void {
+                std.json.stringify(self, .{}, out.writer()) catch @panic("oom");
+            }
 
             pub fn format(
                 self: *const @This(),
@@ -983,7 +989,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             self._insertAfter(index, next_slice[1..]);
         }
 
-        pub fn applyOperation(self: *Doc, op: Operation) void {
+        pub fn applyOperation(self: *Doc, op: Operation, out_undo: ?*bi.AlignedArrayList) void {
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
             // delete(3, 5) -> undelete(3, "hello")
@@ -1003,6 +1009,16 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 },
                 .insert => |insert_op| {
                     std.debug.assert(insert_op.text.len > 0);
+
+                    if (out_undo) |undo| {
+                        const undo_op: Operation = .{
+                            .delete = .{
+                                .start = .{ .id = insert_op.id, .segbyte = 0 },
+                                .len_within_segment = insert_op.text.len,
+                            },
+                        };
+                        undo_op.serialize(undo);
+                    }
 
                     const added_data_bufbyte = self.buffer.items.len;
                     self.buffer.appendSlice(insert_op.text) catch @panic("OOM");
@@ -1137,6 +1153,16 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     std.debug.assert(success);
                 },
                 .extend => |extend_op| {
+                    if (out_undo) |undo| {
+                        const undo_op: Operation = .{
+                            .delete = .{
+                                .start = .{ .id = extend_op.id, .segbyte = extend_op.prev_len },
+                                .len_within_segment = extend_op.text.len,
+                            },
+                        };
+                        undo_op.serialize(undo);
+                    }
+
                     const affected_spans_al_entry = self.segment_id_map.getEntry(extend_op.id).?;
                     const affected_spans_al = affected_spans_al_entry.value_ptr;
                     const prev_span_idx = affected_spans_al.getLastOrNull().?;
@@ -1410,7 +1436,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .pos = block.positionFromDocbyte(0),
             .text = "i held",
         },
-    });
+    }, null);
     try testBlockEquals(&block, "i held");
     std.log.info("block: [{}]", .{block});
 
@@ -1420,7 +1446,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .pos = block.positionFromDocbyte(4),
             .text = "llo wor",
         },
-    });
+    }, null);
     try testBlockEquals(&block, "i hello world");
     std.log.info("block: [{}]", .{block});
     block.applyOperation(.{
@@ -1429,7 +1455,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .start = block.positionFromDocbyte(0),
             .len_within_segment = 2,
         },
-    });
+    }, null);
     try testBlockEquals(&block, "hello world");
     std.log.info("block: {d}[{}]", .{ block.length(), block });
     block.applyOperation(.{
@@ -1438,7 +1464,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .prev_len = 7,
             .text = "R",
         },
-    });
+    }, null);
     try testBlockEquals(&block, "hello worRld");
     std.log.info("block: [{}]", .{block});
 
@@ -1448,7 +1474,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .prev_len = 6,
             .text = "!",
         },
-    });
+    }, null);
     try testBlockEquals(&block, "hello worRld!");
     std.log.info("block: [{}]", .{block});
 
@@ -1456,7 +1482,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.genOperations(&opgen_demo, block.positionFromDocbyte(0), 0, "Test\n");
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
-        block.applyOperation(op);
+        block.applyOperation(op, null);
     }
     try testBlockEquals(&block, "Test\nhello worRld!");
     std.log.info("block: [{}]", .{block});
@@ -1465,7 +1491,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.genOperations(&opgen_demo, block.positionFromDocbyte(1), 18 - 2, "Cleared.");
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
-        block.applyOperation(op);
+        block.applyOperation(op, null);
     }
     try testBlockEquals(&block, "TCleared.!");
     std.log.info("block: [{}]", .{block});
@@ -1475,7 +1501,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.applyOperation(.{ .replace = .{
         .start = block.positionFromDocbyte(1),
         .text = "Replaced",
-    } });
+    } }, null);
     try testBlockEquals(&block, "TReplaced!");
     std.log.info("block: [{}]", .{block});
 
@@ -1484,7 +1510,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.applyOperation(.{ .replace = .{
         .start = block.positionFromDocbyte(4),
         .text = "!!!!",
-    } });
+    } }, null);
     try testBlockEquals(&block, "TRep!!!!d!");
     std.log.info("block: [{}]", .{block});
 
@@ -1493,7 +1519,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.applyOperation(.{ .replace = .{
         .start = .{ .id = @enumFromInt(3 << 16), .segbyte = 1 },
         .text = "ABCD",
-    } });
+    } }, null);
     try testBlockEquals(&block, "TRep!!!!dABCD!");
     std.log.info("block: [{}]", .{block});
 
@@ -1616,7 +1642,7 @@ const BlockTester = struct {
         self.complex.genOperations(&self.opgen, self.complex.positionFromDocbyte(start), delete_count, insert_text);
         for (self.opgen.items) |op| {
             // std.log.info("    -> apply {}", .{op});
-            self.complex.applyOperation(op);
+            self.complex.applyOperation(op, null);
         }
         // std.log.info("  Updated document: [{}], ", .{self.complex});
 

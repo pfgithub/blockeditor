@@ -44,7 +44,7 @@ pub const AnyBlock = struct {
 pub const BlockVtable = struct {
     /// must be deterministic. given an initial block state and a list of operations, applying the same operations in the same order
     /// must always yield a byte-for-byte identical serialized result.
-    applyOperation: *const fn (block: AnyBlock, operation: AlignedByteSlice, undo_operation: *AlignedArrayList) DeserializeError!void,
+    applyOperation: *const fn (block: AnyBlock, operation: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void,
 
     serialize: *const fn (block: AnyBlock, out: *AlignedArrayList) void,
     deserialize: *const fn (gpa: std.mem.Allocator, in: AlignedByteSlice) DeserializeError!AnyBlock,
@@ -96,7 +96,7 @@ pub const CounterBlock = struct {
         }
     };
 
-    fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: *AlignedArrayList) DeserializeError!void {
+    fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
         const self = any.cast(CounterBlock);
         const operation = try Operation.deserialize(operation_serialized);
 
@@ -111,7 +111,7 @@ pub const CounterBlock = struct {
             .add => |num| self.count +%= num,
             .set => |num| self.count = num,
         }
-        undo_op.serialize(undo_operation);
+        if (undo_operation) |undo| undo_op.serialize(undo);
     }
 
     fn serialize(any: AnyBlock, out: *AlignedArrayList) void {
