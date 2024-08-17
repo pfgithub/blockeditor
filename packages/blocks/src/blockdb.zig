@@ -3,8 +3,11 @@
 const std = @import("std");
 const bi = @import("blockinterface2.zig");
 
-// TODO: remove block paths in favour of block ids
-// - we'll start with sqlite or some key-value store before doing filesystem
+// TODO: you should be able to apply multiple operations at once by calling on the BlockDBInterface. The server should be able to send
+// batches of multiple operations at once to apply all at the same time.
+// If operations are submitted as batched, they should be sent to the server as batched.
+// For now that is supported if the block supports multiple operations, but it's not supported across multiple blocks. We could support it
+// across multiple blocks.
 
 fn Queue(comptime T: type) type {
     return std.fifo.LinearFifo(T, .Dynamic);
