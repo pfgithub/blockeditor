@@ -10,10 +10,6 @@
 
 fn BalancedBinaryTree(comptime Data: type) type {
     return struct {
-        // TODO: auto balancing (red/black or bst?)
-        // sample red black tree impl: https://github.com/CutieDeng/RBTreeUnmanaged/blob/master/src/root.zig
-        // it doesn't support the automated summing, it just has a compare fn. so basically worthless.
-        // but it should show how to make the tree.
         const Count = Data.Count;
 
         const NodeIndex = enum(usize) {
@@ -592,12 +588,17 @@ pub const MoveID = enum(u64) {
 // - compaction destroys undo history
 
 pub const TextDocument = Document(u8, 0);
-// this is generic, but it doesn't really work for reorderable lists
-// - reorderable lists generally you don't want to duplicate items when you
-//   move them around, but current implementation would have if two people
-//   move an item at the same time it would duplicate it.
+/// The plan is for this to work for:
+/// - Text documents
+/// - Reorderable lists ('move' op should be used rather than delete+insert)
+/// TODO: document needs to call deinit on T if it is available
 pub fn Document(comptime T: type, comptime T_empty: T) type {
     return struct {
+        // TODO serialization:
+        // first, write all the spans and tombstones. merge any adjacent ones that can be merged
+        // next, align back to 16 and write all the buffer content
+        // make sure the whole buffer is fully in span order when serialized.
+        // tombstones don't end up in the serialized output!
         const Doc = @This();
         pub const Operation = union(enum) {
             move: struct {
@@ -608,8 +609,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 end: Position,
 
                 // to find the spans to move, it gets the spans from start to start + len_within_segment (within
-                // a segment). deleted spans are not included. this is how it prevents duplication if two people
-                // move at once.
+                // a segment). tombstones are included in length calculations but are not moved.
             },
             insert: struct {
                 id: SegmentID,
@@ -712,7 +712,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
             pub fn format(value: Span, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
                 if (value.disabled_by_id != .none) {
-                    try writer.print("-", .{});
+                    try writer.print("-{d}", .{value.length});
                 } else {
                     try writer.print("{}\"{d}\"", .{ value.id, value.length });
                 }
@@ -798,7 +798,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     const span_text = self.buffer.items[bufbyte..][0..span.length];
                     try writer.print("\"{}\"", .{std.zig.fmtEscapes(span_text)});
                 } else {
-                    try writer.print("-", .{});
+                    try writer.print("-{d}", .{span.length});
                 }
             }
         }
@@ -1177,29 +1177,55 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     };
                     defer self.segment_id_map.allocator.free(affected_spans);
 
+                    const op_start_segbyte = replace_op.start.segbyte;
+                    const op_end_segbyte = op_start_segbyte + replace_op.text.len;
+
                     for (affected_spans) |affected_span_idx| {
                         // right we have to call replaceRange to update a span
                         // replaceRange
 
-                        const span_value = self.span_bbt.getNodeDataPtrConst(affected_span_idx);
-                        _ = span_value;
+                        const span_value = self.span_bbt.getNodeDataPtrConst(affected_span_idx).?;
+
+                        const span_start_segbyte = span_value.start_segbyte;
+                        const span_end_segbyte = span_start_segbyte + span_value.length;
+
+                        const op_clamped_start_segbyte = @max(op_start_segbyte, span_start_segbyte);
+                        const op_clamped_end_segbyte = @min(op_end_segbyte, span_end_segbyte);
 
                         // branches:
-                        // - not deleted and partial or full coverage:
-                        //   - @memcpy into buffer
-                        // - deleted and full coverage:
-                        //   - append to buffer. replaceRange to set node & mark undeleted
-                        //     - note that we probably still have the old range reserved in the buffer, we're wasting memory
-                        //       storing duplicated stuff. that's fine for now.
-                        // - deleted and partial coverage:
-                        //   - have to split and mark just one segment undeleted
-                        //   - for now we can panic("TODO")
-                        //   - ideally we should have a split function because it's such a common operation
-                        // - off right end:
-                        //   - break
-                    }
+                        // - out of range
+                        if (op_clamped_start_segbyte >= op_clamped_end_segbyte) {
+                            // - skip
+                            continue;
+                        }
 
-                    @panic("TODO implement replace_op");
+                        const span_start_offset = op_clamped_start_segbyte - span_start_segbyte;
+                        const op_start_offset = op_clamped_start_segbyte - replace_op.start.segbyte;
+                        const clamped_length = op_clamped_end_segbyte - op_clamped_start_segbyte;
+
+                        if (span_value.bufbyte) |bufbyte| {
+                            // - not deleted and partial or full coverage:
+                            // update buffer
+                            const full_range = self.buffer.items[bufbyte..][0..span_value.length];
+                            const update_range = full_range[span_start_offset..][0..clamped_length];
+                            @memcpy(update_range, replace_op.text[op_start_offset..][0..clamped_length]);
+
+                            // update newline points
+                            self._replaceRange(affected_span_idx, 1, &.{span_value.*});
+                        } else if (clamped_length == span_value.length) {
+                            // - deleted and full coverage:
+                            //   - append to buffer. replaceRange to set node & mark undeleted
+                            //     - note that we probably still have the old range reserved in the buffer, we're wasting memory
+                            //       storing duplicated stuff. that's fine for now.
+                            @panic("TODO deleted and full coverage branch");
+                        } else {
+                            // - deleted and partial coverage:
+                            //   - have to split and mark just one segment undeleted
+                            //   - for now we can panic("TODO")
+                            //   - ideally we should have a split function because it's such a common operation
+                            @panic("TODO deleted and partial coverage branch");
+                        }
+                    }
                 },
             }
         }
@@ -1439,19 +1465,36 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     }
     try testBlockEquals(&block, "TCleared.!");
     std.log.info("block: [{}]", .{block});
-    std.debug.assert(block.length() == 10);
 
-    // block.applyOperation(.{
-    //     .move = .{
-    //         .start = block.positionFromDocbyte(2),
-    //         .end = block.positionFromDocbyte(8),
-    //         .len_within_segment = 5,
-    //         .prev_move_id = @enumFromInt(@intFromEnum(block.positionFromDocbyte(2).id)),
-    //         .next_move_id = block.moveUuid(),
-    //     },
-    // });
-    // try testBlockEquals(&block, "TCdleare.!");
-    // std.log.info("block: [{}]", .{block});
+    // replace live text
+    opgen_demo.clearRetainingCapacity();
+    block.applyOperation(.{ .replace = .{
+        .start = block.positionFromDocbyte(1),
+        .text = "Replaced",
+    } });
+    try testBlockEquals(&block, "TReplaced!");
+    std.log.info("block: [{}]", .{block});
+
+    // replace part of live text
+
+    // bring back full dead text
+
+    // bring back part of dead text
+
+    // move text
+    if (false) {
+        block.applyOperation(.{
+            .move = .{
+                .start = block.positionFromDocbyte(2),
+                .end = block.positionFromDocbyte(8),
+                .len_within_segment = 5,
+                .prev_move_id = @enumFromInt(@intFromEnum(block.positionFromDocbyte(2).id)),
+                .next_move_id = block.moveUuid(),
+            },
+        });
+        try testBlockEquals(&block, "<todo>");
+        std.log.info("block: [{}]", .{block});
+    }
 }
 test "sample block" {
     const gpa = std.testing.allocator;
