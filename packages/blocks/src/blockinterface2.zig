@@ -61,11 +61,9 @@ pub const BlockVtable = struct {
     is_crdt: bool,
 };
 
-pub const CounterBlock = struct {
-    // typically instead of making blocks, you make composable components. this is just an example.
-
-    gpa: std.mem.Allocator, // to free self on deinit
+pub const CounterComponent = struct {
     count: i32,
+
     const counterblock_serialized = extern struct {
         count: i32,
     };
@@ -101,9 +99,7 @@ pub const CounterBlock = struct {
             };
         }
     };
-
-    fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
-        const self = any.cast(CounterBlock);
+    pub fn applyOperation(self: *CounterComponent, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
         const operation = try Operation.deserialize(operation_serialized);
 
         const undo_op: Operation = switch (operation) {
@@ -120,23 +116,54 @@ pub const CounterBlock = struct {
         if (undo_operation) |undo| undo_op.serialize(undo);
     }
 
-    fn serialize(any: AnyBlock, out: *AlignedArrayList) void {
-        const self = any.cast(CounterBlock);
+    pub fn serialize(self: CounterComponent, out: *AlignedArrayList) void {
         const res: counterblock_serialized = .{ .count = self.count };
         out.writer().writeStructEndian(res, .little) catch @panic("oom");
     }
-    pub fn deserialize(gpa: std.mem.Allocator, in: AlignedByteSlice) DeserializeError!AnyBlock {
-        var fbs = std.io.fixedBufferStream(in);
+    pub fn deserialize(_: std.mem.Allocator, fbs: *std.io.FixedBufferStream([]align(16) const u8)) DeserializeError!CounterComponent {
         const values = fbs.reader().readStructEndian(counterblock_serialized, .little) catch return error.DeserializeError;
         if (fbs.pos != fbs.buffer.len) return error.DeserializeError;
 
+        return .{ .count = values.count };
+    }
+
+    pub fn deinit(self: *CounterComponent) void {
+        _ = self;
+    }
+};
+
+pub const CounterBlock = struct {
+    // typically instead of making blocks, you make composable components. this is just an example.
+
+    gpa: std.mem.Allocator, // to free self on deinit
+    value: CounterComponent,
+
+    pub const default: AlignedByteSlice = CounterComponent.default;
+
+    pub const Operation = CounterComponent.Operation;
+
+    fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
+        const self = any.cast(CounterBlock);
+        try self.value.applyOperation(operation_serialized, undo_operation);
+    }
+
+    fn serialize(any: AnyBlock, out: *AlignedArrayList) void {
+        const self = any.cast(CounterBlock);
+        self.value.serialize(out);
+    }
+    pub fn deserialize(gpa: std.mem.Allocator, in: AlignedByteSlice) DeserializeError!AnyBlock {
+        var fbs = std.io.fixedBufferStream(in);
+        const value = try CounterComponent.deserialize(gpa, &fbs);
+        if (fbs.pos != fbs.buffer.len) return error.DeserializeError;
+
         const self = gpa.create(CounterBlock) catch @panic("oom");
-        self.* = .{ .gpa = gpa, .count = values.count };
+        self.* = .{ .gpa = gpa, .value = value };
 
         return AnyBlock.from(CounterBlock, self);
     }
     fn deinit(any: AnyBlock) void {
         const self = any.cast(CounterBlock);
+        self.value.deinit();
         const gpa = self.gpa;
         gpa.destroy(self);
     }
@@ -147,7 +174,7 @@ test CounterBlock {
     const mycounter = try CounterBlock.deserialize(gpa, CounterBlock.default);
     defer mycounter.vtable.deinit(mycounter);
 
-    try std.testing.expectEqual(@as(i32, 0), mycounter.cast(CounterBlock).count);
+    try std.testing.expectEqual(@as(i32, 0), mycounter.cast(CounterBlock).value.count);
 
     var my_operation_al = AlignedArrayList.init(gpa);
     defer my_operation_al.deinit();
@@ -159,5 +186,5 @@ test CounterBlock {
     defer my_undo_operation_al.deinit();
     try mycounter.vtable.applyOperation(mycounter, my_operation_al.items, &my_undo_operation_al);
 
-    try std.testing.expectEqual(@as(i32, 12), mycounter.cast(CounterBlock).count);
+    try std.testing.expectEqual(@as(i32, 12), mycounter.cast(CounterBlock).value.count);
 }
