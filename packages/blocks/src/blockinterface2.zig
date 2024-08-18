@@ -132,42 +132,45 @@ pub const CounterComponent = struct {
     }
 };
 
-pub const CounterBlock = struct {
-    // typically instead of making blocks, you make composable components. this is just an example.
+pub fn ComposedBlock(comptime ChildComponent: type) type {
+    return struct {
+        const Self = @This();
+        gpa: std.mem.Allocator, // to free self on deinit
+        value: ChildComponent,
 
-    gpa: std.mem.Allocator, // to free self on deinit
-    value: CounterComponent,
+        pub const default: AlignedByteSlice = ChildComponent.default;
 
-    pub const default: AlignedByteSlice = CounterComponent.default;
+        pub const Operation = ChildComponent.Operation;
 
-    pub const Operation = CounterComponent.Operation;
+        fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
+            const self = any.cast(Self);
+            try self.value.applyOperation(operation_serialized, undo_operation);
+        }
 
-    fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
-        const self = any.cast(CounterBlock);
-        try self.value.applyOperation(operation_serialized, undo_operation);
-    }
+        fn serialize(any: AnyBlock, out: *AlignedArrayList) void {
+            const self = any.cast(Self);
+            self.value.serialize(out);
+        }
+        pub fn deserialize(gpa: std.mem.Allocator, in: AlignedByteSlice) DeserializeError!AnyBlock {
+            var fbs = std.io.fixedBufferStream(in);
+            const value = try ChildComponent.deserialize(gpa, &fbs);
+            if (fbs.pos != fbs.buffer.len) return error.DeserializeError;
 
-    fn serialize(any: AnyBlock, out: *AlignedArrayList) void {
-        const self = any.cast(CounterBlock);
-        self.value.serialize(out);
-    }
-    pub fn deserialize(gpa: std.mem.Allocator, in: AlignedByteSlice) DeserializeError!AnyBlock {
-        var fbs = std.io.fixedBufferStream(in);
-        const value = try CounterComponent.deserialize(gpa, &fbs);
-        if (fbs.pos != fbs.buffer.len) return error.DeserializeError;
+            const self = gpa.create(Self) catch @panic("oom");
+            self.* = .{ .gpa = gpa, .value = value };
 
-        const self = gpa.create(CounterBlock) catch @panic("oom");
-        self.* = .{ .gpa = gpa, .value = value };
+            return AnyBlock.from(Self, self);
+        }
+        fn deinit(any: AnyBlock) void {
+            const self = any.cast(Self);
+            self.value.deinit();
+            const gpa = self.gpa;
+            gpa.destroy(self);
+        }
+    };
+}
 
-        return AnyBlock.from(CounterBlock, self);
-    }
-    fn deinit(any: AnyBlock) void {
-        const self = any.cast(CounterBlock);
-        self.value.deinit();
-        const gpa = self.gpa;
-        gpa.destroy(self);
-    }
-};
+pub const CounterBlock = ComposedBlock(CounterComponent);
 
 test CounterBlock {
     const gpa = std.testing.allocator;
