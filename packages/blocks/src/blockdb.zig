@@ -81,7 +81,12 @@ fn simulateNetworkLatency() void {
     std.time.sleep(300 * std.time.ns_per_ms);
 }
 
-const FSBlockDBInterface = struct {
+pub const FSBlockDBInterface = struct {
+    // rather than making one of these per-backend, should we just have one and allow the user to define the backend?
+    // - BlockDBInterface posts its jobs into _thread_queue, and your user code can interperet that, run that, and post
+    //   results into _to_apply_queue
+    // - I think that makes sense
+
     gpa: std.mem.Allocator,
 
     path_to_blockref_map: std.AutoArrayHashMap(bi.BlockID, *BlockRef),
@@ -115,7 +120,7 @@ const FSBlockDBInterface = struct {
         }
     };
 
-    fn init(gpa: std.mem.Allocator) AnyBlockDB {
+    pub fn init(gpa: std.mem.Allocator) AnyBlockDB {
         if (@inComptime()) @compileError("comptime");
         const self = gpa.create(FSBlockDBInterface) catch @panic("oom");
         self.* = .{
@@ -353,7 +358,7 @@ fn AtomicMutexValue(comptime T: type) type {
     };
 }
 
-const BlockRef = struct {
+pub const BlockRef = struct {
     // we would like a way for updates to announce what changed:
     // - for text, this is (old_start, old_len, new_start, inserted_text)
     //   - tree_sitter needs this to update syntax highlighting

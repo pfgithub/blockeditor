@@ -1,4 +1,7 @@
 const std = @import("std");
+const blocks_mod = @import("blocks");
+const bi = blocks_mod.blockinterface2;
+const db = blocks_mod.blockdb;
 
 const zglfw = @import("zglfw");
 const zgpu = @import("zgpu");
@@ -6,10 +9,56 @@ const wgpu = zgpu.wgpu;
 const zgui = @import("zgui");
 const zstbi = @import("zstbi");
 
+fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
+    zgui.setNextWindowPos(.{ .x = 20.0, .y = 60.0, .cond = .first_use_ever });
+    zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
+    if (zgui.begin("My counter", .{})) {
+        if (counter_anyref.clientValue()) |counter_anyblock| {
+            const counter = counter_anyblock.cast(bi.CounterBlock);
+            zgui.text("Count: {d} (server value: {d})", .{ counter.value.count, counter_anyref.contents().?.server_value.cast(bi.CounterBlock).value.count });
+            if (zgui.button("Increment!", .{})) {
+                var my_operation_al = bi.AlignedArrayList.init(arena);
+                defer my_operation_al.deinit();
+                const my_operation = bi.CounterBlock.Operation{
+                    .add = 1,
+                };
+                my_operation.serialize(&my_operation_al);
+                var my_undo_operation_al = bi.AlignedArrayList.init(arena);
+                defer my_undo_operation_al.deinit();
+                counter_anyref.applyOperation(my_operation_al.items, &my_undo_operation_al);
+            }
+            if (zgui.button("Zero!", .{})) {
+                var my_operation_al = bi.AlignedArrayList.init(arena);
+                defer my_operation_al.deinit();
+                const my_operation = bi.CounterBlock.Operation{
+                    .set = 0,
+                };
+                my_operation.serialize(&my_operation_al);
+                var my_undo_operation_al = bi.AlignedArrayList.init(arena);
+                defer my_undo_operation_al.deinit();
+                counter_anyref.applyOperation(my_operation_al.items, &my_undo_operation_al);
+            }
+        } else {
+            zgui.text("Counter loading...", .{});
+        }
+    }
+    zgui.end();
+}
+
 pub fn main() !void {
     var gpa_alloc = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(gpa_alloc.deinit() == .ok);
     const gpa = gpa_alloc.allocator();
+
+    var arena_alloc = std.heap.ArenaAllocator.init(gpa);
+    defer arena_alloc.deinit();
+    const arena = arena_alloc.allocator();
+
+    const interface = db.FSBlockDBInterface.init(gpa);
+    defer interface.vtable.deinit(interface);
+
+    const my_counter = interface.vtable.createBlock(interface, bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
+    defer my_counter.unref();
 
     {
         // Change cwd to where the executable is located.
@@ -105,6 +154,8 @@ pub fn main() !void {
         }
         zgui.end();
 
+        renderCounter(arena, my_counter);
+
         const swapchain_texv = gctx.swapchain.getCurrentTextureView();
         defer swapchain_texv.release();
 
@@ -125,5 +176,7 @@ pub fn main() !void {
 
         gctx.submit(&.{commands});
         _ = gctx.present();
+
+        _ = arena_alloc.reset(.retain_capacity);
     }
 }

@@ -4,9 +4,16 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    _ = b.addModule("blocks", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const block_test = b.addTest(.{
         .target = target,
         .optimize = optimize,
+        // .root_module = blocks_mod,
         .root_source_file = b.path("src/root.zig"),
     });
     const run_block_tests = b.addRunArtifact(block_test);

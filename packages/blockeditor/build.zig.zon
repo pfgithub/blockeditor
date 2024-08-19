@@ -9,8 +9,8 @@
             .url = "https://github.com/zig-gamedev/zig-gamedev/archive/0b983b024ac9d85dd7402822c8f82a4315727017.tar.gz",
             .hash = "1220ef2304a00c547708d8e6b53c464d23cc30e3d1e9f7436716acdc36709467fe9a",
         },
-        .texteditor_block = .{
-            .path = "../texteditor_block",
+        .blocks = .{
+            .path = "../blocks",
         },
     },
 }

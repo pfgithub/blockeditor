@@ -1,6 +1,6 @@
-const blockdb = @import("blockdb.zig");
-const blockinterface2 = @import("blockinterface2.zig");
-const text_component = @import("text_component.zig");
+pub const blockdb = @import("blockdb.zig");
+pub const blockinterface2 = @import("blockinterface2.zig");
+pub const text_component = @import("text_component.zig");
 
 test {
     _ = blockdb;

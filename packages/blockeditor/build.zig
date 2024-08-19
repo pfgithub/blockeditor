@@ -19,11 +19,11 @@ pub fn build(b: *std.Build) !void {
     });
     blockeditor_exe.step.dependOn(&format_step.step);
 
-    const texteditor_block_dep = b.dependency("texteditor_block", .{
+    const blocks_dep = b.dependency("blocks", .{
         .target = target,
         .optimize = optimize,
     });
-    blockeditor_exe.root_module.addImport("texteditor_block", texteditor_block_dep.module("texteditor_block"));
+    blockeditor_exe.root_module.addImport("blocks", blocks_dep.module("blocks"));
 
     {
         // hack
