@@ -135,3 +135,20 @@ the one problem with the replay method is that it relies on a source of truth fo
   - if you sync client A and B and seperately sync client C and D, their histories are now unmergable
     - well not really, you just have to go back to the point where they diverged, choose an order, and replay them together
     - but you have to be careful about it, you can't just sync them randomly whenever you want
+
+---
+
+perfect undo
+
+- perfect undo requires rolling back to the state before the operation was applied, fake applying that operation so
+no change happens but its dependents still function, and then running forwards again
+  - you want to continue as if the operation that was undone never happened
+- for a counter, that means [add 1] [add 1] [M:set 0] [add 1]. removing M, the counter should be 3, however currently it would be 2 (or even 1 or 0 if the previous adds were from other people)
+  - making perfect undo here seems difficult without actually simulating
+- we won't have perfect undo
+
+version history
+
+- it would be cool if the current state of the document stored when everything was added so you could see the document at any point trivially. but that's a lot of information you don't usually need wasting space.
+- we can do version history by having the server make backups at regular intervals and keep the operations list.
+- for now, we will not implement version history.
