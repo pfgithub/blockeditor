@@ -117,6 +117,21 @@ pub const TcpSync = struct {
     recv_thread: std.Thread,
     should_kill: std.atomic.Value(bool),
 
+    // to implement offline-first:
+    // - when we first read a block:
+    //   - load it from the local filesystem cache
+    //   - send the load request to the server
+    // - when we recieve the value from the filesystem cache:
+    //   - use it
+    // - when we recieve the value from the server, after the fs cache value has already been loaded:
+    //   - replace server_value with this one
+    //   - update client_value to server_value + unapplied_operations
+    //   - visually indicate somehow that this is the remote version, not the local version
+    // - when we apply an operation
+    //   - keep it locally in a filesystem cache so if we're offline we can send it in next time we're online
+    //   - always send from this queue first before sending any new operations that were created this session.
+    //     operations created this session may depend on ones from the filesystem queue.
+
     pub fn create(gpa: std.mem.Allocator, db: *BlockDB) *TcpSync {
         const self = gpa.create(TcpSync) catch @panic("oom");
         self.* = .{
@@ -150,6 +165,8 @@ pub const TcpSync = struct {
         while (true) {
             // take job
             const job = self.db.send_queue.waitRead(&self.should_kill) orelse return;
+            // free job resources
+            defer self.db.recv_queue.write(.{ .deinit_instruction = job });
 
             // execute job
             switch (job) {
@@ -162,9 +179,12 @@ pub const TcpSync = struct {
                     // block.loaded.store(true, .acquire); // acquire to make sure the previous store is in the right order
                 },
                 .create_block => |block| {
-                    std.log.info("TODO create_block: '{}'", .{block.block.id});
                     simulateNetworkLatency();
-                    std.log.info("-> created", .{});
+
+                    const op_owned_2 = self.gpa.alignedAlloc(u8, 16, block.initial_value_owned.len) catch @panic("oom");
+                    @memcpy(op_owned_2, block.initial_value_owned);
+
+                    self.db.recv_queue.write(.{ .load_block = .{ .block = block.block.id, .value_owned = op_owned_2 } });
                 },
                 .apply_operation => |block| {
                     simulateNetworkLatency();
@@ -175,9 +195,6 @@ pub const TcpSync = struct {
                     self.db.recv_queue.write(.{ .apply_operation = .{ .block = block.block.id, .operation_owned = op_owned_2 } });
                 },
             }
-
-            // free job resources
-            self.db.recv_queue.write(.{ .deinit_instruction = job });
         }
     }
 };
@@ -266,8 +283,8 @@ pub const BlockDB = struct {
                 .deinit_instruction => {},
                 .apply_operation => |op| {
                     if (self.path_to_blockref_map.get(op.block)) |block_ref| {
-                        if (block_ref.contents()) |contents| {
-                            contents.server_value.vtable.applyOperation(contents.server_value, op.operation_owned, null) catch {
+                        if (block_ref.contents()) |contents| if (contents.server()) |server| {
+                            server.vtable.applyOperation(server, op.operation_owned, null) catch {
                                 // yikes
                                 std.log.err("recieved invalid operation from server", .{});
                                 continue;
@@ -279,27 +296,41 @@ pub const BlockDB = struct {
                                 // operation is identical to our first local change (may be someone else's, that's ok)
                                 const owned = block_ref.unapplied_operations_queue.readItem().?;
                                 block_ref.unapplied_operations_queue.allocator.free(owned);
-                            } else if (contents.server_value.vtable.is_crdt) {
+                            } else if (contents.vtable.is_crdt) {
                                 // operation is someone else's, but block is a crdt so order does not matter
-                                contents.client_value.vtable.applyOperation(contents.client_value, op.operation_owned, null) catch @panic("server operation was valid once but not twice?");
+                                contents.client().vtable.applyOperation(contents.client(), op.operation_owned, null) catch @panic("server operation was valid once but not twice?");
                             } else if (unapplied_operations_queue.len > 0) {
                                 // operation is someone else's and we have local changes
-                                contents.client_value.vtable.deinit(contents.client_value);
-                                contents.client_value = contents.server_value.clone(self.gpa);
+                                contents.client().vtable.deinit(contents.client());
+                                contents.client_data = server.clone(self.gpa).data;
                                 for (unapplied_operations_queue) |unapplied_operation| {
-                                    contents.client_value.vtable.applyOperation(contents.client_value, unapplied_operation, null) catch @panic("invalid client operation");
+                                    contents.client().vtable.applyOperation(contents.client(), unapplied_operation, null) catch @panic("invalid client operation");
                                 }
                             } else {
                                 // operation is someone else's but we have no local changes
                                 std.debug.assert(unapplied_operations_queue.len == 0);
-                                contents.client_value.vtable.applyOperation(contents.client_value, op.operation_owned, null) catch @panic("server operation was valid once but not twice?");
+                                contents.client().vtable.applyOperation(contents.client(), op.operation_owned, null) catch @panic("server operation was valid once but not twice?");
                             }
-                        }
+                        };
                     }
                 },
-                .load_block => |_| {
-                    @panic("TODO"); // we need to know what type the block is so we can deserialize with the right
-                    // vtable. that information isn't in load_block yet.
+                .load_block => |op| {
+                    if (self.path_to_blockref_map.get(op.block)) |block_ref| {
+                        if (block_ref.contents()) |contents| {
+                            if (contents.server()) |_| {
+                                std.log.info("discarded load_block operation as server is already filled for block {}", .{op.block});
+                            } else {
+                                const dsrlz = contents.vtable.deserialize(self.gpa, op.value_owned) catch {
+                                    std.log.err("recieved invalid block from server", .{});
+                                    continue;
+                                };
+                                contents.server_data = dsrlz.data;
+                            }
+                        } else {
+                            @panic("TODO"); // we need to know what type the block is so we can deserialize with the right
+                            // vtable. that information isn't in load_block yet.
+                        }
+                    }
                 },
             }
         }
@@ -318,8 +349,9 @@ pub const BlockDB = struct {
             .unapplied_operations_queue = Queue(bi.AlignedByteSlice).init(self.gpa),
 
             ._contents = .{
-                .server_value = initial_value,
-                .client_value = initial_value.clone(self.gpa),
+                .vtable = initial_value.vtable,
+                .server_data = null,
+                .client_data = initial_value.data,
             },
         };
         self.path_to_blockref_map.put(new_blockref.id, new_blockref) catch @panic("oom");
@@ -373,8 +405,8 @@ pub const BlockDB = struct {
         std.debug.assert(block.ref_count == 0);
 
         if (block.contents()) |contents| {
-            contents.server_value.vtable.deinit(contents.server_value);
-            contents.client_value.vtable.deinit(contents.client_value);
+            if (contents.server()) |server| server.vtable.deinit(server);
+            contents.client().vtable.deinit(contents.client());
         }
         for (block.unapplied_operations_queue.readableSlice(0)) |str| {
             block.unapplied_operations_queue.allocator.free(str);
@@ -417,16 +449,21 @@ pub const BlockRef = struct {
     unapplied_operations_queue: Queue(bi.AlignedByteSlice),
 
     const BlockRefContents = struct {
-        server_value: bi.AnyBlock,
-        client_value: bi.AnyBlock,
+        vtable: *const bi.BlockVtable,
+        server_data: ?*anyopaque, // null if not loaded
+        client_data: *anyopaque,
+
+        pub fn server(self: BlockRefContents) ?bi.AnyBlock {
+            if (self.server_data) |sv| return .{ .data = sv, .vtable = self.vtable };
+            return null;
+        }
+        pub fn client(self: BlockRefContents) bi.AnyBlock {
+            return .{ .data = self.client_data, .vtable = self.vtable };
+        }
     };
 
     pub fn contents(self: *BlockRef) ?*BlockRefContents {
         return if (self._contents) |*v| v else null;
-    }
-    pub fn clientValue(self: *BlockRef) ?bi.AnyBlock {
-        if (self.contents()) |c| return c.client_value;
-        return null;
     }
 
     pub fn applyOperation(self: *BlockRef, op: bi.AlignedByteSlice, undo_op: *bi.AlignedArrayList) void {
@@ -437,7 +474,7 @@ pub const BlockRef = struct {
         @memcpy(op_clone, op);
 
         // apply it to client contents and tell owning BlockDBInterface about the operation to eventually get it into server value
-        content.client_value.vtable.applyOperation(content.client_value, op, undo_op) catch @panic("Deserialize error only allowed on network operations");
+        content.client().vtable.applyOperation(content.client(), op, undo_op) catch @panic("Deserialize error only allowed on network operations");
         self.unapplied_operations_queue.writeItem(op_clone) catch @panic("oom");
         self.db.submitOperation(self, op);
     }

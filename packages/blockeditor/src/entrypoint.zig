@@ -13,9 +13,12 @@ fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
     zgui.setNextWindowPos(.{ .x = 20.0, .y = 80.0, .cond = .first_use_ever });
     zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
     if (zgui.begin("My counter", .{})) {
-        if (counter_anyref.clientValue()) |counter_anyblock| {
-            const counter = counter_anyblock.cast(bi.CounterBlock);
-            zgui.text("Count: {d} (server value: {d})", .{ counter.value.count, counter_anyref.contents().?.server_value.cast(bi.CounterBlock).value.count });
+        if (counter_anyref.contents()) |counter_contents| {
+            const counter = counter_contents.client().cast(bi.CounterBlock);
+            const server_int = if (counter_contents.server()) |server_value| ( //
+                server_value.cast(bi.CounterBlock).value.count //
+            ) else null;
+            zgui.text("Count: {d} (server value: {?d})", .{ counter.value.count, server_int });
             if (zgui.button("Increment!", .{})) {
                 var my_operation_al = bi.AlignedArrayList.init(arena);
                 defer my_operation_al.deinit();
