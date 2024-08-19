@@ -10,7 +10,7 @@ const zgui = @import("zgui");
 const zstbi = @import("zstbi");
 
 fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
-    zgui.setNextWindowPos(.{ .x = 20.0, .y = 60.0, .cond = .first_use_ever });
+    zgui.setNextWindowPos(.{ .x = 20.0, .y = 80.0, .cond = .first_use_ever });
     zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
     if (zgui.begin("My counter", .{})) {
         if (counter_anyref.clientValue()) |counter_anyblock| {
@@ -37,6 +37,12 @@ fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
                 var my_undo_operation_al = bi.AlignedArrayList.init(arena);
                 defer my_undo_operation_al.deinit();
                 counter_anyref.applyOperation(my_operation_al.items, &my_undo_operation_al);
+            }
+            if (zgui.button("Undo!", .{})) {
+                @panic("TODO: someone needs to keep an undo list");
+            }
+            if (zgui.button("Redo!", .{})) {
+                @panic("TODO: someone needs to keep a redo list");
             }
         } else {
             zgui.text("Counter loading...", .{});
