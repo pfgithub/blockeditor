@@ -239,6 +239,8 @@ pub const BlockDB = struct {
     /// call this after the operation has been applied to client_value and added to the queue
     /// to save it.
     fn submitOperation(self: *BlockDB, block: *BlockRef, op_unowned: bi.AlignedByteSlice) void {
+        std.log.info("applyOperation to block {}", .{block.id});
+
         const op_owned = self.gpa.alignedAlloc(u8, 16, op_unowned.len) catch @panic("oom");
         @memcpy(op_owned, op_unowned);
 
