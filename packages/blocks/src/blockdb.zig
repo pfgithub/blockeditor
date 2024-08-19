@@ -18,6 +18,67 @@ const bi = @import("blockinterface2.zig");
 //     we can just have every client apply all of server 2's operations (or server 1 for server 2 clients) and not worry about order
 //     at all
 
+fn ThreadQueue(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        _raw_queue: Queue(T),
+        mutex: std.Thread.Mutex,
+        condition: std.Thread.Condition,
+
+        pub fn init(alloc: std.mem.Allocator) Self {
+            return .{
+                ._raw_queue = Queue(T).init(alloc),
+                .mutex = .{},
+                .condition = .{},
+            };
+        }
+        pub fn deinit(self: *Self) void {
+            if (!self.mutex.tryLock()) @panic("cannot deinit while another thread uses the queue");
+            self._raw_queue.deinit();
+        }
+
+        pub fn write(self: *Self, value: T) void {
+            self.writeMany(&.{value});
+        }
+        pub fn writeMany(self: *Self, value: []const T) void {
+            {
+                self.mutex.lock();
+                defer self.mutex.unlock();
+                self._raw_queue.write(value) catch @panic("oom");
+            }
+            self.signal();
+        }
+        pub fn kill(self: *Self) void {
+            self.kill_thread.store(true, .monotonic);
+            self.condition.signal();
+        }
+        /// returns null if there is no item available at this moment
+        pub fn tryRead(self: *Self) ?T {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            return self._raw_queue.readItem();
+        }
+        /// returns null if should_kill is true (must signal())
+        pub fn waitRead(self: *Self, should_kill: *std.atomic.Value(bool)) ?T {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            while (true) {
+                if (should_kill.load(.monotonic)) return null;
+                if (self._raw_queue.readableLength() != 0) break;
+                self.condition.wait(&self.mutex);
+            }
+
+            return self._raw_queue.readItem().?;
+        }
+        /// call this after changing should_kill
+        pub fn signal(self: *Self) void {
+            self.condition.signal();
+        }
+    };
+}
+
 fn Queue(comptime T: type) type {
     return std.fifo.LinearFifo(T, .Dynamic);
 }
@@ -71,7 +132,9 @@ pub const TcpSync = struct {
     }
     pub fn destroy(self: *TcpSync) void {
         self.should_kill.store(true, .monotonic);
-        self.db._thread_queue_condition.signal();
+        self.db.send_queue.signal();
+        self.db.recv_queue.signal();
+
         self.recv_thread.join();
         self.send_thread.join();
 
@@ -86,18 +149,7 @@ pub const TcpSync = struct {
     fn sendThread(self: *TcpSync) void {
         while (true) {
             // take job
-            const job = blk: {
-                self.db._thread_queue_mutex.lock();
-                defer self.db._thread_queue_mutex.unlock();
-
-                while (true) {
-                    if (self.should_kill.load(.monotonic)) return;
-                    if (self.db._thread_queue.readableSlice(0).len != 0) break;
-                    self.db._thread_queue_condition.wait(&self.db._thread_queue_mutex);
-                }
-
-                break :blk self.db._thread_queue.readItem() orelse unreachable;
-            };
+            const job = self.db.send_queue.waitRead(&self.should_kill) orelse return;
 
             // execute job
             switch (job) {
@@ -115,30 +167,17 @@ pub const TcpSync = struct {
                     std.log.info("-> created", .{});
                 },
                 .apply_operation => |block| {
-                    std.log.info("TODO apply operation to block: '{}'", .{block.block.id});
                     simulateNetworkLatency();
-                    std.log.info("-> applied", .{});
 
-                    // TODO:
-                    // - we'll need a mutex or something:
-                    //   - apply operation to ServerValue
-                    //   - if std.mem.eql(unapplied_operations_queue[0], operation):
-                    //     - queue.readItem()
-                    //   - else:
-                    //     - client_value = clone ServerValue
-                    //     - for(unapplied_operations_queue.readableSlice(0)) |operation|
-                    //       - client_value.applyOperation(operation)
+                    const op_owned_2 = self.gpa.alignedAlloc(u8, 16, block.operation_owned.len) catch @panic("oom");
+                    @memcpy(op_owned_2, block.operation_owned);
 
-                    // instead of locking, we could also have this happen on the main thread?
-                    // like each tick call the fsblockdbinterface.update()
-                    // when we get a server response we put it in a queue for the main thread to
-                    // pick up and handle
-                    // that's possible. that's an option.
+                    self.db.recv_queue.write(.{ .apply_operation = .{ .block = block.block.id, .operation_owned = op_owned_2 } });
                 },
             }
 
             // free job resources
-            job.deinit(self.db);
+            self.db.recv_queue.write(.{ .deinit_instruction = job });
         }
     }
 };
@@ -148,10 +187,28 @@ pub const BlockDB = struct {
 
     path_to_blockref_map: std.AutoArrayHashMap(bi.BlockID, *BlockRef),
 
-    _thread_queue: Queue(ThreadInstruction), // only touch with locked mutex
-    _thread_queue_mutex: std.Thread.Mutex,
-    _thread_queue_condition: std.Thread.Condition, // trigger this whenever an item is added to the ArrayList
+    send_queue: ThreadQueue(ThreadInstruction),
+    recv_queue: ThreadQueue(ToApplyInstruction),
 
+    const ToApplyInstruction = union(enum) {
+        load_block: struct { block: bi.BlockID, value_owned: bi.AlignedByteSlice },
+        apply_operation: struct { block: bi.BlockID, operation_owned: bi.AlignedByteSlice },
+        deinit_instruction: ThreadInstruction,
+
+        fn deinit(self: ToApplyInstruction, dbi: *BlockDB) void {
+            switch (self) {
+                .load_block => |lb| {
+                    dbi.gpa.free(lb.value_owned);
+                },
+                .apply_operation => |op| {
+                    dbi.gpa.free(op.operation_owned);
+                },
+                .deinit_instruction => |instr| {
+                    instr.deinit(dbi);
+                },
+            }
+        }
+    };
     const ThreadInstruction = union(enum) {
         fetch: *BlockRef,
         create_block: struct { block: *BlockRef, initial_value_owned: bi.AlignedByteSlice },
@@ -180,32 +237,69 @@ pub const BlockDB = struct {
 
             .path_to_blockref_map = std.AutoArrayHashMap(bi.BlockID, *BlockRef).init(gpa),
 
-            ._thread_queue = Queue(ThreadInstruction).init(gpa),
-            ._thread_queue_mutex = .{},
-            ._thread_queue_condition = .{},
+            .send_queue = ThreadQueue(ThreadInstruction).init(gpa),
+            .recv_queue = ThreadQueue(ToApplyInstruction).init(gpa),
         };
     }
 
     /// any other threads watching the thread queue must be joined before deinit is called
     pub fn deinit(self: *BlockDB) void {
-        for (self._thread_queue.readableSlice(0)) |*item| {
+        // clear send_queue
+        for (self.send_queue._raw_queue.readableSlice(0)) |*item| {
             item.deinit(self);
         }
-        self._thread_queue.deinit();
+        self.send_queue.deinit();
+
+        // clear recv_queue
+        self.tick();
+        self.recv_queue.deinit();
 
         // blockrefs have a reference to the block interface so they better be gone
         std.debug.assert(self.path_to_blockref_map.values().len == 0);
         self.path_to_blockref_map.deinit();
     }
+    pub fn tick(self: *BlockDB) void {
+        // pply any waiting changes on the main thread
+        while (self.recv_queue.tryRead()) |item| {
+            defer item.deinit(self);
+            switch (item) {
+                .deinit_instruction => {},
+                .apply_operation => |op| {
+                    if (self.path_to_blockref_map.get(op.block)) |block_ref| {
+                        if (block_ref.contents()) |contents| {
+                            contents.server_value.vtable.applyOperation(contents.server_value, op.operation_owned, null) catch {
+                                // yikes
+                                std.log.err("recieved invalid operation from server", .{});
+                                continue;
+                            };
 
-    fn appendJobs(self: *BlockDB, jobs: []const ThreadInstruction) void {
-        {
-            self._thread_queue_mutex.lock();
-            defer self._thread_queue_mutex.unlock();
-
-            self._thread_queue.write(jobs) catch @panic("oom");
+                            const unapplied_operations_queue = block_ref.unapplied_operations_queue.readableSlice(0);
+                            const first_unapplied_operation = if (unapplied_operations_queue.len == 0) "" else unapplied_operations_queue[0];
+                            if (std.mem.eql(u8, op.operation_owned, first_unapplied_operation)) {
+                                // operation is identical to our first local change (may be someone else's, that's ok)
+                                const owned = block_ref.unapplied_operations_queue.readItem().?;
+                                block_ref.unapplied_operations_queue.allocator.free(owned);
+                            } else if (unapplied_operations_queue.len > 0) {
+                                // operation is someone else's and we have local changes
+                                contents.client_value.vtable.deinit(contents.client_value);
+                                contents.client_value = contents.server_value.clone(self.gpa);
+                                for (unapplied_operations_queue) |unapplied_operation| {
+                                    contents.client_value.vtable.applyOperation(contents.client_value, unapplied_operation, null) catch @panic("invalid client operation");
+                                }
+                            } else {
+                                // operation is someone else's but we have no local changes
+                                std.debug.assert(unapplied_operations_queue.len == 0);
+                                contents.client_value.vtable.applyOperation(contents.client_value, op.operation_owned, null) catch @panic("server operation was valid once but not twice?");
+                            }
+                        }
+                    }
+                },
+                .load_block => |_| {
+                    @panic("TODO"); // we need to know what type the block is so we can deserialize with the right
+                    // vtable. that information isn't in load_block yet.
+                },
+            }
         }
-        self._thread_queue_condition.signal();
     }
 
     /// Takes ownership of the passed-in AnyBlock. Returns a referenced BlockRef - make sure to unref when you're done with it!
@@ -217,11 +311,10 @@ pub const BlockDB = struct {
             .db = self,
             .id = @enumFromInt(generated_id),
 
-            .ref_count = .{ .raw = 1 },
+            .ref_count = 1,
             .unapplied_operations_queue = Queue(bi.AlignedByteSlice).init(self.gpa),
 
-            .loaded = .{ .raw = true },
-            ._contents_or_undefined = .{
+            ._contents = .{
                 .server_value = initial_value,
                 .client_value = initial_value.clone(self.gpa),
             },
@@ -234,12 +327,12 @@ pub const BlockDB = struct {
         initial_value.vtable.serialize(initial_value, &initial_value_owned_al);
 
         new_blockref.ref();
-        self.appendJobs(&.{.{
+        self.send_queue.write(.{
             .create_block = .{
                 .block = new_blockref,
                 .initial_value_owned = initial_value_owned_al.toOwnedSlice() catch @panic("oom"),
             },
-        }});
+        });
 
         return new_blockref;
     }
@@ -251,11 +344,10 @@ pub const BlockDB = struct {
             .db = self,
             .id = id,
 
-            .ref_count = .{ .raw = 1 },
+            .ref_count = 1,
             .unapplied_operations_queue = Queue(bi.AlignedByteSlice).init(self.gpa),
 
-            .loaded = .{ .raw = false },
-            ._contents_or_undefined = undefined,
+            ._contents = null,
         };
 
         self.path_to_blockref_map.put(id, new_blockref) catch @panic("oom");
@@ -272,10 +364,10 @@ pub const BlockDB = struct {
         @memcpy(op_owned, op_unowned);
 
         block.ref();
-        self.appendJobs(&.{.{ .apply_operation = .{ .block = block, .operation_owned = op_owned } }});
+        self.send_queue.write(.{ .apply_operation = .{ .block = block, .operation_owned = op_owned } });
     }
     fn destroyBlock(self: *BlockDB, block: *BlockRef) void {
-        std.debug.assert(block.ref_count.load(.acquire) == 0);
+        std.debug.assert(block.ref_count == 0);
 
         if (block.contents()) |contents| {
             contents.server_value.vtable.deinit(contents.server_value);
@@ -313,17 +405,11 @@ pub const BlockRef = struct {
     // - for text, this is (old_start, old_len, new_start, inserted_text)
     //   - tree_sitter needs this to update syntax highlighting
 
-    // we would like this structure to only be accessed from a single thread
-    // - update FSBlockDBInterface to only apply changes on one thread, otherwise we
-    //   need a mutex surrounding the whole BlockRef
-    // - reference counting and 'loaded' no longer needs to be atomic
-
     db: *BlockDB,
-    ref_count: std.atomic.Value(u32),
+    ref_count: u32,
     id: bi.BlockID,
 
-    loaded: std.atomic.Value(bool), // once this is true it will never turn false again.
-    _contents_or_undefined: BlockRefContents,
+    _contents: ?BlockRefContents,
 
     unapplied_operations_queue: Queue(bi.AlignedByteSlice),
 
@@ -333,8 +419,7 @@ pub const BlockRef = struct {
     };
 
     pub fn contents(self: *BlockRef) ?*BlockRefContents {
-        if (!self.loaded.load(.acquire)) return null;
-        return &self._contents_or_undefined;
+        return if (self._contents) |*v| v else null;
     }
     pub fn clientValue(self: *BlockRef) ?bi.AnyBlock {
         if (self.contents()) |c| return c.client_value;
@@ -355,11 +440,11 @@ pub const BlockRef = struct {
     }
 
     pub fn ref(self: *BlockRef) void {
-        _ = self.ref_count.rmw(.Add, 1, .acq_rel);
+        self.ref_count += 1;
     }
     pub fn unref(self: *BlockRef) void {
-        const prev_val = self.ref_count.rmw(.Sub, 1, .acq_rel);
-        if (prev_val == 1) {
+        self.ref_count -= 1;
+        if (self.ref_count == 0) {
             self.db.destroyBlock(self);
         }
     }

@@ -133,6 +133,8 @@ pub fn main() !void {
 
     var frame_timer = try std.time.Timer.start();
     while (!window.shouldClose()) {
+        interface.tick();
+
         if (@import("builtin").target.os.tag == .linux) {
             // hacky fps limitor to fix the lag on linux
             const trv = frame_timer.read();
