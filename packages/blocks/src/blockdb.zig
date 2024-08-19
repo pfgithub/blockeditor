@@ -354,25 +354,14 @@ fn AtomicMutexValue(comptime T: type) type {
 }
 
 const BlockRef = struct {
-    // we could wrap this whole thing in a mutex and make every method call lock defer unlock
+    // we would like a way for updates to announce what changed:
+    // - for text, this is (old_start, old_len, new_start, inserted_text)
+    //   - tree_sitter needs this to update syntax highlighting
 
-    // right now:
-    // - reference counting is atomic
-    // - loaded is atomic
-    // but we need:
-    // - another thread can mutate server_value (make it AtomicMutexValue?)
-    // - another thread can atomically replace client_value (need `.clientValue()` to access it atomically, but it can return a regular pointer)
-    //   - it also needs to be able to delete the old client_value. oops. it can't do that until other threads are done with it.
-    // - another thread can mutate unapplied_operations_queue (make it AtomicMutexValue)
-    // - AnyBlock is (vtable, pointer). but vtable doesn't change, so we can pull it out and construct AnyBlock as needed?
-
-    // so this works. it's not lock-free but we're not locking for everything
-    // it doesn't allow multiple threads to hold BlockRefs and call applyOperation on them. only one thread can do that.
-
-    // the alternative is fully locking the entire thing. then it's fully thread-safe
-
-    // and the other alternative is only mutating it from the main thread. `db.poll()` called every frame to apply any BlockRef updates that
-    // are needed.
+    // we would like this structure to only be accessed from a single thread
+    // - update FSBlockDBInterface to only apply changes on one thread, otherwise we
+    //   need a mutex surrounding the whole BlockRef
+    // - reference counting and 'loaded' no longer needs to be atomic
 
     db: AnyBlockDB,
     ref_count: std.atomic.Value(u32),
