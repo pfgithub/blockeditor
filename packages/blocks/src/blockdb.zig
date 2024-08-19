@@ -279,6 +279,9 @@ pub const BlockDB = struct {
                                 // operation is identical to our first local change (may be someone else's, that's ok)
                                 const owned = block_ref.unapplied_operations_queue.readItem().?;
                                 block_ref.unapplied_operations_queue.allocator.free(owned);
+                            } else if (contents.server_value.vtable.is_crdt) {
+                                // operation is someone else's, but block is a crdt so order does not matter
+                                contents.client_value.vtable.applyOperation(contents.client_value, op.operation_owned, null) catch @panic("server operation was valid once but not twice?");
                             } else if (unapplied_operations_queue.len > 0) {
                                 // operation is someone else's and we have local changes
                                 contents.client_value.vtable.deinit(contents.client_value);
