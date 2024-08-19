@@ -49,27 +49,58 @@ fn simulateNetworkLatency() void {
     std.time.sleep(300 * std.time.ns_per_ms);
 }
 
-const BlockDBInterfaceUnused = struct {
-    _fetch_thread: ?std.Thread, // handled by user
-    fn workerThread(self: *BlockDB) void {
+pub const TcpSync = struct {
+    gpa: std.mem.Allocator,
+    db: *BlockDB,
+    send_thread: std.Thread,
+    recv_thread: std.Thread,
+    should_kill: std.atomic.Value(bool),
+
+    pub fn create(gpa: std.mem.Allocator, db: *BlockDB) *TcpSync {
+        const self = gpa.create(TcpSync) catch @panic("oom");
+        self.* = .{
+            .gpa = gpa,
+            .db = db,
+            .should_kill = .{ .raw = false },
+            .send_thread = undefined,
+            .recv_thread = undefined,
+        };
+        self.send_thread = std.Thread.spawn(.{}, sendThread, .{self}) catch @panic("thread spawn error");
+        self.recv_thread = std.Thread.spawn(.{}, recvThread, .{self}) catch @panic("thread spawn error");
+        return self;
+    }
+    pub fn destroy(self: *TcpSync) void {
+        self.should_kill.store(true, .monotonic);
+        self.db._thread_queue_condition.signal();
+        self.recv_thread.join();
+        self.send_thread.join();
+
+        const gpa = self.gpa;
+        gpa.destroy(self);
+    }
+
+    fn recvThread(self: *TcpSync) void {
+        // TODO
+        _ = self;
+    }
+    fn sendThread(self: *TcpSync) void {
         while (true) {
             // take job
             const job = blk: {
-                self._thread_queue_mutex.lock();
-                defer self._thread_queue_mutex.unlock();
+                self.db._thread_queue_mutex.lock();
+                defer self.db._thread_queue_mutex.unlock();
 
-                while (self._thread_queue.readableSlice(0).len == 0) {
-                    self._thread_queue_condition.wait(&self._thread_queue_mutex);
+                while (true) {
+                    if (self.should_kill.load(.monotonic)) return;
+                    if (self.db._thread_queue.readableSlice(0).len != 0) break;
+                    self.db._thread_queue_condition.wait(&self.db._thread_queue_mutex);
                 }
 
-                break :blk self._thread_queue.readItem() orelse unreachable;
+                break :blk self.db._thread_queue.readItem() orelse unreachable;
             };
 
             // execute job
             switch (job) {
-                .kill => {
-                    return;
-                },
                 .fetch => |block| {
                     std.log.info("TODO fetch & watch: '{}'", .{block.id});
                     simulateNetworkLatency();
@@ -107,10 +138,11 @@ const BlockDBInterfaceUnused = struct {
             }
 
             // free job resources
-            job.deinit(self);
+            job.deinit(self.db);
         }
     }
 };
+
 pub const BlockDB = struct {
     gpa: std.mem.Allocator,
 
@@ -121,14 +153,12 @@ pub const BlockDB = struct {
     _thread_queue_condition: std.Thread.Condition, // trigger this whenever an item is added to the ArrayList
 
     const ThreadInstruction = union(enum) {
-        kill,
         fetch: *BlockRef,
         create_block: struct { block: *BlockRef, initial_value_owned: bi.AlignedByteSlice },
         apply_operation: struct { block: *BlockRef, operation_owned: bi.AlignedByteSlice },
 
         fn deinit(self: ThreadInstruction, dbi: *BlockDB) void {
             switch (self) {
-                .kill => {},
                 .fetch => |ref| {
                     ref.unref();
                 },
@@ -150,7 +180,6 @@ pub const BlockDB = struct {
 
             .path_to_blockref_map = std.AutoArrayHashMap(bi.BlockID, *BlockRef).init(gpa),
 
-            // ._fetch_thread = std.Thread.spawn(.{}, workerThread, .{self}) catch @panic("thread spawn error"),
             ._thread_queue = Queue(ThreadInstruction).init(gpa),
             ._thread_queue_mutex = .{},
             ._thread_queue_condition = .{},
@@ -239,8 +268,6 @@ pub const BlockDB = struct {
     /// call this after the operation has been applied to client_value and added to the queue
     /// to save it.
     fn submitOperation(self: *BlockDB, block: *BlockRef, op_unowned: bi.AlignedByteSlice) void {
-        std.log.info("applyOperation to block {}", .{block.id});
-
         const op_owned = self.gpa.alignedAlloc(u8, 16, op_unowned.len) catch @panic("oom");
         @memcpy(op_owned, op_unowned);
 

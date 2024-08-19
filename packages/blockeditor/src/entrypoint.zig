@@ -62,6 +62,8 @@ pub fn main() !void {
 
     var interface = db.BlockDB.init(gpa);
     defer interface.deinit();
+    var interface_thread = db.TcpSync.create(gpa, &interface);
+    defer interface_thread.destroy();
 
     const my_counter = interface.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
     defer my_counter.unref();
