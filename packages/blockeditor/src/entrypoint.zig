@@ -54,10 +54,10 @@ pub fn main() !void {
     defer arena_alloc.deinit();
     const arena = arena_alloc.allocator();
 
-    const interface = db.FSBlockDBInterface.init(gpa);
-    defer interface.vtable.deinit(interface);
+    var interface = db.BlockDB.init(gpa);
+    defer interface.deinit();
 
-    const my_counter = interface.vtable.createBlock(interface, bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
+    const my_counter = interface.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
     defer my_counter.unref();
 
     {
