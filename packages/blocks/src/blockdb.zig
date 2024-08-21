@@ -388,7 +388,7 @@ pub const BlockDB = struct {
         self.path_to_blockref_map.put(id, new_blockref) catch @panic("oom");
 
         new_blockref.ref();
-        self.appendJobs(&.{.{ .fetch = new_blockref }});
+        self.send_queue.write(.{ .fetch = new_blockref });
 
         return new_blockref;
     }
