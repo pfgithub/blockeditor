@@ -9,6 +9,7 @@ const std = @import("std");
 // - uwebsockets
 //   - too complicated to build. usockets is ok but then it depends on boringssl
 //     which is cmake.
+//     - openssl can be used instead, and there exists a build.zig script for it
 // - libxev
 //   - doesn't build in latest master zig, would take a bunch of edits
 // - zig-aio / iofthetiger
