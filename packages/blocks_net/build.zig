@@ -7,15 +7,12 @@ pub fn build(b: *std.Build) !void {
     const fmt_step = b.addFmt(.{ .paths = &.{ "src", "build.zig" } });
     b.getInstallStep().dependOn(&fmt_step.step);
 
-    const xev = b.dependency("libxev", .{ .target = target, .optimize = optimize });
-
     const server_exe = b.addExecutable(.{
         .name = "blocks_server",
         .root_source_file = b.path("src/tcp/server.zig"),
         .target = target,
         .optimize = optimize,
     });
-    server_exe.root_module.addImport("xev", xev.module("xev"));
     b.installArtifact(server_exe);
 
     const server_test = b.addTest(.{

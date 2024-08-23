@@ -7,8 +7,13 @@ const std = @import("std");
 
 // choose between:
 // - uwebsockets
-//   - too complicated to build. no.
-// - libxev / zig-aio / iofthetiger
+//   - too complicated to build. usockets is ok but then it depends on boringssl
+//     which is cmake.
+// - libxev
+//   - doesn't build in latest master zig, would take a bunch of edits
+// - zig-aio / iofthetiger
+//
+// or just keep using std.net for now, one thread per client
 
 const State = struct {
     // clientToSubscriptionsMap
