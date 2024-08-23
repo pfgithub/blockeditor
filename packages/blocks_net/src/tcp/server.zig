@@ -37,8 +37,8 @@ fn clientRecieveThreadMayError(state: *State, conn: std.net.Server.Connection, c
 }
 fn clientRecieveThread(state: *State, conn: std.net.Server.Connection, client_id: u128) !void {
     std.log.info("Client connected: {x}", .{client_id});
-    clientRecieveThreadMayError(state, conn) catch |e| {
-        std.log.info("Client {x} disconnected due to error: ", .{ client_id, @errorName(e) });
+    clientRecieveThreadMayError(state, conn, client_id) catch |e| {
+        std.log.info("Client {x} disconnected due to error: {s}", .{ client_id, @errorName(e) });
     };
     std.log.info("Client {x} disconnected.", .{client_id});
 
