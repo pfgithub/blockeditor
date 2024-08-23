@@ -5,6 +5,10 @@ const std = @import("std");
 // and ideally we use udp/webrtc over tcp/websockets so we don't
 // have to wait on outdated presence information getting sent to clients
 
+// choose between:
+// - uwebsockets
+// - libxev / zig-aio / iofthetiger
+
 const State = struct {
     // clientToSubscriptionsMap
 
