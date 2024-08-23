@@ -7,6 +7,7 @@ const std = @import("std");
 
 // choose between:
 // - uwebsockets
+//   - too complicated to build. no.
 // - libxev / zig-aio / iofthetiger
 
 const State = struct {
