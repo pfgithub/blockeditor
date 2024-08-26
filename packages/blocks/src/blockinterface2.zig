@@ -4,7 +4,7 @@ const util = @import("util.zig");
 pub const AlignedArrayList = std.ArrayListAligned(u8, 16);
 pub const AlignedByteSlice = []align(16) const u8;
 
-const DeserializeError = error{DeserializeError};
+pub const DeserializeError = error{DeserializeError};
 
 pub const BlockID = util.DistinctUUID(opaque {});
 

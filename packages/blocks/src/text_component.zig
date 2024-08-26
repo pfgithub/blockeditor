@@ -810,52 +810,100 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         const serialized_span = extern struct {
-            length: packed struct(u64) { tag: enum(u2) { end, exists, deleted, _ }, len: u62 },
+            length: packed struct(u64) { deleted: bool, len: u63 },
             id: SegmentID,
         };
         pub fn serialize(self: *const Doc, out: *bi.AlignedArrayList) void {
-            // format: [length, id] [end] [bytes]
-
+            // format: [u64 aligned_length] [bytes] [length, id] [end]
             const writer = out.writer();
 
-            // part 1: write spans (& merge adjacent)
-            var iter = self.span_bbt.iterator(.{});
-            while (iter.next()) |node_idx| {
-                const node = self.span_bbt.getNodeDataPtrConst(node_idx).?;
-
-                std.debug.assert(node.length != 0);
-                std.debug.assert(node.length <= std.math.maxInt(u62));
-
-                writer.writeStructEndian(serialized_span{
-                    .length = .{
-                        .tag = if (node.deleted()) .deleted else .exists,
-                        .len = @intCast(node.length),
-                    },
-                    .id = node.id,
-                }, .little) catch @panic("oom");
-            }
-
-            const len = self.length() + 1; // plus one for the \x00 at the end
-            const aligned_length = std.mem.alignForward(u64, len, 16); // text len + empty bytes to align to 16
-            const align_diff = aligned_length - len;
-
-            // end list
-            std.debug.assert(aligned_length <= std.math.maxInt(u62));
-            writer.writeStructEndian(serialized_span{
-                .length = .{ .tag = .end, .len = @intCast(aligned_length) },
-                .id = @enumFromInt(0),
-            }, .little) catch @panic("oom");
-
             // write span contents
-            iter = self.span_bbt.iterator(.{ .skip_most_empties = true });
+            writer.writeInt(u64, self.length(), .little) catch @panic("oom");
+            var iter = self.span_bbt.iterator(.{ .skip_most_empties = true });
             while (iter.next()) |node_idx| {
                 const node = self.span_bbt.getNodeDataPtrConst(node_idx).?;
+                if (node.id == .end) break;
                 if (node.bufbyte == null) continue;
 
                 writer.writeAll(self.buffer.items[node.bufbyte.?..][0..node.length]) catch @panic("oom");
             }
 
+            // align
+            const aligned_length = std.mem.alignForward(u64, out.items.len, 16);
+            const align_diff = aligned_length - out.items.len;
             for (0..align_diff) |_| writer.writeByte('\x00') catch @panic("oom");
+
+            // write spans (& merge adjacent)
+            iter = self.span_bbt.iterator(.{});
+            while (iter.next()) |node_idx| {
+                const node = self.span_bbt.getNodeDataPtrConst(node_idx).?;
+
+                std.debug.assert(node.length != 0);
+                std.debug.assert(node.length <= std.math.maxInt(u63));
+
+                writer.writeStructEndian(serialized_span{
+                    .length = .{
+                        .deleted = node.deleted(),
+                        .len = @intCast(node.length),
+                    },
+                    .id = node.id,
+                }, .little) catch @panic("oom");
+            }
+        }
+        pub fn deserialize(gpa: std.mem.Allocator, value: bi.AlignedByteSlice) bi.DeserializeError!Doc {
+            var fbs = std.io.fixedBufferStream(value);
+            const reader = fbs.reader();
+
+            var res = Doc.initEmpty(gpa);
+            errdefer res.deinit();
+
+            const bufbyte_offset = res.buffer.items.len;
+
+            const buffer_length = reader.readInt(u64, .little) catch return error.DeserializeError;
+            if (buffer_length > fbs.buffer[fbs.pos..].len) return error.DeserializeError;
+            res.buffer.appendSlice(fbs.buffer[fbs.pos..][0..buffer_length]) catch @panic("oom");
+            fbs.pos += buffer_length;
+            fbs.pos = std.mem.alignForward(usize, fbs.pos, 16);
+            if (fbs.pos > fbs.buffer.len) return error.DeserializeError;
+
+            var bufbyte: u64 = 0;
+            while (true) {
+                const itm = reader.readStructEndian(serialized_span, .little) catch return error.DeserializeError;
+
+                if (itm.id == .end) {
+                    break;
+                }
+
+                var start_segbyte: u64 = 0;
+                if (res.segment_id_map.get(itm.id)) |prev_span| {
+                    if (prev_span.items.len > 0) {
+                        const last_idx = prev_span.items[prev_span.items.len - 1];
+                        const last_v = res.span_bbt.getNodeDataPtrConst(last_idx).?;
+                        start_segbyte += last_v.start_segbyte + last_v.length;
+                    }
+                }
+
+                // definitely not right
+                // we should be doing replaceRange(E node, 1, {new span, E node})
+                const insert_span = Span{
+                    .id = itm.id,
+                    .length = itm.length.len,
+                    .start_segbyte = start_segbyte,
+                    .bufbyte = if (itm.length.deleted) null else blk: {
+                        defer bufbyte += itm.length.len;
+                        if (bufbyte + itm.length.len > buffer_length) return error.DeserializeError;
+                        break :blk bufbyte + bufbyte_offset;
+                    },
+                };
+                const last = res._findEntrySpan(.{ .id = .end, .segbyte = 0 }).span_index;
+                const last_value = res.span_bbt.getNodeDataPtrConst(last).?.*;
+                res._replaceRange(last, 1, &.{
+                    insert_span,
+                    last_value,
+                });
+            }
+
+            return res;
         }
 
         pub fn initEmpty(alloc: std.mem.Allocator) Doc {
@@ -1600,6 +1648,16 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("actual len: {d}, minimum len: {d}, ratio: {d:.2}x more memory used to store spans", .{ srlz_al.items.len, block.length(), @as(f64, @floatFromInt(srlz_al.items.len)) / @as(f64, @floatFromInt(block.length())) });
     // currently each span costs 16 bytes when it could cost less
     // - span lengths can probably be u32? maybe not
+
+    var deserialized = try TextDocument.deserialize(gpa, srlz_al.items);
+    defer deserialized.deinit();
+    std.log.info("deserialized block: {}", .{deserialized});
+
+    var rsrlz_al = bi.AlignedArrayList.init(gpa);
+    defer rsrlz_al.deinit();
+    deserialized.serialize(&rsrlz_al);
+
+    try std.testing.expectEqualStrings(srlz_al.items, rsrlz_al.items);
 }
 test "sample block" {
     const gpa = std.testing.allocator;
@@ -1717,6 +1775,25 @@ const BlockTester = struct {
 
         try std.testing.expectEqualStrings(self.simple.items, rendered);
         self.timings.test_eql += timer.lap();
+
+        if (false) {
+            // this is extremely slow!
+            // tests deserializing and reserializing the block
+            const gpa = self.complex.buffer.allocator;
+
+            var srlz_al = bi.AlignedArrayList.init(gpa);
+            defer srlz_al.deinit();
+            self.complex.serialize(&srlz_al);
+
+            var deserialized = try TextDocument.deserialize(gpa, srlz_al.items);
+            defer deserialized.deinit();
+
+            var rsrlz_al = bi.AlignedArrayList.init(gpa);
+            defer rsrlz_al.deinit();
+            deserialized.serialize(&rsrlz_al);
+
+            try std.testing.expectEqualStrings(srlz_al.items, rsrlz_al.items);
+        }
     }
 };
 
