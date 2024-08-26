@@ -343,7 +343,7 @@ fn BalancedBinaryTree(comptime Data: type) type {
             }
         }
         fn iterator(self: *const @This(), opts: IteratorOptions) Iterator {
-            var res: Iterator = .{ .tree = self, .node = undefined, .skip_empty = opts.skip_empty };
+            var res: Iterator = .{ .tree = self, .node = undefined, .skip_most_empties = opts.skip_most_empties };
             if (opts.leftmost_node) |lmn| {
                 res.node = lmn;
             } else {
@@ -354,20 +354,20 @@ fn BalancedBinaryTree(comptime Data: type) type {
         }
         const IteratorOptions = struct {
             leftmost_node: ?NodeIndex = null,
-            skip_empty: bool = false,
+            skip_most_empties: bool = false,
         };
         const BBT = @This();
         const Iterator = struct {
             tree: *const BBT,
             node: NodeIndex,
-            skip_empty: bool = false,
+            skip_most_empties: bool = false,
 
             /// go to the deepest lhs node within the current node
             fn goDeepLhs(self: *Iterator) void {
                 while (true) {
                     const lhs = self.tree._getSide(self.node, .left);
                     if (lhs == .none) break;
-                    if (self.skip_empty) {
+                    if (self.skip_most_empties) {
                         const lhs_ptr = self.tree._getNodePtrConst(lhs).?;
                         if (lhs_ptr.sum().eql(Data.Count.zero)) {
                             // waste of time to explore this tree
@@ -809,8 +809,12 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
         }
 
+        const serialized_span = extern struct {
+            length: packed struct(u64) { tag: enum(u2) { end, exists, deleted, _ }, len: u62 },
+            id: SegmentID,
+        };
         pub fn serialize(self: *const Doc, out: *bi.AlignedArrayList) void {
-            // format: [length, id] [0]
+            // format: [length, id] [end] [bytes]
 
             const writer = out.writer();
 
@@ -820,22 +824,35 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 const node = self.span_bbt.getNodeDataPtrConst(node_idx).?;
 
                 std.debug.assert(node.length != 0);
-                writer.writeInt(u64, node.length, .little) catch @panic("oom");
-                writer.writeInt(u64, @intFromEnum(node.id), .little) catch @panic("oom");
-                writer.writeInt(u64, if (node.deleted()) 1 else 0) catch @panic("oom");
+                std.debug.assert(node.length <= std.math.maxInt(u62));
+
+                writer.writeStructEndian(serialized_span{
+                    .length = .{
+                        .tag = if (node.deleted()) .deleted else .exists,
+                        .len = @intCast(node.length),
+                    },
+                    .id = node.id,
+                }, .little) catch @panic("oom");
             }
-            writer.writeInt(u64, 0) catch @panic("oom"); // end list
 
             const len = self.length() + 1; // plus one for the \x00 at the end
             const aligned_length = std.mem.alignForward(u64, len, 16); // text len + empty bytes to align to 16
             const align_diff = aligned_length - len;
-            writer.writeInt(u64, aligned_length) catch @panic("oom");
 
-            iter = self.span_bbt.iterator(.{ .skip_empty = true });
+            // end list
+            std.debug.assert(aligned_length <= std.math.maxInt(u62));
+            writer.writeStructEndian(serialized_span{
+                .length = .{ .tag = .end, .len = @intCast(aligned_length) },
+                .id = @enumFromInt(0),
+            }, .little) catch @panic("oom");
+
+            // write span contents
+            iter = self.span_bbt.iterator(.{ .skip_most_empties = true });
             while (iter.next()) |node_idx| {
                 const node = self.span_bbt.getNodeDataPtrConst(node_idx).?;
+                if (node.bufbyte == null) continue;
 
-                writer.writeAll(self.buffer.items[node.start_segbyte..][0..node.length]) catch @panic("oom");
+                writer.writeAll(self.buffer.items[node.bufbyte.?..][0..node.length]) catch @panic("oom");
             }
 
             for (0..align_diff) |_| writer.writeByte('\x00') catch @panic("oom");
@@ -930,7 +947,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
         pub fn readIterator(self: *const Doc, start: Position) ReadIterator {
             const start_posinfo = self._findEntrySpan(start);
-            const it = self.span_bbt.iterator(.{ .leftmost_node = start_posinfo.span_index, .skip_empty = true });
+            const it = self.span_bbt.iterator(.{ .leftmost_node = start_posinfo.span_index, .skip_most_empties = true });
             return .{
                 .doc = self,
                 .span_it = it,
@@ -1310,7 +1327,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 std.debug.assert(doc_end_docbyte <= self.length());
 
                 var span_start_docbyte = span_position.span_start_docbyte;
-                var iter = self.span_bbt.iterator(.{ .leftmost_node = span_position.span_index, .skip_empty = true });
+                var iter = self.span_bbt.iterator(.{ .leftmost_node = span_position.span_index, .skip_most_empties = true });
                 while (span_start_docbyte < doc_end_docbyte) {
                     const span_i = iter.next() orelse @panic("delete out of range");
                     const span = self.span_bbt.getNodeDataPtrConst(span_i).?;
@@ -1574,6 +1591,15 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
         try testBlockEquals(&block, "<todo>");
         std.log.info("block: [{}]", .{block});
     }
+
+    var srlz_al = bi.AlignedArrayList.init(gpa);
+    defer srlz_al.deinit();
+    block.serialize(&srlz_al);
+
+    std.log.info("result: \"{}\"", .{std.zig.fmtEscapes(srlz_al.items)});
+    std.log.info("actual len: {d}, minimum len: {d}, ratio: {d:.2}x more memory used to store spans", .{ srlz_al.items.len, block.length(), @as(f64, @floatFromInt(srlz_al.items.len)) / @as(f64, @floatFromInt(block.length())) });
+    // currently each span costs 16 bytes when it could cost less
+    // - span lengths can probably be u32? maybe not
 }
 test "sample block" {
     const gpa = std.testing.allocator;
