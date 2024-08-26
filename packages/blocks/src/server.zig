@@ -68,10 +68,10 @@ fn clientRecieveThreadMayError(state: *State, client_id: ClientID) !void {
     // wait on read()
     while (true) {
         const msg_header = try reader.readStructEndian(server_data.msg_header, .little);
-        const msg_buf = try state.gpa.alloc(u8, msg_header.len);
+        const msg_buf = try state.gpa.alloc(u8, msg_header.msg_len);
         defer state.gpa.free(msg_buf);
         try reader.readNoEof(msg_buf);
-        const msg_fbs = std.io.fixedBufferStream(msg_buf);
+        var msg_fbs = std.io.fixedBufferStream(msg_buf);
         const msg_reader = msg_fbs.reader();
 
         switch (msg_header.msg_type) {
