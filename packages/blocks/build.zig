@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const fmt_step = b.addFmt(.{.paths = &.{"src", "build.zig"}});
+    const fmt_step = b.addFmt(.{ .paths = &.{ "src", "build.zig" } });
     b.getInstallStep().dependOn(&fmt_step.step);
 
     _ = b.addModule("blocks", .{

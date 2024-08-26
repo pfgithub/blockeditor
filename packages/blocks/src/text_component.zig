@@ -903,6 +903,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 });
             }
 
+            if (bufbyte != buffer_length) return error.DeserializeError;
+
             return res;
         }
 
@@ -1668,6 +1670,32 @@ test "document" {
     // this is a fuzz test
     // we can't really use std.testing.fuzzInput() for it unless we implement a parser or something
     _ = try testDocument(std.testing.allocator, 1_000, null);
+}
+
+// fuzz test deserializing random blocks
+test "fuzz" {
+    // not particularily useful until https://github.com/ziglang/zig/issues/20804
+
+    const gpa = std.testing.allocator;
+    const input_misaligned = std.testing.fuzzInput(.{});
+    const input_aligned = try gpa.alignedAlloc(u8, 16, input_misaligned.len);
+    defer gpa.free(input_aligned);
+    @memcpy(input_aligned, input_misaligned);
+
+    if (TextDocument.deserialize(gpa, input_aligned)) |deserialized_1| {
+        var deserialized = deserialized_1;
+        defer deserialized.deinit();
+
+        // TODO: do some stuff with the block to make sure it's not completely broken
+
+        // reserialize the block and assert it's identical same
+        // - if it's not going to be the same, deserialize should have errored
+        var rsrlz_al = bi.AlignedArrayList.init(gpa);
+        deserialized.serialize(&rsrlz_al);
+        try std.testing.expectEqualSlices(u8, input_aligned, rsrlz_al.items);
+    } else |_| {
+        // error is ok. as long as it doesn't panic.
+    }
 }
 
 const TestDocumentRetTy = struct {
