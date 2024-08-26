@@ -28,6 +28,10 @@ fn clientRecieveThreadMayError(state: *State, conn: std.net.Server.Connection, c
     const reader = conn.stream.reader();
 
     // 1. add the client to the clients map
+    {
+        state.global_lock.lock();
+        defer state.global_lock.unlock();
+    }
     _ = client_id;
 
     // 2. wait on read()
