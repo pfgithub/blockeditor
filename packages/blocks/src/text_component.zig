@@ -809,6 +809,38 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
         }
 
+        pub fn serialize(self: *const Doc, out: *bi.AlignedArrayList) void {
+            // format: [length, id] [0]
+
+            const writer = out.writer();
+
+            // part 1: write spans (& merge adjacent)
+            var iter = self.span_bbt.iterator(.{});
+            while (iter.next()) |node_idx| {
+                const node = self.span_bbt.getNodeDataPtrConst(node_idx).?;
+
+                std.debug.assert(node.length != 0);
+                writer.writeInt(u64, node.length, .little) catch @panic("oom");
+                writer.writeInt(u64, @intFromEnum(node.id), .little) catch @panic("oom");
+                writer.writeInt(u64, if (node.deleted()) 1 else 0) catch @panic("oom");
+            }
+            writer.writeInt(u64, 0) catch @panic("oom"); // end list
+
+            const len = self.length() + 1; // plus one for the \x00 at the end
+            const aligned_length = std.mem.alignForward(u64, len, 16); // text len + empty bytes to align to 16
+            const align_diff = aligned_length - len;
+            writer.writeInt(u64, aligned_length) catch @panic("oom");
+
+            iter = self.span_bbt.iterator(.{ .skip_empty = true });
+            while (iter.next()) |node_idx| {
+                const node = self.span_bbt.getNodeDataPtrConst(node_idx).?;
+
+                writer.writeAll(self.buffer.items[node.start_segbyte..][0..node.length]) catch @panic("oom");
+            }
+
+            for (0..align_diff) |_| writer.writeByte('\x00') catch @panic("oom");
+        }
+
         pub fn initEmpty(alloc: std.mem.Allocator) Doc {
             var res: Doc = .{
                 .span_bbt = undefined,
