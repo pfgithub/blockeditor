@@ -1,5 +1,5 @@
 const std = @import("std");
-const uuid = @import("uuid.zig");
+const util = @import("util.zig");
 
 // TODO: secure
 // and we need to support websockets for web site
@@ -27,9 +27,17 @@ const State = struct {
     gpa: std.mem.Allocator, // thread safe
 
     client_id_to_connection_map: std.AutoArrayHashMap(ClientID, Client),
+
+    msg_queue: util.Queue(Msg),
+};
+const Msg = union(enum) {
+    recieved_message: struct {
+        msg_owned: []const u8,
+        from_client: ClientID,
+    },
 };
 
-const ClientID = uuid.DistinctUUID(opaque {});
+const ClientID = util.DistinctUUID(opaque {});
 
 fn clientRecieveThreadMayError(state: *State, client_id: ClientID) !void {
     const conn = blk: {
@@ -40,7 +48,7 @@ fn clientRecieveThreadMayError(state: *State, client_id: ClientID) !void {
     };
 
     // accepts messages from clients
-    const reader = conn.stream.reader();
+    const reader = conn.conn.stream.reader();
 
     // wait on read()
     while (true) {
@@ -55,7 +63,7 @@ fn clientRecieveThreadMayError(state: *State, client_id: ClientID) !void {
         // or just add them to a queue for the main thread to handle
     }
 }
-fn clientRecieveThread(state: *State, client_id: u128) !void {
+fn clientRecieveThread(state: *State, client_id: ClientID) !void {
     std.log.info("Client connected: {x}", .{client_id});
     clientRecieveThreadMayError(state, client_id) catch |e| {
         std.log.info("Client {x} disconnected due to error: {s}", .{ client_id, @errorName(e) });
@@ -87,6 +95,8 @@ pub fn main() !void {
     var state: State = .{
         .gpa = gpa,
         .client_id_to_connection_map = std.AutoArrayHashMap(ClientID, Client).init(gpa),
+
+        .msg_queue = util.Queue(Msg).init(gpa),
     };
 
     const listen_addr = std.net.Address.initIp4(.{ 0, 0, 0, 0 }, port);
@@ -110,14 +120,14 @@ pub fn main() !void {
     while (true) {
         const conn = try server.accept();
 
-        const client_id = std.crypto.random.int(u128);
+        const client_id = ClientID.fromRandom(std.crypto.random);
 
         // add client to map
         {
             state.global_lock.lock();
             defer state.global_lock.unlock();
 
-            state.client_id_to_connection_map.put(client_id, .{ .conn = conn });
+            try state.client_id_to_connection_map.put(client_id, .{ .conn = conn });
         }
 
         const thread = try std.Thread.spawn(.{}, clientRecieveThread, .{ &state, client_id });

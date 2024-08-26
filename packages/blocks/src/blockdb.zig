@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const bi = @import("blockinterface2.zig");
+const util = @import("util.zig");
 
 // TODO: you should be able to apply multiple operations at once by calling on the BlockDBInterface. The server should be able to send
 // batches of multiple operations at once to apply all at the same time.
@@ -17,71 +18,6 @@ const bi = @import("blockinterface2.zig");
 //   - we don't have to worry about this for a while which is good because it's complicated. with a crdt it would be simpler because
 //     we can just have every client apply all of server 2's operations (or server 1 for server 2 clients) and not worry about order
 //     at all
-
-fn ThreadQueue(comptime T: type) type {
-    return struct {
-        const Self = @This();
-        _raw_queue: Queue(T),
-        mutex: std.Thread.Mutex,
-        condition: std.Thread.Condition,
-
-        pub fn init(alloc: std.mem.Allocator) Self {
-            return .{
-                ._raw_queue = Queue(T).init(alloc),
-                .mutex = .{},
-                .condition = .{},
-            };
-        }
-        pub fn deinit(self: *Self) void {
-            if (!self.mutex.tryLock()) @panic("cannot deinit while another thread uses the queue");
-            self._raw_queue.deinit();
-        }
-
-        pub fn write(self: *Self, value: T) void {
-            self.writeMany(&.{value});
-        }
-        pub fn writeMany(self: *Self, value: []const T) void {
-            {
-                self.mutex.lock();
-                defer self.mutex.unlock();
-                self._raw_queue.write(value) catch @panic("oom");
-            }
-            self.signal();
-        }
-        pub fn kill(self: *Self) void {
-            self.kill_thread.store(true, .monotonic);
-            self.condition.signal();
-        }
-        /// returns null if there is no item available at this moment
-        pub fn tryRead(self: *Self) ?T {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            return self._raw_queue.readItem();
-        }
-        /// returns null if should_kill is true (must signal())
-        pub fn waitRead(self: *Self, should_kill: *std.atomic.Value(bool)) ?T {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            while (true) {
-                if (should_kill.load(.monotonic)) return null;
-                if (self._raw_queue.readableLength() != 0) break;
-                self.condition.wait(&self.mutex);
-            }
-
-            return self._raw_queue.readItem().?;
-        }
-        /// call this after changing should_kill
-        pub fn signal(self: *Self) void {
-            self.condition.signal();
-        }
-    };
-}
-
-fn Queue(comptime T: type) type {
-    return std.fifo.LinearFifo(T, .Dynamic);
-}
 
 test BlockDB {
     const gpa = std.testing.allocator;
@@ -204,8 +140,8 @@ pub const BlockDB = struct {
 
     path_to_blockref_map: std.AutoArrayHashMap(bi.BlockID, *BlockRef),
 
-    send_queue: ThreadQueue(ThreadInstruction),
-    recv_queue: ThreadQueue(ToApplyInstruction),
+    send_queue: util.ThreadQueue(ThreadInstruction),
+    recv_queue: util.ThreadQueue(ToApplyInstruction),
 
     const ToApplyInstruction = union(enum) {
         load_block: struct { block: bi.BlockID, value_owned: bi.AlignedByteSlice },
@@ -254,8 +190,8 @@ pub const BlockDB = struct {
 
             .path_to_blockref_map = std.AutoArrayHashMap(bi.BlockID, *BlockRef).init(gpa),
 
-            .send_queue = ThreadQueue(ThreadInstruction).init(gpa),
-            .recv_queue = ThreadQueue(ToApplyInstruction).init(gpa),
+            .send_queue = util.ThreadQueue(ThreadInstruction).init(gpa),
+            .recv_queue = util.ThreadQueue(ToApplyInstruction).init(gpa),
         };
     }
 
@@ -338,15 +274,15 @@ pub const BlockDB = struct {
 
     /// Takes ownership of the passed-in AnyBlock. Returns a referenced BlockRef - make sure to unref when you're done with it!
     pub fn createBlock(self: *BlockDB, initial_value: bi.AnyBlock) *BlockRef {
-        const generated_id = std.crypto.random.int(u128);
+        const generated_id = bi.BlockID.fromRandom(std.crypto.random);
 
         const new_blockref = self.gpa.create(BlockRef) catch @panic("oom");
         new_blockref.* = .{
             .db = self,
-            .id = @enumFromInt(generated_id),
+            .id = generated_id,
 
             .ref_count = 1,
-            .unapplied_operations_queue = Queue(bi.AlignedByteSlice).init(self.gpa),
+            .unapplied_operations_queue = util.Queue(bi.AlignedByteSlice).init(self.gpa),
 
             ._contents = .{
                 .vtable = initial_value.vtable,
@@ -380,7 +316,7 @@ pub const BlockDB = struct {
             .id = id,
 
             .ref_count = 1,
-            .unapplied_operations_queue = Queue(bi.AlignedByteSlice).init(self.gpa),
+            .unapplied_operations_queue = util.Queue(bi.AlignedByteSlice).init(self.gpa),
 
             ._contents = null,
         };
@@ -446,7 +382,7 @@ pub const BlockRef = struct {
 
     _contents: ?BlockRefContents,
 
-    unapplied_operations_queue: Queue(bi.AlignedByteSlice),
+    unapplied_operations_queue: util.Queue(bi.AlignedByteSlice),
 
     const BlockRefContents = struct {
         vtable: *const bi.BlockVtable,

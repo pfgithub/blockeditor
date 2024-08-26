@@ -1,12 +1,12 @@
 const std = @import("std");
-const uuid = @import("uuid.zig");
+const util = @import("util.zig");
 
 pub const AlignedArrayList = std.ArrayListAligned(u8, 16);
 pub const AlignedByteSlice = []align(16) const u8;
 
 const DeserializeError = error{DeserializeError};
 
-pub const BlockID = uuid.DistinctUUID(opaque {});
+pub const BlockID = util.DistinctUUID(opaque {});
 
 pub const AnyBlock = struct {
     data: *anyopaque,
