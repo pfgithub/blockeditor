@@ -1675,6 +1675,7 @@ test "document" {
 // fuzz test deserializing random blocks
 test "fuzz" {
     // not particularily useful until https://github.com/ziglang/zig/issues/20804
+    // also waiting on https://github.com/ziglang/zig/issues/20986
 
     const gpa = std.testing.allocator;
     const input_misaligned = std.testing.fuzzInput(.{});
