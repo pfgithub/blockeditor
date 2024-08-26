@@ -39,6 +39,21 @@ const Msg = union(enum) {
 
 const ClientID = util.DistinctUUID(opaque {});
 
+const server_data = struct {
+    const msg_type = enum(u64) {
+        apply_operation,
+        _,
+    };
+    const msg_header = extern struct {
+        msg_len: u64,
+        msg_type: msg_type,
+    };
+
+    const apply_operation_header = extern struct {
+        block_id: u128,
+    };
+};
+
 fn clientRecieveThreadMayError(state: *State, client_id: ClientID) !void {
     const conn = blk: {
         state.global_lock.lock();
@@ -52,10 +67,30 @@ fn clientRecieveThreadMayError(state: *State, client_id: ClientID) !void {
 
     // wait on read()
     while (true) {
-        const msg_len = try reader.readInt(u64, .little);
-        const msg_buf = try state.gpa.alloc(u8, msg_len);
+        const msg_header = try reader.readStructEndian(server_data.msg_header, .little);
+        const msg_buf = try state.gpa.alloc(u8, msg_header.len);
         defer state.gpa.free(msg_buf);
         try reader.readNoEof(msg_buf);
+        const msg_fbs = std.io.fixedBufferStream(msg_buf);
+        const msg_reader = msg_fbs.reader();
+
+        switch (msg_header.msg_type) {
+            .apply_operation => {
+                const header = try msg_reader.readStructEndian(server_data.apply_operation_header, .little);
+                const block_id = header.block_id;
+
+                const operation = msg_fbs.buffer[msg_fbs.pos..];
+
+                // 1. enter operation into database
+                // 2. send operation to all connected clients observing this block
+                // note: remember to ask for a savestate on occasion
+
+                _ = block_id;
+                _ = operation;
+                @panic("TODO apply_operation");
+            },
+            else => return error.UnsupportedMessageType,
+        }
 
         // 1. determine message type
         // 2. act on message
