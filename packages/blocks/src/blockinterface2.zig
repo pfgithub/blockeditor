@@ -1,7 +1,9 @@
 const std = @import("std");
 const util = @import("util.zig");
+const text_component = @import("text_component.zig");
 
 pub const AlignedArrayList = std.ArrayListAligned(u8, 16);
+pub const AlignedFbsReader = std.io.FixedBufferStream([]align(16) const u8);
 pub const AlignedByteSlice = []align(16) const u8;
 
 pub const DeserializeError = error{DeserializeError};
@@ -69,8 +71,7 @@ pub const CounterComponent = struct {
         count: i32,
     };
 
-    const default_aligned: [4]u8 align(16) = .{ 0, 0, 0, 0 };
-    pub const default: AlignedByteSlice = &default_aligned;
+    pub const default = "\x00\x00\x00\x00";
 
     pub const Operation = union(enum) {
         add: i32,
@@ -121,7 +122,7 @@ pub const CounterComponent = struct {
         const res: counterblock_serialized = .{ .count = self.count };
         out.writer().writeStructEndian(res, .little) catch @panic("oom");
     }
-    pub fn deserialize(_: std.mem.Allocator, fbs: *std.io.FixedBufferStream([]align(16) const u8)) DeserializeError!CounterComponent {
+    pub fn deserialize(_: std.mem.Allocator, fbs: *AlignedFbsReader) DeserializeError!CounterComponent {
         const values = fbs.reader().readStructEndian(counterblock_serialized, .little) catch return error.DeserializeError;
         if (fbs.pos != fbs.buffer.len) return error.DeserializeError;
 
@@ -139,7 +140,8 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
         gpa: std.mem.Allocator, // to free self on deinit
         value: ChildComponent,
 
-        pub const default: AlignedByteSlice = ChildComponent.default;
+        const default_aligned: [ChildComponent.default.len]u8 align(16) = ChildComponent.default[0..ChildComponent.default.len].*;
+        pub const default: []align(16) const u8 = &default_aligned;
 
         pub const Operation = ChildComponent.Operation;
 
@@ -172,6 +174,7 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
 }
 
 pub const CounterBlock = ComposedBlock(CounterComponent);
+pub const TextDocumentBlock = ComposedBlock(text_component.TextDocument);
 
 test CounterBlock {
     const gpa = std.testing.allocator;
@@ -191,4 +194,10 @@ test CounterBlock {
     try mycounter.vtable.applyOperation(mycounter, my_operation_al.items, &my_undo_operation_al);
 
     try std.testing.expectEqual(@as(i32, 12), mycounter.cast(CounterBlock).value.count);
+}
+
+test TextDocumentBlock {
+    const gpa = std.testing.allocator;
+    const mycounter = try TextDocumentBlock.deserialize(gpa, TextDocumentBlock.default);
+    defer mycounter.vtable.deinit(mycounter);
 }

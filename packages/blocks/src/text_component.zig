@@ -661,6 +661,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             pub fn serialize(self: *const Operation, out: *bi.AlignedArrayList) void {
                 std.json.stringify(self, .{}, out.writer()) catch @panic("oom");
             }
+            pub fn deserialize(arena: std.mem.Allocator, slice: bi.AlignedByteSlice) !Operation {
+                return std.json.parseFromSliceLeaky(Operation, arena, slice, .{}) catch return error.DeserializeError;
+            }
 
             pub fn format(
                 self: *const @This(),
@@ -813,6 +816,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             length: packed struct(u64) { deleted: bool, len: u63 },
             id: SegmentID,
         };
+        // this is a bunch of zeroes and a two. why? isn't length 1 and id 0? where's the two from? and why does this have to be so long
+        pub const default = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
         pub fn serialize(self: *const Doc, out: *bi.AlignedArrayList) void {
             // format: [u64 aligned_length] [bytes] [length, id] [end]
             const writer = out.writer();
@@ -850,8 +855,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 }, .little) catch @panic("oom");
             }
         }
-        pub fn deserialize(gpa: std.mem.Allocator, value: bi.AlignedByteSlice) bi.DeserializeError!Doc {
-            var fbs = std.io.fixedBufferStream(value);
+        pub fn deserialize(gpa: std.mem.Allocator, fbs: *bi.AlignedFbsReader) bi.DeserializeError!Doc {
             const reader = fbs.reader();
 
             var res = Doc.initEmpty(gpa);
@@ -1088,7 +1092,15 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             self._insertAfter(index, next_slice[1..]);
         }
 
-        pub fn applyOperation(self: *Doc, op: Operation, out_undo: ?*bi.AlignedArrayList) void {
+        pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.AlignedArrayList) !void {
+            var arena = std.heap.ArenaAllocator.init(self.allocator);
+            defer arena.deinit();
+            const op_dsrlz = try Operation.deserialize(arena.allocator(), operation_serialized);
+            // ^ need to validate, or we can validate at usafe in fn applyOperationStruct
+
+            applyOperationStruct(self, op_dsrlz, undo_operation);
+        }
+        pub fn applyOperationStruct(self: *Doc, op: Operation, out_undo: ?*bi.AlignedArrayList) void {
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
             // delete(3, 5) -> undelete(3, "hello")
@@ -1529,7 +1541,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("pos: {}", .{b0});
     std.debug.assert(block.length() == 0);
 
-    block.applyOperation(.{
+    block.applyOperationStruct(.{
         .insert = .{
             .id = block.uuid(),
             .pos = block.positionFromDocbyte(0),
@@ -1539,7 +1551,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     try testBlockEquals(&block, "i held");
     std.log.info("block: [{}]", .{block});
 
-    block.applyOperation(.{
+    block.applyOperationStruct(.{
         .insert = .{
             .id = block.uuid(),
             .pos = block.positionFromDocbyte(4),
@@ -1548,7 +1560,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     }, null);
     try testBlockEquals(&block, "i hello world");
     std.log.info("block: [{}]", .{block});
-    block.applyOperation(.{
+    block.applyOperationStruct(.{
         // deleting a range will generate multiple delete operations unfortunately
         .delete = .{
             .start = block.positionFromDocbyte(0),
@@ -1557,7 +1569,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     }, null);
     try testBlockEquals(&block, "hello world");
     std.log.info("block: {d}[{}]", .{ block.length(), block });
-    block.applyOperation(.{
+    block.applyOperationStruct(.{
         .extend = .{
             .id = block.positionFromDocbyte(2).id,
             .prev_len = 7,
@@ -1567,7 +1579,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     try testBlockEquals(&block, "hello worRld");
     std.log.info("block: [{}]", .{block});
 
-    block.applyOperation(.{
+    block.applyOperationStruct(.{
         .extend = .{
             .id = block.positionFromDocbyte(0).id,
             .prev_len = 6,
@@ -1581,7 +1593,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.genOperations(&opgen_demo, block.positionFromDocbyte(0), 0, "Test\n");
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
-        block.applyOperation(op, null);
+        block.applyOperationStruct(op, null);
     }
     try testBlockEquals(&block, "Test\nhello worRld!");
     std.log.info("block: [{}]", .{block});
@@ -1590,14 +1602,14 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.genOperations(&opgen_demo, block.positionFromDocbyte(1), 18 - 2, "Cleared.");
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
-        block.applyOperation(op, null);
+        block.applyOperationStruct(op, null);
     }
     try testBlockEquals(&block, "TCleared.!");
     std.log.info("block: [{}]", .{block});
 
     // replace live text
     opgen_demo.clearRetainingCapacity();
-    block.applyOperation(.{ .replace = .{
+    block.applyOperationStruct(.{ .replace = .{
         .start = block.positionFromDocbyte(1),
         .text = "Replaced",
     } }, null);
@@ -1606,7 +1618,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
 
     // replace part of live text
     opgen_demo.clearRetainingCapacity();
-    block.applyOperation(.{ .replace = .{
+    block.applyOperationStruct(.{ .replace = .{
         .start = block.positionFromDocbyte(4),
         .text = "!!!!",
     } }, null);
@@ -1615,7 +1627,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
 
     // bring back full dead text
     opgen_demo.clearRetainingCapacity();
-    block.applyOperation(.{ .replace = .{
+    block.applyOperationStruct(.{ .replace = .{
         .start = .{ .id = @enumFromInt(3 << 16), .segbyte = 1 },
         .text = "ABCD",
     } }, null);
@@ -1629,7 +1641,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
 
     // move text
     if (false) {
-        block.applyOperation(.{
+        block.applyOperationStruct(.{
             .move = .{
                 .start = block.positionFromDocbyte(2),
                 .end = block.positionFromDocbyte(8),
@@ -1651,7 +1663,8 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     // currently each span costs 16 bytes when it could cost less
     // - span lengths can probably be u32? maybe not
 
-    var deserialized = try TextDocument.deserialize(gpa, srlz_al.items);
+    var dsrlz_fbs: bi.AlignedFbsReader = .{ .buffer = srlz_al.items, .pos = 0 };
+    var deserialized = try TextDocument.deserialize(gpa, &dsrlz_fbs);
     defer deserialized.deinit();
     std.log.info("deserialized block: {}", .{deserialized});
 
@@ -1683,7 +1696,10 @@ test "fuzz" {
     defer gpa.free(input_aligned);
     @memcpy(input_aligned, input_misaligned);
 
-    if (TextDocument.deserialize(gpa, input_aligned)) |deserialized_1| {
+    var ia_fbs = bi.AlignedFbsReader{ .buffer = input_aligned, .pos = 0 };
+    if (TextDocument.deserialize(gpa, &ia_fbs)) |deserialized_1| {
+        if (ia_fbs.pos < ia_fbs.buffer.len) return error.DeserializeError;
+
         var deserialized = deserialized_1;
         defer deserialized.deinit();
 
@@ -1787,7 +1803,7 @@ const BlockTester = struct {
         self.complex.genOperations(&self.opgen, self.complex.positionFromDocbyte(start), delete_count, insert_text);
         for (self.opgen.items) |op| {
             // std.log.info("    -> apply {}", .{op});
-            self.complex.applyOperation(op, null);
+            self.complex.applyOperationStruct(op, null);
         }
         // std.log.info("  Updated document: [{}], ", .{self.complex});
 
