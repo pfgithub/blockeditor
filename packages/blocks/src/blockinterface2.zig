@@ -137,6 +137,7 @@ pub const CounterComponent = struct {
 pub fn ComposedBlock(comptime ChildComponent: type) type {
     return struct {
         const Self = @This();
+        pub const Child = ChildComponent;
         gpa: std.mem.Allocator, // to free self on deinit
         value: ChildComponent,
 
@@ -200,4 +201,25 @@ test TextDocumentBlock {
     const gpa = std.testing.allocator;
     const mycounter = try TextDocumentBlock.deserialize(gpa, TextDocumentBlock.default);
     defer mycounter.vtable.deinit(mycounter);
+
+    {
+        var gen_res = std.ArrayList(TextDocumentBlock.Child.Operation).init(gpa);
+        defer gen_res.deinit();
+
+        const block = mycounter.cast(TextDocumentBlock.Child);
+        block.genOperations(&gen_res, block.positionFromDocbyte(0), 0, "hello!");
+
+        var op_res = AlignedArrayList.init(gpa);
+        defer op_res.deinit();
+
+        for (gen_res.items) |op| {
+            op_res.clearRetainingCapacity();
+            op.serialize(&op_res);
+            // we should be able to batch these
+            try mycounter.vtable.applyOperation(mycounter, op_res.items, null);
+        }
+
+        // print block
+        std.log.err("block: {}", .{block});
+    }
 }
