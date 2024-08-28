@@ -118,6 +118,33 @@ pub const EditorCore = struct {
         _ = edit;
     }
 
+    fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop) Position {
+        const block = self.document.value;
+
+        switch (stop) {
+            .byte => {
+                var pos_int = block.byteOffsetFromPosition(pos);
+                switch (direction) {
+                    .left => {
+                        if (pos_int > 0) {
+                            pos_int -= 1;
+                        }
+                    },
+                    .right => {
+                        if (pos_int < block.length()) {
+                            pos_int += 1;
+                        }
+                    },
+                }
+                return block.positionFromDocbyte(pos_int);
+            },
+            else => {
+                std.log.err("TODO toWordBoundary for stop: {s}", .{@tagName(stop)});
+                @panic("TODO");
+            },
+        }
+    }
+
     fn selectionToPosLen(self: *EditorCore, selection: Selection) PosLen {
         const block = self.document.value;
 
@@ -156,10 +183,49 @@ pub const EditorCore = struct {
                     }, null);
                     const res_pos = block.positionFromDocbyte(block.byteOffsetFromPosition(pos_len.pos) + text_op.text.len);
 
-                    cursor_position.pos = .{
+                    cursor_position.* = .{ .pos = .{
                         .anchor = res_pos,
                         .focus = res_pos,
-                    };
+                    } };
+                }
+            },
+            .move_cursor_left_right => |lr_cmd| {
+                for (self.cursor_positions.items) |*cursor_position| {
+                    const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop);
+
+                    switch (lr_cmd.mode) {
+                        .move => {
+                            cursor_position.* = .{ .pos = .{
+                                .anchor = moved,
+                                .focus = moved,
+                            } };
+                        },
+                        .select => {
+                            cursor_position.* = .{ .pos = .{
+                                .anchor = cursor_position.pos.anchor,
+                                .focus = moved,
+                            } };
+                        },
+                        .delete => {
+                            // if there is a selection, delete the selection
+                            // if there is no selection, delete from the focus in the direction to the stop
+                            var pos_len = self.selectionToPosLen(cursor_position.pos);
+                            if (pos_len.len == 0) {
+                                pos_len = self.selectionToPosLen(.{ .anchor = cursor_position.pos.focus, .focus = moved });
+                            }
+                            self.document.applySimpleOperation(.{
+                                .position = pos_len.pos,
+                                .delete_len = pos_len.len,
+                                .insert_text = "",
+                            }, null);
+                            const res_pos = pos_len.pos;
+
+                            cursor_position.* = .{ .pos = .{
+                                .anchor = res_pos,
+                                .focus = res_pos,
+                            } };
+                        },
+                    }
                 }
             },
             else => {
@@ -198,4 +264,13 @@ test EditorCore {
     editor.executeCommand(.{ .set_cursor_pos = .{ .position = src_component.value.positionFromDocbyte(0) } });
     editor.executeCommand(.{ .insert_text = .{ .text = "abcd!" } });
     try testEditorContent("abcd!hello!", src_component);
+    editor.executeCommand(.{ .set_cursor_pos = .{ .position = src_component.value.positionFromDocbyte(0) } });
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
+    try testEditorContent("bcd!hello!", src_component);
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .delete } });
+    try testEditorContent("bcd!hello!", src_component);
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
+    try testEditorContent("d!hello!", src_component);
 }
