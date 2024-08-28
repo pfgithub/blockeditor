@@ -213,7 +213,7 @@ test TextDocumentBlock {
         defer gen_res.deinit();
 
         const block = &mycounter.cast(TextDocumentBlock).value;
-        block.genOperations(&gen_res, block.positionFromDocbyte(0), 0, "hello!");
+        block.genOperations(&gen_res, .{ .position = block.positionFromDocbyte(0), .delete_len = 0, .insert_text = "hello!" });
 
         var op_res = AlignedArrayList.init(gpa);
         defer op_res.deinit();

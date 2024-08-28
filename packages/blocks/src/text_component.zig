@@ -1390,7 +1390,11 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             return res_count - 1;
         }
 
-        pub fn genOperations(self: *Doc, res: *std.ArrayList(Operation), pos: Position, delete_count: usize, insert_text: []const T) void {
+        pub fn genOperations(self: *Doc, res: *std.ArrayList(Operation), simple: SimpleOperation) void {
+            const pos = simple.position;
+            const delete_count = simple.delete_len;
+            const insert_text = simple.insert_text;
+
             // 1. generate delete operation
             //     - this is going to be annoying because we chose to make seperate delete operations
             //       per segment id
@@ -1603,7 +1607,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("block: [{}]", .{block});
 
     opgen_demo.clearRetainingCapacity();
-    block.genOperations(&opgen_demo, block.positionFromDocbyte(0), 0, "Test\n");
+    block.genOperations(&opgen_demo, .{ .position = block.positionFromDocbyte(0), .delete_len = 0, .insert_text = "Test\n" });
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
         block.applyOperationStruct(op, null);
@@ -1612,7 +1616,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("block: [{}]", .{block});
 
     opgen_demo.clearRetainingCapacity();
-    block.genOperations(&opgen_demo, block.positionFromDocbyte(1), 18 - 2, "Cleared.");
+    block.genOperations(&opgen_demo, .{ .position = block.positionFromDocbyte(1), .delete_len = 18 - 2, .insert_text = "Cleared." });
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
         block.applyOperationStruct(op, null);
@@ -1813,7 +1817,7 @@ const BlockTester = struct {
         self.timings.simple += timer.lap();
 
         defer self.opgen.clearRetainingCapacity();
-        self.complex.genOperations(&self.opgen, self.complex.positionFromDocbyte(start), delete_count, insert_text);
+        self.complex.genOperations(&self.opgen, .{ .position = self.complex.positionFromDocbyte(start), .delete_len = delete_count, .insert_text = insert_text });
         for (self.opgen.items) |op| {
             // std.log.info("    -> apply {}", .{op});
             self.complex.applyOperationStruct(op, null);

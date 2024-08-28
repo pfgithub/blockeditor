@@ -373,6 +373,8 @@ fn AtomicMutexValue(comptime T: type) type {
 
 // a component is part of a block
 pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
+    // most of this doesn't have to be comptime
+    // only a few functions need to change based on the arg
     return struct {
         const Self = @This();
         block_ref: *BlockRef,
@@ -409,13 +411,13 @@ pub const BlockRef = struct {
     ref_count: u32,
     id: bi.BlockID,
 
-    _contents: ?BlockRefContents,
+    _contents: ?BlockRefContents, // null if the block has not yet been fetched
 
     unapplied_operations_queue: util.Queue(bi.AlignedByteSlice),
 
     const BlockRefContents = struct {
         vtable: *const bi.BlockVtable,
-        server_data: ?*anyopaque, // null if not loaded
+        server_data: ?*anyopaque, // null if the block has not yet been acknowledged by the server
         client_data: *anyopaque,
 
         pub fn server(self: BlockRefContents) ?bi.AnyBlock {
@@ -429,6 +431,18 @@ pub const BlockRef = struct {
 
     pub fn contents(self: *BlockRef) ?*BlockRefContents {
         return if (self._contents) |*v| v else null;
+    }
+
+    pub fn typedComponent(self: *BlockRef, comptime BlockT: type) ?TypedComponentRef(BlockT.Child) {
+        if (self.contents()) |c| {
+            // c.client().cast(BlockT).value
+            // what to do about this?
+            _ = c;
+            return .{
+                .block_ref = self,
+                .prefix = "",
+            };
+        } else return null;
     }
 
     pub fn applyOperation(self: *BlockRef, prefix: bi.AlignedByteSlice, op: bi.AlignedByteSlice, undo_op: *bi.AlignedArrayList) void {

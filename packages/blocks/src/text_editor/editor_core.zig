@@ -78,11 +78,7 @@ test EditorCore {
     const src_block = my_db.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
     defer src_block.unref();
 
-    // now we need to get a TypedComponentRef from src_block
-    const src_component: db_mod.TypedComponentRef(bi.text_component.TextDocument) = .{
-        .block_ref = src_block,
-        .prefix = "",
-    };
+    const src_component = src_block.typedComponent(bi.TextDocumentBlock) orelse return error.NotLoaded;
 
     // now initialize the editor
     var editor: EditorCore = undefined;
