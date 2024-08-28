@@ -975,7 +975,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 .segbyte = span_data.start_segbyte + (target_docbyte - span_position.byte_count),
             };
         }
-        pub fn byteOffsetFromPosition(self: *const Doc, position: Position) usize {
+        pub fn docbyteFromPosition(self: *const Doc, position: Position) usize {
             const res = self._findEntrySpan(position);
             return res.span_start_docbyte + res.spanbyte;
         }

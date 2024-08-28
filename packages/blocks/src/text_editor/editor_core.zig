@@ -35,6 +35,58 @@ pub const DragSelectionMode = enum {
     ignore_drag,
 };
 
+const BetweenCharsStop = enum {
+    left_or_select,
+    right_or_select,
+    right_only,
+    both,
+};
+const AsciiClassification = enum {
+    whitespace,
+    symbols,
+    text,
+    unicode,
+};
+fn asciiClassify(char: u8) AsciiClassification {
+    if (std.ascii.isAlphanumeric(char) or char == '_') return .text;
+    if (std.ascii.isWhitespace(char)) return .whitespace;
+    if (char >= 0x80) return .unicode;
+    return .symbols;
+}
+fn hasStop(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?BetweenCharsStop {
+    switch (stop) {
+        .byte => {
+            return .both;
+        },
+        .codepoint => {
+            if (left_byte < 0x80 or (left_byte & 0b11_000000) == 0b10_000000) {
+                return .both;
+            }
+            return null;
+        },
+        .unicode_grapheme => {
+            // maybe we should pass in the Position we're testing? not sure
+            @panic("function does not have enough information to determine grapheme stop");
+        },
+        .word => {
+            const left = asciiClassify(left_byte);
+            const right = asciiClassify(right_byte);
+            if (left == right) return null;
+            if (left == .whitespace or left == .symbols) return .left_or_select;
+            if (right == .whitespace or left == .symbols) return .right_or_select;
+            return .both;
+        },
+        .unicode_word => {
+            @panic("function does not have enough information to determine word stop");
+        },
+        .line => {
+            // not sure what to do for empty lines?
+            if (left_byte == '\n') return .left_or_select;
+            if (right_byte == '\n') return .right_only;
+            return null;
+        },
+    }
+}
 pub const CursorLeftRightStop = enum {
     // so the way these stops should work is:
     // - the whole document has invisible stops for all of these
@@ -49,10 +101,12 @@ pub const CursorLeftRightStop = enum {
     /// .|a|…|b|.
     codepoint,
     /// .|म|नी|ष|.
-    grapheme, // default
-    /// .<fn> <demo><()> <void> <{}>.
+    unicode_grapheme,
+    /// .|fn> <demo()> <void> <{}|.
     word,
-    /// .<hello]\n<goodbye!>.
+    /// like word but for natural language instead of code. there is a unicode algorithm for this.
+    unicode_word,
+    /// .|\n<hello]\n<\n<goodbye!]\n|.
     line,
 };
 pub const CursorUpDownStop = enum {
@@ -133,36 +187,32 @@ pub const EditorCore = struct {
 
     fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop) Position {
         const block = self.document.value;
-
-        switch (stop) {
-            .byte => {
-                var pos_int = block.byteOffsetFromPosition(pos);
-                switch (direction) {
-                    .left => {
-                        if (pos_int > 0) {
-                            pos_int -= 1;
-                        }
-                    },
-                    .right => {
-                        if (pos_int < block.length()) {
-                            pos_int += 1;
-                        }
-                    },
-                }
-                return block.positionFromDocbyte(pos_int);
-            },
-            else => {
-                std.log.err("TODO toWordBoundary for stop: {s}", .{@tagName(stop)});
-                @panic("TODO");
-            },
+        var index: usize = block.docbyteFromPosition(pos);
+        const len = block.length();
+        while (switch (direction) {
+            .left => index > 0,
+            .right => index < len,
+        }) {
+            switch (direction) {
+                .left => index -= 1,
+                .right => index += 1,
+            }
+            var bytes: [2]u8 = undefined;
+            if (index <= 0 or index >= len) continue; // readSlice will go out of range
+            block.readSlice(block.positionFromDocbyte(index - 1), &bytes);
+            const marker = hasStop(bytes[0], bytes[1], stop) orelse continue;
+            switch (marker) {
+                else => break,
+            }
         }
+        return block.positionFromDocbyte(index);
     }
 
     fn selectionToPosLen(self: *EditorCore, selection: Selection) PosLen {
         const block = self.document.value;
 
-        const bufbyte_1 = block.byteOffsetFromPosition(selection.anchor);
-        const bufbyte_2 = block.byteOffsetFromPosition(selection.focus);
+        const bufbyte_1 = block.docbyteFromPosition(selection.anchor);
+        const bufbyte_2 = block.docbyteFromPosition(selection.focus);
 
         const min = @min(bufbyte_1, bufbyte_2);
         const max = @max(bufbyte_1, bufbyte_2);
@@ -194,7 +244,7 @@ pub const EditorCore = struct {
                         .delete_len = pos_len.len,
                         .insert_text = text_op.text,
                     }, null);
-                    const res_pos = block.positionFromDocbyte(block.byteOffsetFromPosition(pos_len.pos) + text_op.text.len);
+                    const res_pos = block.positionFromDocbyte(block.docbyteFromPosition(pos_len.pos) + text_op.text.len);
 
                     cursor_position.* = .{ .pos = .{
                         .anchor = res_pos,
