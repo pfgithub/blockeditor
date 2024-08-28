@@ -285,6 +285,8 @@ pub const EditorCore = struct {
         };
     }
     pub fn executeCommand(self: *EditorCore, command: EditorCommand) void {
+        const block = self.document.value;
+
         switch (command) {
             .set_cursor_pos => |sc_op| {
                 self.cursor_positions.clearRetainingCapacity();
@@ -292,6 +294,15 @@ pub const EditorCore = struct {
                     .pos = .{
                         .anchor = sc_op.position,
                         .focus = sc_op.position,
+                    },
+                }) catch @panic("oom");
+            },
+            .select_all => {
+                self.cursor_positions.clearRetainingCapacity();
+                self.cursor_positions.append(.{
+                    .pos = .{
+                        .anchor = block.positionFromDocbyte(0),
+                        .focus = block.positionFromDocbyte(block.length()), // same as Position.end
                     },
                 }) catch @panic("oom");
             },
@@ -466,4 +477,7 @@ test EditorCore {
     try testEditorContent("    hi();\n        goodbye();\n", src_component);
     editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
     try testEditorContent("    hi();\n        goodbye();\n    ", src_component);
+    editor.executeCommand(.select_all);
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
+    try testEditorContent("", src_component);
 }
