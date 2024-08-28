@@ -39,7 +39,7 @@ test BlockDB {
     my_operation.serialize(&my_operation_al);
     var my_undo_operation_al = bi.AlignedArrayList.init(gpa);
     defer my_undo_operation_al.deinit();
-    my_created_block.applyOperation(my_operation_al.items, &my_undo_operation_al);
+    my_created_block.applyOperation("", my_operation_al.items, &my_undo_operation_al);
 }
 
 fn simulateNetworkLatency() void {
@@ -376,6 +376,7 @@ pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
     return struct {
         const Self = @This();
         block_ref: *BlockRef,
+        prefix: bi.AlignedByteSlice,
 
         pub const ComponentType = ComponentType_arg;
 
@@ -430,12 +431,14 @@ pub const BlockRef = struct {
         return if (self._contents) |*v| v else null;
     }
 
-    pub fn applyOperation(self: *BlockRef, op: bi.AlignedByteSlice, undo_op: *bi.AlignedArrayList) void {
+    pub fn applyOperation(self: *BlockRef, prefix: bi.AlignedByteSlice, op: bi.AlignedByteSlice, undo_op: *bi.AlignedArrayList) void {
         const content: *BlockRefContents = self.contents() orelse @panic("cannot apply operation on a block that has not yet loaded");
 
         // clone operation (can't use dupe because it has to stay aligned)
-        const op_clone = self.unapplied_operations_queue.allocator.alignedAlloc(u8, 16, op.len) catch @panic("oom");
-        @memcpy(op_clone, op);
+        std.debug.assert(prefix.len == std.mem.alignForward(usize, prefix.len, 16));
+        const op_clone = self.unapplied_operations_queue.allocator.alignedAlloc(u8, 16, prefix.len + op.len) catch @panic("oom");
+        @memcpy(op_clone[0..prefix.len], prefix);
+        @memcpy(op_clone[prefix.len..], op);
 
         // apply it to client contents and tell owning BlockDBInterface about the operation to eventually get it into server value
         content.client().vtable.applyOperation(content.client(), op, undo_op) catch @panic("Deserialize error only allowed on network operations");

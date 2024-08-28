@@ -81,6 +81,7 @@ test EditorCore {
     // now we need to get a TypedComponentRef from src_block
     const src_component: db_mod.TypedComponentRef(bi.text_component.TextDocument) = .{
         .block_ref = src_block,
+        .prefix = "",
     };
 
     // now initialize the editor
