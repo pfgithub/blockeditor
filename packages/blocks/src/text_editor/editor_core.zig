@@ -59,7 +59,7 @@ fn hasStop(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?BetweenCha
             return .both;
         },
         .codepoint => {
-            if (left_byte < 0x80 or (left_byte & 0b11_000000) == 0b10_000000) {
+            if (right_byte < 0x80 or ((right_byte & 0b11_000000) == 0b11_000000)) {
                 return .both;
             }
             return null;
@@ -223,8 +223,6 @@ pub const EditorCore = struct {
         };
     }
     pub fn executeCommand(self: *EditorCore, command: EditorCommand) void {
-        const block = self.document.value;
-
         switch (command) {
             .set_cursor_pos => |sc_op| {
                 self.cursor_positions.clearRetainingCapacity();
@@ -244,7 +242,7 @@ pub const EditorCore = struct {
                         .delete_len = pos_len.len,
                         .insert_text = text_op.text,
                     }, null);
-                    const res_pos = block.positionFromDocbyte(block.docbyteFromPosition(pos_len.pos) + text_op.text.len);
+                    const res_pos = pos_len.pos;
 
                     cursor_position.* = .{ .pos = .{
                         .anchor = res_pos,
@@ -336,4 +334,12 @@ test EditorCore {
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
     try testEditorContent("d!hello!", src_component);
+    editor.executeCommand(.{ .insert_text = .{ .text = "……" } });
+    try testEditorContent("……d!hello!", src_component);
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .codepoint, .mode = .delete } });
+    try testEditorContent("…d!hello!", src_component);
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .line, .mode = .delete } });
+    try testEditorContent("…", src_component);
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .line, .mode = .delete } });
+    try testEditorContent("", src_component);
 }

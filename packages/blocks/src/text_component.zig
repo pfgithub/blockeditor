@@ -1018,7 +1018,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             return .{
                 .doc = self,
                 .span_it = it,
-                .start_docbyte = start_posinfo.span_start_docbyte,
+                .start_docbyte = start_posinfo.span_start_docbyte + start_posinfo.spanbyte,
                 .sliced = false,
             };
         }
@@ -1050,6 +1050,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
         };
         pub fn readSlice(self: *const Doc, start: Position, result_in: []T) void {
+            if (result_in.len == 0) return;
             var result = result_in;
             var it = self.readIterator(start);
             while (it.next()) |seg| {
