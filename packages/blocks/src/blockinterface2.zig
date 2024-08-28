@@ -15,6 +15,9 @@ pub const AnyBlock = struct {
     vtable: *const BlockVtable,
 
     pub fn cast(self: AnyBlock, comptime T: type) *T {
+        if (std.debug.runtime_safety) {
+            std.debug.assert(self.vtable.type_id == @typeName(T));
+        }
         return @alignCast(@ptrCast(self.data));
     }
 
@@ -26,6 +29,7 @@ pub const AnyBlock = struct {
             .deinit = T.deinit,
             .clone = if (@hasDecl(T, "clone")) T.clone else null,
             .is_crdt = false,
+            .type_id = @typeName(T),
         };
         return .{
             .data = @ptrCast(@alignCast(self)),
@@ -62,6 +66,8 @@ pub const BlockVtable = struct {
     /// of the block will be byte-for-byte identical regardless of the order operations were applied in. This halves memory usage
     /// for a block (only one copy needs to be kept in memory) and may improve performance
     is_crdt: bool,
+
+    type_id: [*:0]const u8,
 };
 
 pub const CounterComponent = struct {
