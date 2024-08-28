@@ -42,6 +42,7 @@ pub const CursorLeftRightStop = enum {
     // - left movement moves to the next left|both stop from the current position
     // - selection selects to the previous and next either stop from the current position
     // in descriptions: '<' indicates left stop, '>' indicates right stop, '|' indicates both, '.' indicates eof
+    // ']' indicates right-only stop, not counted for selections
 
     /// .|h|e|l|l|o| |w|o|r|l|d|.
     byte,
@@ -51,7 +52,7 @@ pub const CursorLeftRightStop = enum {
     grapheme, // default
     /// .<fn> <demo><()> <void> <{}>.
     word,
-    /// .<hello>\n<goodbye!>.
+    /// .<hello]\n<goodbye!>.
     line,
 };
 pub const CursorUpDownStop = enum {
