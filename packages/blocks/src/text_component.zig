@@ -659,6 +659,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             },
 
             pub fn serialize(self: *const Operation, out: *bi.AlignedArrayList) void {
+                if (true) @panic("TODO: std.json.stringify does not support non-exhaustive enums. fix this in the standard library and until then we can do custom serialization.");
                 std.json.stringify(self, .{}, out.writer()) catch @panic("oom");
             }
             pub fn deserialize(arena: std.mem.Allocator, slice: bi.AlignedByteSlice) !Operation {
