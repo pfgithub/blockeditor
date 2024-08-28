@@ -415,8 +415,6 @@ pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
             var srlz_res = bi.AlignedArrayList.init(self.block_ref.db.gpa);
             defer srlz_res.deinit();
 
-            // we should batch all the operations and apply them at the same time
-            // rather than making seperate calls to applyOperation
             for (opgen_al.items) |itm| {
                 srlz_res.clearRetainingCapacity();
                 itm.serialize(&srlz_res);

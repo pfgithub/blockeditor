@@ -976,7 +976,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             };
         }
         pub fn byteOffsetFromPosition(self: *const Doc, position: Position) usize {
-            const res = self._findEntryIndex(position);
+            const res = self._findEntrySpan(position);
             return res.span_start_docbyte + res.spanbyte;
         }
         pub const EntryIndex = struct {

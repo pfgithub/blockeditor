@@ -9,13 +9,6 @@ pub const Position = bi.text_component.Position;
 pub const Selection = struct {
     anchor: Position,
     focus: Position,
-
-    pub fn left(self: Selection) usize {
-        return @min(self.anchor.value, self.focus.value);
-    }
-    pub fn right(self: Selection) usize {
-        return @max(self.anchor.value, self.focus.value);
-    }
 };
 pub const CursorPosition = struct {
     pos: Selection,
@@ -38,6 +31,56 @@ pub const DragSelectionMode = enum {
     ignore_drag,
 };
 
+pub const CursorLeftRightStop = enum {
+    byte,
+    codepoint,
+    grapheme, // default
+    word, // double click
+    line, // triple click
+};
+pub const CursorUpDownStop = enum {
+    line,
+};
+pub const LRDirection = enum {
+    left,
+    right,
+    pub fn value(dir: LRDirection) i2 {
+        return switch (dir) {
+            .left => -1,
+            .right => 1,
+        };
+    }
+};
+pub const EditorCommand = union(enum) {
+    none: void,
+    move_cursor_left_right: struct {
+        direction: LRDirection,
+        stop: CursorLeftRightStop,
+        mode: enum { move, select, delete },
+    },
+    move_cursor_up_down: struct {
+        direction: enum { up, down },
+        stop: CursorUpDownStop,
+        mode: enum { move, select },
+    },
+    select_all: void,
+    insert_text: struct {
+        text: []const u8,
+    },
+    newline: void,
+    indent_selection: struct {
+        direction: LRDirection,
+    },
+    ts_select_node: struct {
+        direction: enum { parent, child },
+    },
+    undo: void,
+    redo: void,
+    set_cursor_pos: struct {
+        position: Position,
+    },
+};
+
 // we would like EditorCore to edit any TextDocument component
 // in order to apply operations to the document, we need to be able to wrap an operation
 // with whatever is needed to target the right document
@@ -45,9 +88,7 @@ pub const EditorCore = struct {
     gpa: std.mem.Allocator,
     document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
 
-    cursor_position: CursorPosition = .{
-        .pos = .{ .anchor = Position.end, .focus = Position.end },
-    },
+    cursor_positions: std.ArrayList(CursorPosition),
     drag_info: DragInfo = .{},
 
     /// refs document
@@ -55,11 +96,14 @@ pub const EditorCore = struct {
         self.* = .{
             .gpa = gpa,
             .document = document,
+
+            .cursor_positions = std.ArrayList(CursorPosition).init(gpa),
         };
         document.ref();
         document.addUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit)); // to keep the language server up to date
     }
     pub fn deinit(self: *EditorCore) void {
+        self.cursor_positions.deinit();
         self.document.removeUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit));
         self.document.unref();
     }
@@ -69,7 +113,56 @@ pub const EditorCore = struct {
         _ = self;
         _ = edit;
     }
+
+    pub fn executeCommand(self: *EditorCore, command: EditorCommand) void {
+        const block = self.document.value;
+
+        switch (command) {
+            .set_cursor_pos => |sc_op| {
+                self.cursor_positions.clearRetainingCapacity();
+                self.cursor_positions.append(.{
+                    .pos = .{
+                        .anchor = sc_op.position,
+                        .focus = sc_op.position,
+                    },
+                }) catch @panic("oom");
+            },
+            .insert_text => |text_op| {
+                for (self.cursor_positions.items) |*cursor_position| {
+                    const bufbyte_1 = block.byteOffsetFromPosition(cursor_position.pos.anchor);
+                    const bufbyte_2 = block.byteOffsetFromPosition(cursor_position.pos.focus);
+
+                    const min = @min(bufbyte_1, bufbyte_2);
+                    const max = @max(bufbyte_1, bufbyte_2);
+
+                    self.document.applySimpleOperation(.{
+                        .position = block.positionFromDocbyte(min),
+                        .delete_len = max - min,
+                        .insert_text = text_op.text,
+                    }, null);
+                    const res_pos = block.positionFromDocbyte(min + text_op.text.len);
+
+                    cursor_position.pos = .{
+                        .anchor = res_pos,
+                        .focus = res_pos,
+                    };
+                }
+            },
+            else => {
+                std.log.err("TODO executeCommand {s}", .{@tagName(command)});
+                @panic("TODO");
+            },
+        }
+    }
 };
+
+fn testEditorContent(expected: []const u8, actual: db_mod.TypedComponentRef(bi.text_component.TextDocument)) !void {
+    const gpa = std.testing.allocator;
+    const rendered = try gpa.alloc(u8, actual.value.length());
+    defer gpa.free(rendered);
+    actual.value.readSlice(actual.value.positionFromDocbyte(0), rendered);
+    try std.testing.expectEqualStrings(expected, rendered);
+}
 
 test EditorCore {
     const gpa = std.testing.allocator;
@@ -81,9 +174,14 @@ test EditorCore {
     const src_component = src_block.typedComponent(bi.TextDocumentBlock) orelse return error.NotLoaded;
 
     src_component.applySimpleOperation(.{ .position = src_component.value.positionFromDocbyte(0), .delete_len = 0, .insert_text = "hello!" }, null);
+    try testEditorContent("hello!", src_component);
 
     // now initialize the editor
     var editor: EditorCore = undefined;
     editor.initFromDoc(gpa, src_component);
     defer editor.deinit();
+
+    editor.executeCommand(.{ .set_cursor_pos = .{ .position = src_component.value.positionFromDocbyte(0) } });
+    editor.executeCommand(.{ .insert_text = .{ .text = "abcd!" } });
+    try testEditorContent("abcd!hello!", src_component);
 }
