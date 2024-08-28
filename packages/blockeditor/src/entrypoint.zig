@@ -2,6 +2,7 @@ const std = @import("std");
 const blocks_mod = @import("blocks");
 const bi = blocks_mod.blockinterface2;
 const db = blocks_mod.blockdb;
+// const text_editor_view = @import("text_editor/editor_view.zig");
 
 const zglfw = @import("zglfw");
 const zgpu = @import("zgpu");
@@ -65,6 +66,13 @@ pub fn main() !void {
 
     const my_counter = interface.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
     defer my_counter.unref();
+
+    const my_text = interface.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
+    defer my_text.unref();
+
+    // var my_text_editor: text_editor_view.EditorView = undefined;
+    // my_text_editor.init(my_text, gpa);
+    // defer my_text_editor.deinit();
 
     {
         // Change cwd to where the executable is located.
@@ -171,7 +179,7 @@ pub fn main() !void {
 
         zgui.setNextWindowPos(.{ .x = 250.0, .y = 80.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
-        if (zgui.begin("My counter (editor 2)", .{})) {
+        if (zgui.begin("My Text Editor", .{})) {
             renderCounter(arena, my_counter);
         }
         zgui.end();

@@ -4,6 +4,9 @@ const zig_gamedev = @import("zig_gamedev");
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const treesitter_optimize: std.builtin.OptimizeMode = .ReleaseSafe;
+
+    const enable_tracy = b.option(bool, "enable_tracy", "Enable tracy?") orelse false;
 
     const format_step = b.addFmt(.{
         .paths = &.{ "src", "build.zig", "build.zig.zon" },
@@ -24,6 +27,44 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     blockeditor_exe.root_module.addImport("blocks", blocks_dep.module("blocks"));
+
+    // tree sitter stuff
+    {
+        const tree_sitter_dep = b.dependency("tree_sitter", .{ .target = target, .optimize = treesitter_optimize });
+        const tree_sitter_root = b.addTranslateC(std.Build.Step.TranslateC.Options{
+            .root_source_file = tree_sitter_dep.path("lib/include/tree_sitter/api.h"),
+            .target = target,
+            .optimize = treesitter_optimize,
+        });
+        const tree_sitter_module = b.createModule(.{
+            .root_source_file = tree_sitter_root.getOutput(),
+        });
+        tree_sitter_module.linkLibrary(tree_sitter_dep.artifact("tree-sitter"));
+
+        const tree_sitter_zig_dep = b.dependency("tree_sitter_zig", .{});
+        const tree_sitter_zig_obj = b.addStaticLibrary(.{
+            .name = "tree_sitter_zig",
+            .target = target,
+            .optimize = treesitter_optimize,
+        });
+        tree_sitter_zig_obj.linkLibC();
+        tree_sitter_zig_obj.addCSourceFile(.{ .file = tree_sitter_zig_dep.path("src/parser.c") });
+        tree_sitter_zig_obj.addIncludePath(tree_sitter_zig_dep.path("src"));
+
+        blockeditor_exe.root_module.addImport("tree-sitter", tree_sitter_module);
+        blockeditor_exe.linkLibrary(tree_sitter_zig_obj);
+    }
+
+    if (enable_tracy) {
+        const tracy_dep = b.dependency("tracy", .{
+            .target = target,
+            .optimize = optimize,
+        });
+
+        blockeditor_exe.linkLibrary(tracy_dep.artifact("tracy_client"));
+
+        b.installArtifact(tracy_dep.artifact("tracy_profiler"));
+    }
 
     {
         // hack
@@ -58,6 +99,7 @@ pub fn build(b: *std.Build) !void {
         });
         blockeditor_exe.root_module.addImport("zmath", zmath.module("root"));
 
+        // we don't need this, we'll use wuffs for images
         const zstbi = zig_gamedev_dep.builder.dependency("zstbi", .{
             .target = target,
         });
