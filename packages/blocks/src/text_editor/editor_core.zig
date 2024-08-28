@@ -80,6 +80,8 @@ test EditorCore {
 
     const src_component = src_block.typedComponent(bi.TextDocumentBlock) orelse return error.NotLoaded;
 
+    src_component.applySimpleOperation(.{ .position = src_component.value.positionFromDocbyte(0), .delete_len = 0, .insert_text = "hello!" }, null);
+
     // now initialize the editor
     var editor: EditorCore = undefined;
     editor.initFromDoc(gpa, src_component);

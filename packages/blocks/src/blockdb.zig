@@ -379,6 +379,7 @@ pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
         const Self = @This();
         block_ref: *BlockRef,
         prefix: bi.AlignedByteSlice,
+        value: *ComponentType,
 
         pub const ComponentType = ComponentType_arg;
 
@@ -398,6 +399,30 @@ pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
         pub fn removeUpdateListener(self: Self, cb: util.Callback(ComponentType.SimpleOperation, void)) void {
             _ = self;
             _ = cb;
+        }
+
+        pub fn applyUndoOperation(self: Self, op: bi.AlignedByteSlice, undo_op: *bi.AlignedArrayList) void {
+            self.block_ref.applyOperation("", op, undo_op);
+        }
+        pub fn applySimpleOperation(self: Self, op: ComponentType.SimpleOperation, undo_op: ?*bi.AlignedArrayList) void {
+            // since the simple op may split into multiple or zero operations, the undo op needs to be able to contain multiple or zero operations
+            if (undo_op != null) @panic("TODO undo op");
+
+            var opgen_al = std.ArrayList(ComponentType.Operation).init(self.block_ref.db.gpa);
+            defer opgen_al.deinit();
+            self.value.genOperations(&opgen_al, op);
+
+            var srlz_res = bi.AlignedArrayList.init(self.block_ref.db.gpa);
+            defer srlz_res.deinit();
+
+            // we should batch all the operations and apply them at the same time
+            // rather than making seperate calls to applyOperation
+            for (opgen_al.items) |itm| {
+                srlz_res.clearRetainingCapacity();
+                itm.serialize(&srlz_res);
+
+                self.block_ref.applyOperation(self.prefix, srlz_res.items, null);
+            }
         }
     };
 }
@@ -435,17 +460,15 @@ pub const BlockRef = struct {
 
     pub fn typedComponent(self: *BlockRef, comptime BlockT: type) ?TypedComponentRef(BlockT.Child) {
         if (self.contents()) |c| {
-            // c.client().cast(BlockT).value
-            // what to do about this?
-            _ = c;
             return .{
                 .block_ref = self,
                 .prefix = "",
+                .value = &c.client().cast(BlockT).value,
             };
         } else return null;
     }
 
-    pub fn applyOperation(self: *BlockRef, prefix: bi.AlignedByteSlice, op: bi.AlignedByteSlice, undo_op: *bi.AlignedArrayList) void {
+    pub fn applyOperation(self: *BlockRef, prefix: bi.AlignedByteSlice, op: bi.AlignedByteSlice, undo_op: ?*bi.AlignedArrayList) void {
         const content: *BlockRefContents = self.contents() orelse @panic("cannot apply operation on a block that has not yet loaded");
 
         // clone operation (can't use dupe because it has to stay aligned)
