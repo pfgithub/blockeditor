@@ -36,11 +36,23 @@ pub const DragSelectionMode = enum {
 };
 
 pub const CursorLeftRightStop = enum {
+    // so the way these stops should work is:
+    // - the whole document has invisible stops for all of these
+    // - every stop is either a 'left' stop or a 'right' stop or both.
+    // - left movement moves to the next left|both stop from the current position
+    // - selection selects to the previous and next either stop from the current position
+    // in descriptions: '<' indicates left stop, '>' indicates right stop, '|' indicates both, '.' indicates eof
+
+    /// .|h|e|l|l|o| |w|o|r|l|d|.
     byte,
+    /// .|a|…|b|.
     codepoint,
+    /// .|म|नी|ष|.
     grapheme, // default
-    word, // double click
-    line, // triple click
+    /// .<fn> <demo><()> <void> <{}>.
+    word,
+    /// .<hello>\n<goodbye!>.
+    line,
 };
 pub const CursorUpDownStop = enum {
     line,
