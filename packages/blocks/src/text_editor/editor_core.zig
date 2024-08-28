@@ -212,9 +212,8 @@ pub const EditorCore = struct {
     fn getLineStart(self: *EditorCore, pos: Position) Position {
         const block = self.document.value;
         var index: usize = block.docbyteFromPosition(pos);
-        const len = block.length();
         while (index > 0) : (index -= 1) {
-            if (index <= 0 or index >= len) continue; // to keep readSlice in bounds
+            if (index <= 0) continue; // to keep readSlice in bounds
             var byte: [1]u8 = undefined;
             block.readSlice(block.positionFromDocbyte(index - 1), &byte);
             if (byte[0] == '\n') {
@@ -223,24 +222,29 @@ pub const EditorCore = struct {
         }
         return block.positionFromDocbyte(index);
     }
-    fn measureIndent(self: *EditorCore, line_start_pos: Position) usize {
-        var count: usize = 0;
+    fn measureIndent(self: *EditorCore, line_start_pos: Position) struct { indents: usize, chars: usize } {
+        var indent_segments: usize = 0;
+        var chars: usize = 0;
 
         const block = self.document.value;
         var index: usize = block.docbyteFromPosition(line_start_pos);
         const len = block.length();
         while (index < len) : (index += 1) {
-            if (index <= 0 or index >= len) continue; // to keep readSlice in bounds
+            if (index >= len) continue; // to keep readSlice in bounds
             var byte: [1]u8 = undefined;
-            block.readSlice(block.positionFromDocbyte(index - 1), &byte);
+            block.readSlice(block.positionFromDocbyte(index), &byte);
             switch (byte[0]) {
-                ' ' => count += 1,
-                '\t' => count += self.config.indent_with.count(),
+                ' ' => indent_segments += 1,
+                '\t' => indent_segments += self.config.indent_with.count(),
                 else => break,
             }
+            chars += 1;
         }
 
-        return std.math.divCeil(usize, count, self.config.indent_with.count()) catch unreachable;
+        return .{
+            .indents = std.math.divCeil(usize, indent_segments, self.config.indent_with.count()) catch unreachable,
+            .chars = chars,
+        };
     }
 
     fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop) Position {
@@ -359,11 +363,33 @@ pub const EditorCore = struct {
                     temp_insert_slice.append('\n') catch @panic("oom");
 
                     const line_indent_count = self.measureIndent(line_start);
-                    temp_insert_slice.appendNTimes(self.config.indent_with.char(), self.config.indent_with.count() * line_indent_count) catch @panic("oom");
+                    temp_insert_slice.appendNTimes(self.config.indent_with.char(), self.config.indent_with.count() * line_indent_count.indents) catch @panic("oom");
 
                     self.document.applySimpleOperation(.{
                         .position = pos_len.pos,
                         .delete_len = pos_len.len,
+                        .insert_text = temp_insert_slice.items,
+                    }, null);
+                }
+            },
+            .indent_selection => |indent_cmd| {
+                for (self.cursor_positions.items) |*cursor_position| {
+                    const pos_len = self.selectionToPosLen(cursor_position.pos);
+                    if (pos_len.len > 0) @panic("TODO impl indent_selection over multiple lines");
+                    const line_start = self.getLineStart(pos_len.pos);
+                    const line_indent_count = self.measureIndent(line_start);
+                    const new_indent_count: usize = switch (indent_cmd.direction) {
+                        .left => std.math.sub(usize, line_indent_count.indents, 1) catch 0,
+                        .right => line_indent_count.indents + 1,
+                    };
+
+                    var temp_insert_slice = std.ArrayList(u8).init(self.gpa);
+                    defer temp_insert_slice.deinit();
+                    temp_insert_slice.appendNTimes(self.config.indent_with.char(), self.config.indent_with.count() * new_indent_count) catch @panic("oom");
+
+                    self.document.applySimpleOperation(.{
+                        .position = line_start,
+                        .delete_len = line_indent_count.chars,
                         .insert_text = temp_insert_slice.items,
                     }, null);
                 }
@@ -427,4 +453,17 @@ test EditorCore {
     try testEditorContent("    hi();\n    ", src_component);
     editor.executeCommand(.{ .insert_text = .{ .text = "goodbye();" } });
     try testEditorContent("    hi();\n    goodbye();", src_component);
+    editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
+    try testEditorContent("    hi();\ngoodbye();", src_component);
+    editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
+    try testEditorContent("    hi();\n    goodbye();", src_component);
+    editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
+    try testEditorContent("    hi();\n        goodbye();", src_component);
+    editor.executeCommand(.newline);
+    try testEditorContent("    hi();\n        goodbye();\n        ", src_component);
+    editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
+    editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
+    try testEditorContent("    hi();\n        goodbye();\n", src_component);
+    editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
+    try testEditorContent("    hi();\n        goodbye();\n    ", src_component);
 }
