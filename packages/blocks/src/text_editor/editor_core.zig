@@ -152,6 +152,26 @@ pub const EditorCommand = union(enum) {
     },
 };
 
+pub const IndentMode = union(enum) {
+    tabs,
+    spaces: usize,
+    fn char(self: IndentMode) u8 {
+        return switch (self) {
+            .tabs => '\t',
+            .spaces => ' ',
+        };
+    }
+    fn count(self: IndentMode) usize {
+        return switch (self) {
+            .tabs => 1,
+            .spaces => |s| s,
+        };
+    }
+};
+pub const EditorConfig = struct {
+    indent_with: IndentMode,
+};
+
 // we would like EditorCore to edit any TextDocument component
 // in order to apply operations to the document, we need to be able to wrap an operation
 // with whatever is needed to target the right document
@@ -161,6 +181,10 @@ pub const EditorCore = struct {
 
     cursor_positions: std.ArrayList(CursorPosition),
     drag_info: DragInfo = .{},
+
+    config: EditorConfig = .{
+        .indent_with = .{ .spaces = 4 },
+    },
 
     /// refs document
     pub fn initFromDoc(self: *EditorCore, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
@@ -185,6 +209,40 @@ pub const EditorCore = struct {
         _ = edit;
     }
 
+    fn getLineStart(self: *EditorCore, pos: Position) Position {
+        const block = self.document.value;
+        var index: usize = block.docbyteFromPosition(pos);
+        const len = block.length();
+        while (index > 0) : (index -= 1) {
+            if (index <= 0 or index >= len) continue; // to keep readSlice in bounds
+            var byte: [1]u8 = undefined;
+            block.readSlice(block.positionFromDocbyte(index - 1), &byte);
+            if (byte[0] == '\n') {
+                break;
+            }
+        }
+        return block.positionFromDocbyte(index);
+    }
+    fn measureIndent(self: *EditorCore, line_start_pos: Position) usize {
+        var count: usize = 0;
+
+        const block = self.document.value;
+        var index: usize = block.docbyteFromPosition(line_start_pos);
+        const len = block.length();
+        while (index < len) : (index += 1) {
+            if (index <= 0 or index >= len) continue; // to keep readSlice in bounds
+            var byte: [1]u8 = undefined;
+            block.readSlice(block.positionFromDocbyte(index - 1), &byte);
+            switch (byte[0]) {
+                ' ' => count += 1,
+                '\t' => count += self.config.indent_with.count(),
+                else => break,
+            }
+        }
+
+        return std.math.divCeil(usize, count, self.config.indent_with.count()) catch unreachable;
+    }
+
     fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop) Position {
         const block = self.document.value;
         var index: usize = block.docbyteFromPosition(pos);
@@ -197,8 +255,8 @@ pub const EditorCore = struct {
                 .left => index -= 1,
                 .right => index += 1,
             }
-            var bytes: [2]u8 = undefined;
             if (index <= 0 or index >= len) continue; // readSlice will go out of range
+            var bytes: [2]u8 = undefined;
             block.readSlice(block.positionFromDocbyte(index - 1), &bytes);
             const marker = hasStop(bytes[0], bytes[1], stop) orelse continue;
             switch (marker) {
@@ -289,6 +347,27 @@ pub const EditorCore = struct {
                     }
                 }
             },
+            .newline => {
+                for (self.cursor_positions.items) |*cursor_position| {
+                    const pos_len = self.selectionToPosLen(cursor_position.pos);
+
+                    const line_start = self.getLineStart(pos_len.pos);
+
+                    var temp_insert_slice = std.ArrayList(u8).init(self.gpa);
+                    defer temp_insert_slice.deinit();
+
+                    temp_insert_slice.append('\n') catch @panic("oom");
+
+                    const line_indent_count = self.measureIndent(line_start);
+                    temp_insert_slice.appendNTimes(self.config.indent_with.char(), self.config.indent_with.count() * line_indent_count) catch @panic("oom");
+
+                    self.document.applySimpleOperation(.{
+                        .position = pos_len.pos,
+                        .delete_len = pos_len.len,
+                        .insert_text = temp_insert_slice.items,
+                    }, null);
+                }
+            },
             else => {
                 std.log.err("TODO executeCommand {s}", .{@tagName(command)});
                 @panic("TODO");
@@ -342,4 +421,10 @@ test EditorCore {
     try testEditorContent("…", src_component);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .line, .mode = .delete } });
     try testEditorContent("", src_component);
+    editor.executeCommand(.{ .insert_text = .{ .text = "    hi();" } });
+    try testEditorContent("    hi();", src_component);
+    editor.executeCommand(.newline);
+    try testEditorContent("    hi();\n    ", src_component);
+    editor.executeCommand(.{ .insert_text = .{ .text = "goodbye();" } });
+    try testEditorContent("    hi();\n    goodbye();", src_component);
 }
