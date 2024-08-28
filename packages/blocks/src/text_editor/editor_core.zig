@@ -10,6 +10,10 @@ pub const Selection = struct {
     anchor: Position,
     focus: Position,
 };
+const PosLen = struct {
+    pos: Position,
+    len: usize,
+};
 pub const CursorPosition = struct {
     pos: Selection,
 
@@ -114,6 +118,20 @@ pub const EditorCore = struct {
         _ = edit;
     }
 
+    fn selectionToPosLen(self: *EditorCore, selection: Selection) PosLen {
+        const block = self.document.value;
+
+        const bufbyte_1 = block.byteOffsetFromPosition(selection.anchor);
+        const bufbyte_2 = block.byteOffsetFromPosition(selection.focus);
+
+        const min = @min(bufbyte_1, bufbyte_2);
+        const max = @max(bufbyte_1, bufbyte_2);
+
+        return .{
+            .pos = block.positionFromDocbyte(min),
+            .len = max - min,
+        };
+    }
     pub fn executeCommand(self: *EditorCore, command: EditorCommand) void {
         const block = self.document.value;
 
@@ -129,18 +147,14 @@ pub const EditorCore = struct {
             },
             .insert_text => |text_op| {
                 for (self.cursor_positions.items) |*cursor_position| {
-                    const bufbyte_1 = block.byteOffsetFromPosition(cursor_position.pos.anchor);
-                    const bufbyte_2 = block.byteOffsetFromPosition(cursor_position.pos.focus);
-
-                    const min = @min(bufbyte_1, bufbyte_2);
-                    const max = @max(bufbyte_1, bufbyte_2);
+                    const pos_len = self.selectionToPosLen(cursor_position.pos);
 
                     self.document.applySimpleOperation(.{
-                        .position = block.positionFromDocbyte(min),
-                        .delete_len = max - min,
+                        .position = pos_len.pos,
+                        .delete_len = pos_len.len,
                         .insert_text = text_op.text,
                     }, null);
-                    const res_pos = block.positionFromDocbyte(min + text_op.text.len);
+                    const res_pos = block.positionFromDocbyte(block.byteOffsetFromPosition(pos_len.pos) + text_op.text.len);
 
                     cursor_position.pos = .{
                         .anchor = res_pos,
