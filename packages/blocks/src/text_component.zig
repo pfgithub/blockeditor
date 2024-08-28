@@ -563,6 +563,7 @@ pub const SegmentID = enum(u64) {
     }
 
     pub fn jsonStringify(self: SegmentID, json: anytype) !void {
+        // remove after https://github.com/ziglang/zig/pull/21228
         try json.write(@intFromEnum(self));
     }
 };
