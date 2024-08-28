@@ -117,3 +117,30 @@ pub fn ThreadQueue(comptime T: type) type {
 pub fn Queue(comptime T: type) type {
     return std.fifo.LinearFifo(T, .Dynamic);
 }
+
+pub fn Callback(comptime Arg_: type, comptime Ret_: type) type {
+    return struct {
+        const Self = @This();
+        cb: *const fn (data: usize, arg: Arg) Ret,
+        data: usize,
+
+        pub const Arg = Arg_;
+        pub const Ret = Ret_;
+        pub fn from(data: anytype, comptime cb: fn (data: @TypeOf(data), arg: Arg) Ret) Self {
+            comptime std.debug.assert(@sizeOf(@TypeOf(data)) == @sizeOf(usize));
+            const data_usz: usize = @intFromPtr(data);
+            const update_fn = struct {
+                fn update_fn(data_: usize, arg: Arg) Ret {
+                    return cb(@ptrFromInt(data_), arg);
+                }
+            }.update_fn;
+            return .{ .cb = &update_fn, .data = data_usz };
+        }
+        pub fn call(self: Self, arg: Arg) Ret {
+            return self.cb(self.data, arg);
+        }
+        pub fn eql(self: Self, other: Self) bool {
+            return self.cb == other.cb and self.data == other.data;
+        }
+    };
+}

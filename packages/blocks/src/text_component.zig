@@ -594,6 +594,27 @@ pub const MoveID = enum(u64) {
 // the only trouble is the table gets bigger over time
 // - compaction destroys undo history
 
+pub const Position = struct {
+    id: SegmentID,
+    /// can never refer to the last index of a segment
+    segbyte: u64,
+
+    pub const end = Position{ .id = .end, .segbyte = 0 };
+
+    pub fn format(
+        self: *const @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        if (self.id == .end) {
+            try writer.print("E", .{});
+            return;
+        }
+        try writer.print("{}.{d}", .{ self.id, self.segbyte });
+    }
+};
+
 pub const TextDocument = Document(u8, 0);
 /// The plan is for this to work for:
 /// - Text documents (plain text or rich text with embedded blocks)
@@ -607,6 +628,11 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         // make sure the whole buffer is fully in span order when serialized.
         // tombstones don't end up in the serialized output!
         const Doc = @This();
+        pub const SimpleOperation = struct {
+            position: Position,
+            delete_len: u64,
+            insert_text: []const T,
+        };
         pub const Operation = union(enum) {
             move: struct {
                 // To support using Document for lists, we need a 'move' operation. Otherwise, two people moving the same
@@ -672,7 +698,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
             pub fn format(
                 self: *const @This(),
-                comptime _: []const T,
+                comptime _: []const u8,
                 _: std.fmt.FormatOptions,
                 writer: anytype,
             ) !void {
@@ -696,24 +722,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
         };
 
-        pub const Position = struct {
-            id: SegmentID,
-            /// can never refer to the last index of a segment
-            segbyte: u64,
-
-            pub fn format(
-                self: *const @This(),
-                comptime _: []const T,
-                _: std.fmt.FormatOptions,
-                writer: anytype,
-            ) !void {
-                if (self.id == .end) {
-                    try writer.print("E", .{});
-                    return;
-                }
-                try writer.print("{}.{d}", .{ self.id, self.segbyte });
-            }
-        };
         pub const Span = struct {
             id: SegmentID,
             length: u64,
@@ -792,7 +800,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
         pub fn format(
             self: *const @This(),
-            comptime _: []const T,
+            comptime _: []const u8,
             _: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
@@ -904,7 +912,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         break :blk bufbyte + bufbyte_offset;
                     },
                 };
-                const last = res._findEntrySpan(.{ .id = .end, .segbyte = 0 }).span_index;
+                const last = res._findEntrySpan(Position.end).span_index;
                 const last_value = res.span_bbt.getNodeDataPtrConst(last).?.*;
                 res._replaceRange(last, 1, &.{
                     insert_span,

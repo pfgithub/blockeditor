@@ -1,6 +1,6 @@
 const std = @import("std");
 const util = @import("util.zig");
-const text_component = @import("text_component.zig");
+pub const text_component = @import("text_component.zig");
 
 pub const AlignedArrayList = std.ArrayListAligned(u8, 16);
 pub const AlignedFbsReader = std.io.FixedBufferStream([]align(16) const u8);

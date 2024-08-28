@@ -371,6 +371,34 @@ fn AtomicMutexValue(comptime T: type) type {
     };
 }
 
+// a component is part of a block
+pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
+    return struct {
+        const Self = @This();
+        block_ref: *BlockRef,
+
+        pub const ComponentType = ComponentType_arg;
+
+        pub fn ref(self: Self) void {
+            self.block_ref.ref();
+        }
+        pub fn unref(self: Self) void {
+            self.block_ref.unref();
+        }
+
+        // tells you about high level operations applied to this block
+        // for text, that is replaceRange(start, len, new_value)
+        pub fn addUpdateListener(self: Self, cb: util.Callback(ComponentType.SimpleOperation, void)) void {
+            _ = self;
+            _ = cb;
+        }
+        pub fn removeUpdateListener(self: Self, cb: util.Callback(ComponentType.SimpleOperation, void)) void {
+            _ = self;
+            _ = cb;
+        }
+    };
+}
+
 pub const BlockRef = struct {
     // we would like a way for updates to announce what changed:
     // - for text, this is (old_start, old_len, new_start, inserted_text)
