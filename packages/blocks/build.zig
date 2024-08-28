@@ -19,6 +19,7 @@ pub fn build(b: *std.Build) !void {
         // .root_module = blocks_mod,
         .root_source_file = b.path("src/root.zig"),
     });
+    b.installArtifact(block_test);
     const run_block_tests = b.addRunArtifact(block_test);
 
     const test_step = b.step("test", "Test");

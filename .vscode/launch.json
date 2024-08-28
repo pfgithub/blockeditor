@@ -1,0 +1,32 @@
+{
+    "configurations": [
+        {
+            "name": "rr",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceRoot}/packages/blocks/zig-out/bin/test",
+            "args": [],
+            "miDebuggerServerAddress": "localhost:50505",
+            "stopAtEntry": false,
+            "cwd": "${workspaceRoot}/packages/blocks/zig-out/bin",
+            "environment": [],
+            "externalConsole": true,
+            "linux": {
+                "MIMode": "gdb",
+                "setupCommands": [
+                    {
+                        "description": "Setup to resolve symbols",
+                        "text": "set sysroot /",
+                        "ignoreFailures": false
+                    }
+                ]
+            },
+            "osx": {
+                "MIMode": "gdb"
+            },
+            "windows": {
+                "MIMode": "gdb"
+            },
+        }
+    ]
+}
