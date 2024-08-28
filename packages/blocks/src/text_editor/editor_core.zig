@@ -413,12 +413,38 @@ pub const EditorCore = struct {
     }
 };
 
-fn testEditorContent(expected: []const u8, actual: db_mod.TypedComponentRef(bi.text_component.TextDocument)) !void {
+fn testEditorContent(expected: []const u8, editor: *EditorCore) !void {
+    const actual = &editor.document;
     const gpa = std.testing.allocator;
-    const rendered = try gpa.alloc(u8, actual.value.length());
-    defer gpa.free(rendered);
-    actual.value.readSlice(actual.value.positionFromDocbyte(0), rendered);
-    try std.testing.expectEqualStrings(expected, rendered);
+    var rendered = std.ArrayList(u8).init(gpa);
+    defer rendered.deinit();
+    try rendered.appendNTimes(undefined, actual.value.length());
+    actual.value.readSlice(actual.value.positionFromDocbyte(0), rendered.items);
+
+    const ResPosition = struct {
+        const ResPosition = @This();
+        pos: usize,
+        char: u8,
+        fn cmp(_: void, a: ResPosition, b: ResPosition) bool {
+            return a.pos > b.pos;
+        }
+    };
+    var res_positions = std.ArrayList(ResPosition).init(gpa);
+    defer res_positions.deinit();
+    for (editor.cursor_positions.items) |cursor_position| {
+        const anchor_pos = actual.value.docbyteFromPosition(cursor_position.pos.anchor);
+        const focus_pos = actual.value.docbyteFromPosition(cursor_position.pos.focus);
+
+        if (anchor_pos < focus_pos) try res_positions.append(.{ .pos = anchor_pos, .char = '[' });
+        if (anchor_pos > focus_pos) try res_positions.append(.{ .pos = anchor_pos, .char = ']' });
+        try res_positions.append(.{ .pos = focus_pos, .char = '|' });
+    }
+    std.mem.sort(ResPosition, res_positions.items, {}, ResPosition.cmp);
+    for (res_positions.items) |respos| {
+        try rendered.replaceRange(respos.pos, 0, &[_]u8{respos.char});
+    }
+
+    try std.testing.expectEqualStrings(expected, rendered.items);
 }
 
 test EditorCore {
@@ -431,53 +457,58 @@ test EditorCore {
     const src_component = src_block.typedComponent(bi.TextDocumentBlock) orelse return error.NotLoaded;
 
     src_component.applySimpleOperation(.{ .position = src_component.value.positionFromDocbyte(0), .delete_len = 0, .insert_text = "hello!" }, null);
-    try testEditorContent("hello!", src_component);
 
     // now initialize the editor
     var editor: EditorCore = undefined;
     editor.initFromDoc(gpa, src_component);
     defer editor.deinit();
 
+    try testEditorContent("hello!", &editor);
     editor.executeCommand(.{ .set_cursor_pos = .{ .position = src_component.value.positionFromDocbyte(0) } });
+    try testEditorContent("|hello!", &editor);
     editor.executeCommand(.{ .insert_text = .{ .text = "abcd!" } });
-    try testEditorContent("abcd!hello!", src_component);
+    try testEditorContent("abcd!|hello!", &editor);
     editor.executeCommand(.{ .set_cursor_pos = .{ .position = src_component.value.positionFromDocbyte(0) } });
+    try testEditorContent("|abcd!hello!", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
-    try testEditorContent("bcd!hello!", src_component);
+    try testEditorContent("|bcd!hello!", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .delete } });
-    try testEditorContent("bcd!hello!", src_component);
+    try testEditorContent("|bcd!hello!", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
+    try testEditorContent("[b|cd!hello!", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
+    try testEditorContent("[bc|d!hello!", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
-    try testEditorContent("d!hello!", src_component);
+    try testEditorContent("|d!hello!", &editor);
     editor.executeCommand(.{ .insert_text = .{ .text = "……" } });
-    try testEditorContent("……d!hello!", src_component);
+    try testEditorContent("……|d!hello!", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .codepoint, .mode = .delete } });
-    try testEditorContent("…d!hello!", src_component);
+    try testEditorContent("…|d!hello!", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .line, .mode = .delete } });
-    try testEditorContent("…", src_component);
+    try testEditorContent("…|", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .line, .mode = .delete } });
-    try testEditorContent("", src_component);
+    try testEditorContent("|", &editor);
     editor.executeCommand(.{ .insert_text = .{ .text = "    hi();" } });
-    try testEditorContent("    hi();", src_component);
+    try testEditorContent("    hi();|", &editor);
     editor.executeCommand(.newline);
-    try testEditorContent("    hi();\n    ", src_component);
+    try testEditorContent("    hi();\n    |", &editor);
     editor.executeCommand(.{ .insert_text = .{ .text = "goodbye();" } });
-    try testEditorContent("    hi();\n    goodbye();", src_component);
+    try testEditorContent("    hi();\n    goodbye();|", &editor);
     editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
-    try testEditorContent("    hi();\ngoodbye();", src_component);
+    try testEditorContent("    hi();\ngoodbye();|", &editor);
     editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
-    try testEditorContent("    hi();\n    goodbye();", src_component);
+    try testEditorContent("    hi();\n    goodbye();|", &editor);
     editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
-    try testEditorContent("    hi();\n        goodbye();", src_component);
+    try testEditorContent("    hi();\n        goodbye();|", &editor);
     editor.executeCommand(.newline);
-    try testEditorContent("    hi();\n        goodbye();\n        ", src_component);
+    try testEditorContent("    hi();\n        goodbye();\n        |", &editor);
     editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
     editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
-    try testEditorContent("    hi();\n        goodbye();\n", src_component);
+    try testEditorContent("    hi();\n        goodbye();\n|", &editor);
     editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
-    try testEditorContent("    hi();\n        goodbye();\n    ", src_component);
+    try testEditorContent("    hi();\n        goodbye();\n    |", &editor);
     editor.executeCommand(.select_all);
+    try testEditorContent("[    hi();\n        goodbye();\n    |", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
-    try testEditorContent("", src_component);
+    try testEditorContent("|", &editor);
 }
