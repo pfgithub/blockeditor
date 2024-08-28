@@ -226,6 +226,6 @@ test TextDocumentBlock {
         }
 
         // print block
-        std.log.err("block: {}", .{block});
+        // std.log.err("block: {}", .{block});
     }
 }

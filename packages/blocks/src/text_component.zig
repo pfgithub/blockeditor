@@ -561,6 +561,10 @@ pub const SegmentID = enum(u64) {
             try writer.print("/{d}", .{client_id});
         }
     }
+
+    pub fn jsonStringify(self: SegmentID, json: anytype) !void {
+        try json.write(@intFromEnum(self));
+    }
 };
 pub const MoveID = enum(u64) {
     _,
@@ -659,7 +663,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             },
 
             pub fn serialize(self: *const Operation, out: *bi.AlignedArrayList) void {
-                if (true) @panic("TODO: std.json.stringify does not support non-exhaustive enums. fix this in the standard library and until then we can do custom serialization.");
                 std.json.stringify(self, .{}, out.writer()) catch @panic("oom");
             }
             pub fn deserialize(arena: std.mem.Allocator, slice: bi.AlignedByteSlice) !Operation {
