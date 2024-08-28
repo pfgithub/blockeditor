@@ -206,7 +206,7 @@ test TextDocumentBlock {
         var gen_res = std.ArrayList(TextDocumentBlock.Child.Operation).init(gpa);
         defer gen_res.deinit();
 
-        const block = mycounter.cast(TextDocumentBlock.Child);
+        const block = &mycounter.cast(TextDocumentBlock).value;
         block.genOperations(&gen_res, block.positionFromDocbyte(0), 0, "hello!");
 
         var op_res = AlignedArrayList.init(gpa);
