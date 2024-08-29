@@ -110,6 +110,7 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(blockeditor_exe);
 
     const run_step = b.addRunArtifact(blockeditor_exe);
+    run_step.step.dependOn(b.getInstallStep());
     const run = b.step("run", "Run");
     run.dependOn(b.getInstallStep());
     run.dependOn(&run_step.step);

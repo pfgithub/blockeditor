@@ -2,7 +2,7 @@ const std = @import("std");
 const blocks_mod = @import("blocks");
 const bi = blocks_mod.blockinterface2;
 const db = blocks_mod.blockdb;
-// const text_editor_view = @import("text_editor/editor_view.zig");
+const text_editor_view = @import("editor_view.zig");
 
 const zglfw = @import("zglfw");
 const zgpu = @import("zgpu");
@@ -26,7 +26,7 @@ fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
             my_operation.serialize(&my_operation_al);
             var my_undo_operation_al = bi.AlignedArrayList.init(arena);
             defer my_undo_operation_al.deinit();
-            counter_anyref.applyOperation(my_operation_al.items, &my_undo_operation_al);
+            counter_anyref.applyOperation("", my_operation_al.items, &my_undo_operation_al);
         }
         if (zgui.button("Zero!", .{})) {
             var my_operation_al = bi.AlignedArrayList.init(arena);
@@ -37,7 +37,7 @@ fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
             my_operation.serialize(&my_operation_al);
             var my_undo_operation_al = bi.AlignedArrayList.init(arena);
             defer my_undo_operation_al.deinit();
-            counter_anyref.applyOperation(my_operation_al.items, &my_undo_operation_al);
+            counter_anyref.applyOperation("", my_operation_al.items, &my_undo_operation_al);
         }
         if (zgui.button("Undo!", .{})) {
             @panic("TODO: someone needs to keep an undo list");
@@ -70,9 +70,9 @@ pub fn main() !void {
     const my_text = interface.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
     defer my_text.unref();
 
-    // var my_text_editor: text_editor_view.EditorView = undefined;
-    // my_text_editor.init(my_text, gpa);
-    // defer my_text_editor.deinit();
+    var my_text_editor: text_editor_view.EditorView = undefined;
+    my_text_editor.initFromDoc(gpa, my_text.typedComponent(bi.TextDocumentBlock).?); // .? asserts it's loaded which isn't what we want. we want to wait to init until it's loaded.
+    defer my_text_editor.deinit();
 
     {
         // Change cwd to where the executable is located.
@@ -178,9 +178,9 @@ pub fn main() !void {
         zgui.end();
 
         zgui.setNextWindowPos(.{ .x = 250.0, .y = 80.0, .cond = .first_use_ever });
-        zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
+        zgui.setNextWindowSize(.{ .w = 250, .h = 250, .cond = .first_use_ever });
         if (zgui.begin("My Text Editor", .{})) {
-            renderCounter(arena, my_counter);
+            my_text_editor.gui(arena);
         }
         zgui.end();
 
