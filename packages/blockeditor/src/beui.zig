@@ -1,5 +1,9 @@
 const default_image = @embedFile("font.rgba"); // 97x161, 255 = white / 0 = black
 
+// TODO:
+// - [ ] beui needs to be able to render render_list
+// - [ ] we need to make a function to render chars from default_image to render_list
+
 const std = @import("std");
 const math = std.math;
 const zglfw = @import("zglfw");
