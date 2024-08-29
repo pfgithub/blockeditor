@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const RenderListImage = enum(u64) {_};
+pub const RenderListImage = enum(u64) { _ };
 pub const RenderListItem = struct {
     pos1: @Vector(2, f32),
     pos2: @Vector(2, f32),

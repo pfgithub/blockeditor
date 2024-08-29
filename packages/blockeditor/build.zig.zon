@@ -26,5 +26,9 @@
             .url = "https://github.com/pfgithub/zig-tracy/archive/7823ea9a7d1952deadf771dc5601d1401470108d.tar.gz",
             .hash = "1220d378fd32de8533ecfbe8058e7b6fa710faeb17b5103359228c21c4c68a9be575",
         },
+
+        .loadimage = .{
+            .path = "../loadimage",
+        },
     },
 }
