@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) !void {
 
     const blockeditor_exe = b.addExecutable(.{
         .name = "blockeditor",
-        .root_source_file = b.path("src/entrypoint.zig"),
+        .root_source_file = b.path("src/beui.zig"),
         .target = target,
         .optimize = optimize,
     });
