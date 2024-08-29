@@ -43,7 +43,9 @@ const wgsl_common = (
     \\  @fragment fn frag(
     \\      @location(0) uv: vec2<f32>,
     \\  ) -> @location(0) vec4<f32> {
-    \\      return textureSampleLevel(image, image_sampler, uv, uniforms.mip_level);
+    \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, uv, uniforms.mip_level);
+    \\      if(true) { return vec4<f32>(color.r); }
+    \\      return color;
     \\  }
 );
 
