@@ -12,13 +12,13 @@ const content_dir = @import("build_options").content_dir;
 const window_title = "zig-gamedev: triangle (wgpu)";
 
 // zig fmt: off
-const wgsl_vs =
+const wgsl_s =
 \\  @group(0) @binding(0) var<uniform> object_to_clip: mat4x4<f32>;
 \\  struct VertexOut {
 \\      @builtin(position) position_clip: vec4<f32>,
 \\      @location(0) color: vec3<f32>,
 \\  }
-\\  @vertex fn main(
+\\  @vertex fn vertex(
 \\      @location(0) position: vec3<f32>,
 \\      @location(1) color: vec3<f32>,
 \\  ) -> VertexOut {
@@ -27,9 +27,8 @@ const wgsl_vs =
 \\      output.color = color;
 \\      return output;
 \\  }
-;
-const wgsl_fs =
-\\  @fragment fn main(
+\\
+\\  @fragment fn fragment(
 \\      @location(0) color: vec3<f32>,
 \\  ) -> @location(0) vec4<f32> {
 \\      return vec4(color, 1.0);
@@ -83,11 +82,8 @@ fn init(allocator: std.mem.Allocator, window: *zglfw.Window) !DemoState {
     defer gctx.releaseResource(pipeline_layout);
 
     const pipeline = pipeline: {
-        const vs_module = zgpu.createWgslShaderModule(gctx.device, wgsl_vs, "vs");
-        defer vs_module.release();
-
-        const fs_module = zgpu.createWgslShaderModule(gctx.device, wgsl_fs, "fs");
-        defer fs_module.release();
+        const s_module = zgpu.createWgslShaderModule(gctx.device, wgsl_s, "s.wgsl");
+        defer s_module.release();
 
         const color_targets = [_]wgpu.ColorTargetState{.{
             .format = zgpu.GraphicsContext.swapchain_format,
@@ -105,8 +101,8 @@ fn init(allocator: std.mem.Allocator, window: *zglfw.Window) !DemoState {
 
         const pipeline_descriptor = wgpu.RenderPipelineDescriptor{
             .vertex = wgpu.VertexState{
-                .module = vs_module,
-                .entry_point = "main",
+                .module = s_module,
+                .entry_point = "vertex",
                 .buffer_count = vertex_buffers.len,
                 .buffers = &vertex_buffers,
             },
@@ -121,8 +117,8 @@ fn init(allocator: std.mem.Allocator, window: *zglfw.Window) !DemoState {
                 .depth_compare = .less,
             },
             .fragment = &wgpu.FragmentState{
-                .module = fs_module,
-                .entry_point = "main",
+                .module = s_module,
+                .entry_point = "fragment",
                 .target_count = color_targets.len,
                 .targets = &color_targets,
             },
