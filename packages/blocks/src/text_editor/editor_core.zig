@@ -341,11 +341,11 @@ pub const EditorCore = struct {
                 for (self.cursor_positions.items) |*cursor_position| {
                     const pos_len = self.selectionToPosLen(cursor_position.pos);
 
-                    self.document.applySimpleOperation(.{
+                    self.replaceRange(.{
                         .position = pos_len.pos,
                         .delete_len = pos_len.len,
                         .insert_text = text_op.text,
-                    }, null);
+                    });
                     const res_pos = pos_len.pos;
 
                     cursor_position.* = .{ .pos = .{
@@ -378,11 +378,11 @@ pub const EditorCore = struct {
                             if (pos_len.len == 0) {
                                 pos_len = self.selectionToPosLen(.{ .anchor = cursor_position.pos.focus, .focus = moved });
                             }
-                            self.document.applySimpleOperation(.{
+                            self.replaceRange(.{
                                 .position = pos_len.pos,
                                 .delete_len = pos_len.len,
                                 .insert_text = "",
-                            }, null);
+                            });
                             const res_pos = pos_len.pos;
 
                             cursor_position.* = .{ .pos = .{
@@ -407,11 +407,11 @@ pub const EditorCore = struct {
                     const line_indent_count = self.measureIndent(line_start);
                     temp_insert_slice.appendNTimes(self.config.indent_with.char(), self.config.indent_with.count() * line_indent_count.indents) catch @panic("oom");
 
-                    self.document.applySimpleOperation(.{
+                    self.replaceRange(.{
                         .position = pos_len.pos,
                         .delete_len = pos_len.len,
                         .insert_text = temp_insert_slice.items,
-                    }, null);
+                    });
                 }
             },
             .indent_selection => |indent_cmd| {
@@ -433,20 +433,37 @@ pub const EditorCore = struct {
                         defer temp_insert_slice.deinit();
                         temp_insert_slice.appendNTimes(self.config.indent_with.char(), self.config.indent_with.count() * new_indent_count) catch @panic("oom");
 
-                        self.document.applySimpleOperation(.{
+                        self.replaceRange(.{
                             .position = line_start,
                             .delete_len = line_indent_count.chars,
                             .insert_text = temp_insert_slice.items,
-                        }, null);
+                        });
                         if (end) break;
                     }
                 }
+            },
+            .ts_select_node => {
+                @panic("TODO tree-sitter");
+            },
+            .undo => {
+                // const undo_op = self.undo_list.popOrNull() orelse return;
+                // _ = undo_op;
+                @panic("TODO undo");
+            },
+            .redo => {
+                // const redo_op = self.redo_list.popOrNull() orelse return;
+                // _ = redo_op;
+                @panic("TODO redo");
             },
             else => {
                 std.log.err("TODO executeCommand {s}", .{@tagName(command)});
                 @panic("TODO");
             },
         }
+    }
+
+    pub fn replaceRange(self: *EditorCore, operation: bi.text_component.TextDocument.SimpleOperation) void {
+        self.document.applySimpleOperation(operation, null);
     }
 };
 

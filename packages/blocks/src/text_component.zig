@@ -1122,6 +1122,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             // move(@1: 3-5, @2: 6) -> move(@2: 6-8, @1: 3) (inverse move operations may need to split into multiple operations)
             switch (op) {
                 .move => |move_op| {
+                    if (out_undo) |_| {
+                        @panic("TODO support undo move operation");
+                    }
                     _ = move_op;
                     @panic("TODO physically move nodes.");
                     // implementation:
@@ -1191,6 +1194,10 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     }
                 },
                 .delete => |delete_op| {
+                    if (out_undo) |_| {
+                        @panic("TODO support undo delete operation");
+                    }
+
                     const affected_spans_al_entry = self.segment_id_map.getEntry(delete_op.start.id).?;
                     // this shouldn't invalidate because the hashmap shouldn't get any new entries
                     const affected_spans_al = affected_spans_al_entry.value_ptr;
@@ -1319,6 +1326,13 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     }
                 },
                 .replace => |replace_op| {
+                    if (out_undo) |_| {
+                        // we have to read the current value and make that into a replace op
+                        // oh and the delete problem :/
+                        // we have to restore deleted state on any things we undelete
+                        @panic("TODO support undo replace operation");
+                    }
+
                     const affected_spans = blk: {
                         const affected_spans_al_entry = self.segment_id_map.getEntry(replace_op.start.id).?;
                         const affected_spans_al = affected_spans_al_entry.value_ptr;
