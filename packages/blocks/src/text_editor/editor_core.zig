@@ -18,7 +18,7 @@ pub const CursorPosition = struct {
     pos: Selection,
 
     /// for pressing the up/down arrow going from [aaaa|a] ↓ to [a|] to [aaaa|a]. resets on move.
-    vertical_move_start: ?Position = null,
+    vertical_move_start: ?u64 = null,
     /// when selecting up with tree-sitter to allow selecting back down. resets on move.
     node_select_start: ?Selection = null,
 };
@@ -109,9 +109,6 @@ pub const CursorLeftRightStop = enum {
     /// .|\n<hello]\n<\n<goodbye!]\n|.
     line,
 };
-pub const CursorUpDownStop = enum {
-    line,
-};
 pub const LRDirection = enum {
     left,
     right,
@@ -123,7 +120,6 @@ pub const LRDirection = enum {
     }
 };
 pub const EditorCommand = union(enum) {
-    none: void,
     move_cursor_left_right: struct {
         direction: LRDirection,
         stop: CursorLeftRightStop,
@@ -131,8 +127,8 @@ pub const EditorCommand = union(enum) {
     },
     move_cursor_up_down: struct {
         direction: enum { up, down },
-        stop: CursorUpDownStop,
         mode: enum { move, select },
+        metric: enum { screen, raw },
     },
     select_all: void,
     insert_text: struct {
@@ -221,6 +217,22 @@ pub const EditorCore = struct {
             }
         }
         return block.positionFromDocbyte(index);
+    }
+    fn getPrevLineStart(self: *EditorCore, prev_line_start: Position) Position {
+        const block = self.document.value;
+        const value = block.docbyteFromPosition(prev_line_start);
+        if (value == 0) return prev_line_start;
+        return self.getLineStart(block.positionFromDocbyte(value - 1));
+    }
+    fn getThisLineEnd(self: *EditorCore, prev_line_start: Position) Position {
+        const block = self.document.value;
+        const next_line_start = self.getNextLineStart(prev_line_start);
+        const next_line_start_byte = block.docbyteFromPosition(next_line_start);
+        const prev_line_start_byte = block.docbyteFromPosition(prev_line_start);
+
+        if (prev_line_start_byte == next_line_start_byte) return prev_line_start;
+        std.debug.assert(next_line_start_byte > prev_line_start_byte);
+        return block.positionFromDocbyte(next_line_start_byte - 1);
     }
     fn getNextLineStart(self: *EditorCore, prev_line_start: Position) Position {
         const block = self.document.value;
@@ -311,6 +323,7 @@ pub const EditorCore = struct {
                 .anchor = self.normalizePosition(cursor_position.pos.anchor),
             };
         }
+        // TODO: merge any overlapping cursors
     }
     pub fn executeCommand(self: *EditorCore, command: EditorCommand) void {
         const block = self.document.value;
@@ -352,6 +365,43 @@ pub const EditorCore = struct {
                         .anchor = res_pos,
                         .focus = res_pos,
                     } };
+                }
+            },
+            .move_cursor_up_down => |ud_cmd| {
+                for (self.cursor_positions.items) |*cursor_position| {
+                    if (ud_cmd.metric == .screen) {
+                        // the view needs to provide us with some functions:
+                        // - measure x position given Pos
+                        // - find line start given Pos
+                        // - find line end given Pos
+                        // - given x position and line start, find character
+                        @panic("TODO impl screen move cursor");
+                    }
+                    const this_line_start = self.getLineStart(cursor_position.pos.focus);
+                    const distance = cursor_position.vertical_move_start orelse ( //
+                        block.docbyteFromPosition(cursor_position.pos.focus) - block.docbyteFromPosition(this_line_start) //
+                    );
+
+                    const new_line_start = switch (ud_cmd.direction) {
+                        .up => self.getPrevLineStart(this_line_start),
+                        .down => self.getNextLineStart(this_line_start),
+                    };
+
+                    const new_line_end_pos = block.docbyteFromPosition(self.getThisLineEnd(new_line_start));
+
+                    const res_offset = @min(new_line_end_pos, distance);
+                    const res_pos = block.positionFromDocbyte(block.docbyteFromPosition(new_line_start) + res_offset);
+
+                    cursor_position.* = .{
+                        .pos = .{
+                            .anchor = switch (ud_cmd.mode) {
+                                .move => res_pos,
+                                .select => cursor_position.pos.anchor,
+                            },
+                            .focus = res_pos,
+                        },
+                        .vertical_move_start = distance,
+                    };
                 }
             },
             .move_cursor_left_right => |lr_cmd| {
@@ -454,10 +504,6 @@ pub const EditorCore = struct {
                 // const redo_op = self.redo_list.popOrNull() orelse return;
                 // _ = redo_op;
                 @panic("TODO redo");
-            },
-            else => {
-                std.log.err("TODO executeCommand {s}", .{@tagName(command)});
-                @panic("TODO");
             },
         }
     }
@@ -571,4 +617,35 @@ test EditorCore {
     try testEditorContent("[hi();\n    goodbye();\n|", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
     try testEditorContent("|", &editor);
+    editor.executeCommand(.{ .insert_text = .{ .text = "hello\nto the world!" } });
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .move } });
+    try testEditorContent(
+        \\hello
+        \\to the world|!
+    , &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try testEditorContent(
+        \\hello|
+        \\to the world!
+    , &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
+    try testEditorContent(
+        \\hello
+        \\to the world|!
+    , &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try testEditorContent(
+        \\hello|
+        \\to the world!
+    , &editor);
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .move } });
+    try testEditorContent(
+        \\hell|o
+        \\to the world!
+    , &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
+    try testEditorContent(
+        \\hello
+        \\to t|he world!
+    , &editor);
 }
