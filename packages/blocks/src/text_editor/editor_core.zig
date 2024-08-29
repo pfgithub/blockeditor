@@ -638,14 +638,14 @@ test EditorCore {
         \\hello|
         \\to the world!
     , &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .move } });
+    editor.executeCommand(.{ .insert_text = .{ .text = "hello\nto the world!" } });
     try testEditorContent(
-        \\hell|o
+        \\hello!|
         \\to the world!
     , &editor);
     editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
     try testEditorContent(
-        \\hello
-        \\to t|he world!
+        \\hello!
+        \\to the| world!
     , &editor);
 }
