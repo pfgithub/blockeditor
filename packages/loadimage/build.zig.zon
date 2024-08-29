@@ -1,0 +1,13 @@
+.{
+    .name = "loadimage",
+    .version = "0.1.0",
+    .paths = .{
+        "",
+    },
+    .dependencies = .{
+        .wuffs = .{
+            .url = "https://github.com/google/wuffs-mirror-release-c/archive/50869df0ea703b4f41b238bfe26aec6ec9c86889.tar.gz",
+            .hash = "1220e2af4eefb0b1ca43717669289c6ad543c500ed940ff0d284f3eecf879cae65f0",
+        },
+    },
+}
