@@ -638,7 +638,7 @@ test EditorCore {
         \\hello|
         \\to the world!
     , &editor);
-    editor.executeCommand(.{ .insert_text = .{ .text = "hello\nto the world!" } });
+    editor.executeCommand(.{ .insert_text = .{ .text = "!" } });
     try testEditorContent(
         \\hello!|
         \\to the world!
