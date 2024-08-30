@@ -463,6 +463,12 @@ pub fn main() !void {
     my_text_editor.initFromDoc(gpa, my_text.typedComponent(bi.TextDocumentBlock).?); // .? asserts it's loaded which isn't what we want. we want to wait to init until it's loaded.
     defer my_text_editor.deinit();
 
+    my_text_editor.core.document.applySimpleOperation(.{
+        .position = my_text_editor.core.document.value.positionFromDocbyte(0),
+        .delete_len = 0,
+        .insert_text = @embedFile("beui.zig"),
+    }, null);
+
     // Change current working directory to where the executable is located.
     {
         var buffer: [1024]u8 = undefined;
