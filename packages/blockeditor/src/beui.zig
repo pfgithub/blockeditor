@@ -26,7 +26,7 @@ const wgsl_common = (
     \\      @location(1) tint: vec4<f32>,
     \\  }
     \\  @vertex fn vert(in: VertexIn) -> VertexOut {
-    \\      let p = vec2(in.pos.x / uniforms.aspect_ratio, in.pos.y);
+    \\      let p = vec2(in.pos.x, 1.0 - in.pos.y);
     \\      var output: VertexOut;
     \\      output.position_clip = vec4(p, 0.0, 1.0);
     \\      output.uv = in.uv;
@@ -130,8 +130,10 @@ const DemoState = struct {
     pipeline: zgpu.RenderPipelineHandle = .{},
     bind_group: zgpu.BindGroupHandle,
 
-    vertex_buffer: ?zgpu.BufferHandle,
-    index_buffer: ?zgpu.BufferHandle,
+    vertex_buffer: ?zgpu.BufferHandle = null,
+    vertex_buffer_len: usize = 0,
+    index_buffer: ?zgpu.BufferHandle = null,
+    index_buffer_len: usize = 0,
 
     texture: zgpu.TextureHandle,
     texture_view: zgpu.TextureViewHandle,
@@ -319,33 +321,36 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
 
     // TODO: load draw_list vertices and indices into vertex and index buffers
     // TODO: draw them
-    _ = draw_list;
+    // TODO: size them to array_list.capacity, remake if array_list.capacity changes
+
+    if (demo.vertex_buffer_len != draw_list.vertices.capacity) {
+        demo.vertex_buffer = null;
+        demo.vertex_buffer_len = 0;
+    }
+    if (demo.index_buffer_len != draw_list.indices.capacity) {
+        demo.index_buffer = null;
+        demo.index_buffer_len = 0;
+    }
 
     if (demo.vertex_buffer == null) {
         // Create a vertex buffer.
-        const vertex_data = [_]Genres.Vertex{
-            .{ .pos = .{ -0.9, 0.9 }, .uv = .{ 0.0, 0.0 }, .tint = .{ 0, 1, 1, 1 } },
-            .{ .pos = .{ 0.9, 0.9 }, .uv = .{ 1.0, 0.0 }, .tint = .{ 1, 0, 1, 1 } },
-            .{ .pos = .{ 0.9, -0.9 }, .uv = .{ 1.0, 1.0 }, .tint = .{ 1, 1, 0, 1 } },
-            .{ .pos = .{ -0.9, -0.9 }, .uv = .{ 0.0, 1.0 }, .tint = .{ 0, 0, 0, 1 } },
-        };
         const vertex_buffer = gctx.createBuffer(.{
             .usage = .{ .copy_dst = true, .vertex = true },
-            .size = vertex_data.len * @sizeOf(Genres.Vertex),
+            .size = draw_list.vertices.capacity * @sizeOf(Genres.Vertex),
         });
-        gctx.queue.writeBuffer(gctx.lookupResource(vertex_buffer).?, 0, Genres.Vertex, vertex_data[0..]);
+        gctx.queue.writeBuffer(gctx.lookupResource(vertex_buffer).?, 0, Genres.Vertex, draw_list.vertices.items);
 
         demo.vertex_buffer = vertex_buffer;
+        demo.vertex_buffer_len = draw_list.vertices.capacity;
     }
 
     if (demo.index_buffer == null) {
         // Create an index buffer.
-        const index_data = [_]u16{ 0, 1, 3, 1, 2, 3 };
         const index_buffer = gctx.createBuffer(.{
             .usage = .{ .copy_dst = true, .index = true },
-            .size = index_data.len * @sizeOf(u16),
+            .size = draw_list.indices.capacity * @sizeOf(draw_lists.RenderListIndex),
         });
-        gctx.queue.writeBuffer(gctx.lookupResource(index_buffer).?, 0, u16, index_data[0..]);
+        gctx.queue.writeBuffer(gctx.lookupResource(index_buffer).?, 0, draw_lists.RenderListIndex, draw_list.indices.items);
 
         demo.index_buffer = index_buffer;
     }
@@ -377,7 +382,11 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
             }
 
             pass.setVertexBuffer(0, vb_info.gpuobj.?, 0, vb_info.size);
-            pass.setIndexBuffer(ib_info.gpuobj.?, .uint16, 0, ib_info.size);
+            pass.setIndexBuffer(ib_info.gpuobj.?, switch (draw_lists.RenderListIndex) {
+                u16 => .uint16,
+                u32 => .uint32,
+                else => @compileError("not supported: " ++ @typeName(draw_lists.RenderListIndex)),
+            }, 0, ib_info.size);
 
             pass.setPipeline(pipeline);
 
@@ -387,7 +396,9 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
                 .mip_level = @as(f32, @floatFromInt(demo.mip_level)),
             };
             pass.setBindGroup(0, bind_group, &.{mem.offset});
-            pass.drawIndexed(6, 1, 0, 0, 0);
+            for (draw_list.commands.items) |command| {
+                pass.drawIndexed(command.index_count, 1, command.first_index, command.base_vertex, 0);
+            }
         }
 
         // Gui pass.
@@ -467,7 +478,7 @@ pub fn main() !void {
         var draw_list = draw_lists.RenderList.init(gpa);
         defer draw_list.deinit();
 
-        draw_list.addRect(.{ 10, 10 }, .{ 50, 50 }, .{
+        draw_list.addRect(.{ 0.1, 0.1 }, .{ 0.8, 0.8 }, .{
             .tint = .{ 255, 0, 255, 255 },
             .image = @enumFromInt(0),
             .uv_pos = .{ 0, 0 },

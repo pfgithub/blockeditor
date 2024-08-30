@@ -13,7 +13,7 @@ const std = @import("std");
 // probably saves on some bytes, who knows if it's faster though.
 
 pub const RenderListImage = enum(u64) { _ };
-pub const RenderListIndex = u32;
+pub const RenderListIndex = u16;
 pub const RenderListVertex = struct {
     pos: @Vector(2, f32),
     uv: @Vector(2, f32),
