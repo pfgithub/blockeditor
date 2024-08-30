@@ -130,8 +130,8 @@ const DemoState = struct {
     pipeline: zgpu.RenderPipelineHandle = .{},
     bind_group: zgpu.BindGroupHandle,
 
-    vertex_buffer: zgpu.BufferHandle,
-    index_buffer: zgpu.BufferHandle,
+    vertex_buffer: ?zgpu.BufferHandle,
+    index_buffer: ?zgpu.BufferHandle,
 
     texture: zgpu.TextureHandle,
     texture_view: zgpu.TextureViewHandle,
@@ -168,27 +168,6 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         zgpu.samplerEntry(2, .{ .fragment = true }, .filtering),
     });
     defer gctx.releaseResource(bind_group_layout);
-
-    // Create a vertex buffer.
-    const vertex_data = [_]Genres.Vertex{
-        .{ .pos = .{ -0.9, 0.9 }, .uv = .{ 0.0, 0.0 }, .tint = .{ 0, 1, 1, 1 } },
-        .{ .pos = .{ 0.9, 0.9 }, .uv = .{ 1.0, 0.0 }, .tint = .{ 1, 0, 1, 1 } },
-        .{ .pos = .{ 0.9, -0.9 }, .uv = .{ 1.0, 1.0 }, .tint = .{ 1, 1, 0, 1 } },
-        .{ .pos = .{ -0.9, -0.9 }, .uv = .{ 0.0, 1.0 }, .tint = .{ 0, 0, 0, 1 } },
-    };
-    const vertex_buffer = gctx.createBuffer(.{
-        .usage = .{ .copy_dst = true, .vertex = true },
-        .size = vertex_data.len * @sizeOf(Genres.Vertex),
-    });
-    gctx.queue.writeBuffer(gctx.lookupResource(vertex_buffer).?, 0, Genres.Vertex, vertex_data[0..]);
-
-    // Create an index buffer.
-    const index_data = [_]u16{ 0, 1, 3, 1, 2, 3 };
-    const index_buffer = gctx.createBuffer(.{
-        .usage = .{ .copy_dst = true, .index = true },
-        .size = index_data.len * @sizeOf(u16),
-    });
-    gctx.queue.writeBuffer(gctx.lookupResource(index_buffer).?, 0, u16, index_data[0..]);
 
     zstbi.init(arena);
     defer zstbi.deinit();
@@ -236,8 +215,8 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
     demo.* = .{
         .gctx = gctx,
         .bind_group = bind_group,
-        .vertex_buffer = vertex_buffer,
-        .index_buffer = index_buffer,
+        .vertex_buffer = null,
+        .index_buffer = null,
         .texture = texture,
         .texture_view = texture_view,
         .sampler = sampler,
@@ -342,14 +321,43 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
     // TODO: draw them
     _ = draw_list;
 
+    if (demo.vertex_buffer == null) {
+        // Create a vertex buffer.
+        const vertex_data = [_]Genres.Vertex{
+            .{ .pos = .{ -0.9, 0.9 }, .uv = .{ 0.0, 0.0 }, .tint = .{ 0, 1, 1, 1 } },
+            .{ .pos = .{ 0.9, 0.9 }, .uv = .{ 1.0, 0.0 }, .tint = .{ 1, 0, 1, 1 } },
+            .{ .pos = .{ 0.9, -0.9 }, .uv = .{ 1.0, 1.0 }, .tint = .{ 1, 1, 0, 1 } },
+            .{ .pos = .{ -0.9, -0.9 }, .uv = .{ 0.0, 1.0 }, .tint = .{ 0, 0, 0, 1 } },
+        };
+        const vertex_buffer = gctx.createBuffer(.{
+            .usage = .{ .copy_dst = true, .vertex = true },
+            .size = vertex_data.len * @sizeOf(Genres.Vertex),
+        });
+        gctx.queue.writeBuffer(gctx.lookupResource(vertex_buffer).?, 0, Genres.Vertex, vertex_data[0..]);
+
+        demo.vertex_buffer = vertex_buffer;
+    }
+
+    if (demo.index_buffer == null) {
+        // Create an index buffer.
+        const index_data = [_]u16{ 0, 1, 3, 1, 2, 3 };
+        const index_buffer = gctx.createBuffer(.{
+            .usage = .{ .copy_dst = true, .index = true },
+            .size = index_data.len * @sizeOf(u16),
+        });
+        gctx.queue.writeBuffer(gctx.lookupResource(index_buffer).?, 0, u16, index_data[0..]);
+
+        demo.index_buffer = index_buffer;
+    }
+
     const commands = commands: {
         const encoder = gctx.device.createCommandEncoder(null);
         defer encoder.release();
 
         // Main pass.
         pass: {
-            const vb_info = gctx.lookupResourceInfo(demo.vertex_buffer) orelse break :pass;
-            const ib_info = gctx.lookupResourceInfo(demo.index_buffer) orelse break :pass;
+            const vb_info = gctx.lookupResourceInfo(demo.vertex_buffer.?) orelse break :pass;
+            const ib_info = gctx.lookupResourceInfo(demo.index_buffer.?) orelse break :pass;
             const pipeline = gctx.lookupResource(demo.pipeline) orelse break :pass;
             const bind_group = gctx.lookupResource(demo.bind_group) orelse break :pass;
 
