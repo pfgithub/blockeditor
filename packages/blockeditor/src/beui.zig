@@ -330,13 +330,17 @@ fn update(demo: *DemoState) void {
     zgui.end();
 }
 
-fn draw(demo: *DemoState) void {
+fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
     const gctx = demo.gctx;
     const fb_width = gctx.swapchain_descriptor.width;
     const fb_height = gctx.swapchain_descriptor.height;
 
     const back_buffer_view = gctx.swapchain.getCurrentTextureView();
     defer back_buffer_view.release();
+
+    // TODO: load draw_list vertices and indices into vertex and index buffers
+    // TODO: draw them
+    _ = draw_list;
 
     const commands = commands: {
         const encoder = gctx.device.createCommandEncoder(null);
@@ -463,6 +467,6 @@ pub fn main() !void {
         });
 
         update(demo);
-        draw(demo);
+        draw(demo, &draw_list);
     }
 }
