@@ -50,14 +50,34 @@ const wgsl_common = (
     \\  }
 );
 
+fn genAttributes(comptime Src: type) []const wgpu.VertexAttribute {
+    var result: []const wgpu.VertexAttribute = &[_]wgpu.VertexAttribute{};
+    var shader_location: usize = 0;
+
+    const ti: std.builtin.Type = @typeInfo(Src);
+    for (ti.Struct.fields) |field| {
+        result = result ++ &[_]wgpu.VertexAttribute{.{
+            .format = switch (field.type) {
+                @Vector(2, f32) => .float32x2,
+                else => @compileError("TODO"),
+            },
+            .offset = @offsetOf(Src, field.name),
+            .shader_location = shader_location,
+        }};
+        shader_location += 1;
+    }
+
+    return result;
+}
+fn genWgslStruct(attributes: []const wgpu.VertexAttribute) []const u8 {
+    _ = attributes;
+}
+
 const Vertex = struct {
     position: @Vector(2, f32),
     uv: @Vector(2, f32),
 
-    pub const attributes: []const wgpu.VertexAttribute = &[_]wgpu.VertexAttribute{
-        .{ .format = .float32x2, .offset = @offsetOf(Vertex, "position"), .shader_location = 0 },
-        .{ .format = .float32x2, .offset = @offsetOf(Vertex, "uv"), .shader_location = 1 },
-    };
+    pub const attributes = genAttributes(Vertex);
 };
 
 const Uniforms = extern struct {
