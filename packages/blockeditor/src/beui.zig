@@ -18,10 +18,6 @@ const content_dir = @import("build_options").content_dir;
 const window_title = "zig-gamedev: textured quad (wgpu)";
 
 const wgsl_common = (
-    \\  struct Uniforms {
-    \\      aspect_ratio: f32,
-    \\      mip_level: f32,
-    \\  }
     \\  @group(0) @binding(0) var<uniform> uniforms: Uniforms;
     \\
     \\  struct VertexOut {
@@ -52,8 +48,30 @@ const wgsl_common = (
     \\  struct VertexIn {
 ++ Genres.wgsl ++
     \\  }
+    \\  struct Uniforms {
+++ UniformsRes.wgsl ++
+    \\  }
 );
 
+fn genUniforms(comptime Src: type) type {
+    const ti: std.builtin.Type = @typeInfo(Src);
+    if (ti.Struct.layout != .@"extern") @compileError("Uniforms info must be extern layout");
+
+    var result: []const u8 = "";
+    for (ti.Struct.fields) |field| {
+        const sub = genSub(field.type);
+        result = result ++ std.fmt.comptimePrint("{s}: {s},\n", .{
+            field.name,
+            sub.type_str,
+        });
+    }
+
+    const result_const = result;
+    return struct {
+        pub const wgsl = result_const;
+        pub const Uniforms = Src;
+    };
+}
 const WgslRes = struct {
     Vertex: type,
     wgsl: []const u8,
@@ -101,10 +119,10 @@ fn genAttributes(comptime Src: type) type {
 
 const Genres = genAttributes(draw_lists.RenderListVertex);
 
-const Uniforms = extern struct {
+const UniformsRes = genUniforms(extern struct {
     aspect_ratio: f32,
     mip_level: f32,
-};
+});
 
 const DemoState = struct {
     gctx: *zgpu.GraphicsContext,
@@ -351,7 +369,7 @@ fn draw(demo: *DemoState) void {
 
             pass.setPipeline(pipeline);
 
-            const mem = gctx.uniformsAllocate(Uniforms, 1);
+            const mem = gctx.uniformsAllocate(UniformsRes.Uniforms, 1);
             mem.slice[0] = .{
                 .aspect_ratio = @as(f32, @floatFromInt(fb_width)) / @as(f32, @floatFromInt(fb_height)),
                 .mip_level = @as(f32, @floatFromInt(demo.mip_level)),
