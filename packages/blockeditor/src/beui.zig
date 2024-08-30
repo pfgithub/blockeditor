@@ -27,41 +27,48 @@ const wgsl_common = (
     \\  struct VertexOut {
     \\      @builtin(position) position_clip: vec4<f32>,
     \\      @location(0) uv: vec2<f32>,
+    \\      @location(1) tint: vec4<f32>,
     \\  }
     \\  @vertex fn vert(in: VertexIn) -> VertexOut {
-    \\      let p = vec2(in.position.x / uniforms.aspect_ratio, in.position.y);
+    \\      let p = vec2(in.pos.x / uniforms.aspect_ratio, in.pos.y);
     \\      var output: VertexOut;
     \\      output.position_clip = vec4(p, 0.0, 1.0);
     \\      output.uv = in.uv;
+    \\      output.tint = in.tint;
     \\      return output;
     \\  }
     \\
     \\  @group(0) @binding(1) var image: texture_2d<f32>;
     \\  @group(0) @binding(2) var image_sampler: sampler;
     \\  @fragment fn frag(
-    \\      @location(0) uv: vec2<f32>,
+    \\      in: VertexOut,
     \\  ) -> @location(0) vec4<f32> {
-    \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, uv, uniforms.mip_level);
-    \\      if(true) { return vec4<f32>(color.r); }
+    \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, in.uv, uniforms.mip_level);
+    \\      if(true) { color = vec4<f32>(color.r); }
+    \\      color *= in.tint;
     \\      return color;
     \\  }
     \\
     \\  struct VertexIn {
-++ Vertex.wgsl ++
+++ Genres.wgsl ++
     \\  }
 );
 
 const WgslRes = struct {
+    Vertex: type,
     wgsl: []const u8,
     attrs: []const wgpu.VertexAttribute,
 };
 fn genSub(comptime Src: type) struct { format: wgpu.VertexFormat, type_str: []const u8 } {
     return switch (Src) {
+        f32 => .{ .format = .float32, .type_str = "f32" },
         @Vector(2, f32) => .{ .format = .float32x2, .type_str = "vec2<f32>" },
+        @Vector(3, f32) => .{ .format = .float32x3, .type_str = "vec3<f32>" },
+        @Vector(4, f32) => .{ .format = .float32x4, .type_str = "vec4<f32>" },
         else => @compileError("TODO"),
     };
 }
-fn genAttributes(comptime Src: type) WgslRes {
+fn genAttributes(comptime Src: type) type {
     var result: []const wgpu.VertexAttribute = &[_]wgpu.VertexAttribute{};
     var result_wgsl: []const u8 = "";
     var shader_location: usize = 0;
@@ -82,17 +89,17 @@ fn genAttributes(comptime Src: type) WgslRes {
         shader_location += 1;
     }
 
-    return .{ .attrs = result, .wgsl = result_wgsl };
+    const result_imm = result;
+    const result_wgsl_imm = result_wgsl;
+
+    return struct {
+        pub const Vertex = Src;
+        pub const attrs = result_imm;
+        pub const wgsl = result_wgsl_imm;
+    };
 }
 
-const Vertex = struct {
-    position: @Vector(2, f32),
-    uv: @Vector(2, f32),
-
-    const genres = genAttributes(Vertex);
-    pub const wgsl = genres.wgsl;
-    pub const attributes = genres.attrs;
-};
+const Genres = genAttributes(draw_lists.RenderListVertex);
 
 const Uniforms = extern struct {
     aspect_ratio: f32,
@@ -145,17 +152,17 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
     defer gctx.releaseResource(bind_group_layout);
 
     // Create a vertex buffer.
-    const vertex_data = [_]Vertex{
-        .{ .position = [2]f32{ -0.9, 0.9 }, .uv = [2]f32{ 0.0, 0.0 } },
-        .{ .position = [2]f32{ 0.9, 0.9 }, .uv = [2]f32{ 1.0, 0.0 } },
-        .{ .position = [2]f32{ 0.9, -0.9 }, .uv = [2]f32{ 1.0, 1.0 } },
-        .{ .position = [2]f32{ -0.9, -0.9 }, .uv = [2]f32{ 0.0, 1.0 } },
+    const vertex_data = [_]Genres.Vertex{
+        .{ .pos = .{ -0.9, 0.9 }, .uv = .{ 0.0, 0.0 }, .tint = .{ 0, 1, 1, 1 } },
+        .{ .pos = .{ 0.9, 0.9 }, .uv = .{ 1.0, 0.0 }, .tint = .{ 1, 0, 1, 1 } },
+        .{ .pos = .{ 0.9, -0.9 }, .uv = .{ 1.0, 1.0 }, .tint = .{ 1, 1, 0, 1 } },
+        .{ .pos = .{ -0.9, -0.9 }, .uv = .{ 0.0, 1.0 }, .tint = .{ 0, 0, 0, 1 } },
     };
     const vertex_buffer = gctx.createBuffer(.{
         .usage = .{ .copy_dst = true, .vertex = true },
-        .size = vertex_data.len * @sizeOf(Vertex),
+        .size = vertex_data.len * @sizeOf(Genres.Vertex),
     });
-    gctx.queue.writeBuffer(gctx.lookupResource(vertex_buffer).?, 0, Vertex, vertex_data[0..]);
+    gctx.queue.writeBuffer(gctx.lookupResource(vertex_buffer).?, 0, Genres.Vertex, vertex_data[0..]);
 
     // Create an index buffer.
     const index_data = [_]u16{ 0, 1, 3, 1, 2, 3 };
@@ -245,9 +252,9 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         }};
 
         const vertex_buffers = [_]wgpu.VertexBufferLayout{.{
-            .array_stride = @sizeOf(Vertex),
-            .attribute_count = Vertex.attributes.len,
-            .attributes = Vertex.attributes.ptr,
+            .array_stride = @sizeOf(Genres.Vertex),
+            .attribute_count = Genres.attrs.len,
+            .attributes = Genres.attrs.ptr,
         }};
 
         // Create a render pipeline.
