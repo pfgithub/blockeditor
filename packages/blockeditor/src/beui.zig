@@ -479,12 +479,11 @@ pub fn main() !void {
         var draw_list = draw_lists.RenderList.init(gpa);
         defer draw_list.deinit();
 
-        draw_list.addRect(.{ 10, 10 }, .{ 256, 256 }, .{
-            .tint = .{ 255, 0, 255, 255 },
-            .image = @enumFromInt(0),
-            .uv_pos = .{ 0, 0 },
-            .uv_size = .{ 1, 1 },
-        });
+        var x_pos: f32 = 10.0;
+        for ("Hello, World!") |char| {
+            draw_list.addChar(char, .{ x_pos, 10 }, .{ 1.0, 1.0, 1.0, 1.0 });
+            x_pos += draw_list.getCharAdvance(char);
+        }
 
         update(demo);
         draw(demo, &draw_list);
