@@ -395,7 +395,12 @@ pub fn main() !void {
         var draw_list = draw_lists.RenderList.init(gpa);
         defer draw_list.deinit();
 
-        draw_list.addRect(.{ 10, 10 }, .{ 50, 50 }, .{ .tint = .{ 255, 0, 255, 255 } });
+        draw_list.addRect(.{ 10, 10 }, .{ 50, 50 }, .{
+            .tint = .{ 255, 0, 255, 255 },
+            .image = @enumFromInt(0),
+            .uv_pos = .{ 0, 0 },
+            .uv_size = .{ 1, 1 },
+        });
 
         update(demo);
         draw(demo);
