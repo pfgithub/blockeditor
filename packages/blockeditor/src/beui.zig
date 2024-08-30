@@ -516,7 +516,10 @@ pub fn main() !void {
         zgui.setNextWindowPos(.{ .x = 250.0, .y = 80.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = 250, .h = 250, .cond = .first_use_ever });
         if (zgui.begin("My Text Editor", .{})) {
-            my_text_editor.gui(arena, &draw_list);
+            const gctx = demo.gctx;
+            const fb_width = gctx.swapchain_descriptor.width;
+            const fb_height = gctx.swapchain_descriptor.height;
+            my_text_editor.gui(arena, &draw_list, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });
         }
         zgui.end();
 

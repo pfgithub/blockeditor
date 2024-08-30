@@ -151,4 +151,8 @@ pub const RenderList = struct {
         _ = char;
         return 6;
     }
+    pub fn getCharHeight(self: *RenderList) f32 {
+        _ = self;
+        return 10;
+    }
 };
