@@ -251,10 +251,10 @@ fn update(demo: *DemoState) void {
         demo.gctx.swapchain_descriptor.height,
     );
 
-    zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .always });
-    zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .always });
+    zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .first_use_ever });
+    zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
 
-    if (zgui.begin("Demo Settings", .{ .flags = .{ .no_move = true, .no_resize = true } })) {
+    if (zgui.begin("Demo Settings", .{})) {
         zgui.bulletText(
             "Average : {d:.3} ms/frame ({d:.1} fps)",
             .{ demo.gctx.stats.average_cpu_time, demo.gctx.stats.fps },
