@@ -50,9 +50,14 @@ const wgsl_common = (
     \\  }
 );
 
-const Vertex = extern struct {
-    position: [2]f32,
-    uv: [2]f32,
+const Vertex = struct {
+    position: @Vector(2, f32),
+    uv: @Vector(2, f32),
+
+    pub const attributes: []const wgpu.VertexAttribute = &[_]wgpu.VertexAttribute{
+        .{ .format = .float32x2, .offset = @offsetOf(Vertex, "position"), .shader_location = 0 },
+        .{ .format = .float32x2, .offset = @offsetOf(Vertex, "uv"), .shader_location = 1 },
+    };
 };
 
 const Uniforms = extern struct {
@@ -205,14 +210,10 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
             .format = zgpu.GraphicsContext.swapchain_format,
         }};
 
-        const vertex_attributes = [_]wgpu.VertexAttribute{
-            .{ .format = .float32x2, .offset = 0, .shader_location = 0 },
-            .{ .format = .float32x2, .offset = @offsetOf(Vertex, "uv"), .shader_location = 1 },
-        };
         const vertex_buffers = [_]wgpu.VertexBufferLayout{.{
             .array_stride = @sizeOf(Vertex),
-            .attribute_count = vertex_attributes.len,
-            .attributes = &vertex_attributes,
+            .attribute_count = Vertex.attributes.len,
+            .attributes = Vertex.attributes.ptr,
         }};
 
         // Create a render pipeline.
