@@ -1,5 +1,13 @@
 const std = @import("std");
 
+// TODO:
+// - the whole result should end up in one vertex and index buffer.
+// - we should have three arrays:
+// - vertices, indices, segments. segments contains subarrays of
+//   (vertices[start, end], indices[start, end], and ?RenderListImage)
+// - that way we copy one vertex array and then draw repeatedly from
+//   different parts of the vertex array
+
 pub const RenderListImage = enum(u64) { _ };
 pub const RenderListIndex = u16;
 pub const RenderListVertex = struct {
@@ -8,9 +16,6 @@ pub const RenderListVertex = struct {
     tint: @Vector(4, f32),
     // TODO: rounding, shadow
 };
-
-// render lists are collapsed into groups of MAX_ITEMS of only one image
-// later, we can implement tiling
 
 pub const RenderList = struct {
     gpa: std.mem.Allocator,
