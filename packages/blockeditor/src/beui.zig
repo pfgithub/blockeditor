@@ -1,4 +1,5 @@
 const default_image = @embedFile("font.rgba"); // 97x161, 255 = white / 0 = black
+const draw_lists = @import("render_list.zig");
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
@@ -75,9 +76,9 @@ const DemoState = struct {
     mip_level: i32 = 0,
 };
 
-fn create(allocator: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
+fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
     const gctx = try zgpu.GraphicsContext.create(
-        allocator,
+        gpa,
         .{
             .window = window,
             .fn_getTime = @ptrCast(&zglfw.getTime),
@@ -91,9 +92,9 @@ fn create(allocator: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         },
         .{},
     );
-    errdefer gctx.destroy(allocator);
+    errdefer gctx.destroy(gpa);
 
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
@@ -167,7 +168,7 @@ fn create(allocator: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         .{ .binding = 2, .sampler_handle = sampler },
     });
 
-    const demo = try allocator.create(DemoState);
+    const demo = try gpa.create(DemoState);
     demo.* = .{
         .gctx = gctx,
         .bind_group = bind_group,
@@ -234,7 +235,7 @@ fn create(allocator: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
                 .targets = &color_targets,
             },
         };
-        gctx.createRenderPipelineAsync(allocator, pipeline_layout, pipeline_descriptor, &demo.pipeline);
+        gctx.createRenderPipelineAsync(gpa, pipeline_layout, pipeline_descriptor, &demo.pipeline);
     }
 
     return demo;
@@ -362,20 +363,20 @@ pub fn main() !void {
     defer window.destroy();
     window.setSizeLimits(-1, -1, -1, -1);
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa_state.deinit();
 
-    const allocator = gpa.allocator();
+    const gpa = gpa_state.allocator();
 
-    const demo = try create(allocator, window);
-    defer destroy(allocator, demo);
+    const demo = try create(gpa, window);
+    defer destroy(gpa, demo);
 
     const scale_factor = scale_factor: {
         const scale = window.getContentScale();
         break :scale_factor @max(scale[0], scale[1]);
     };
 
-    zgui.init(allocator);
+    zgui.init(gpa);
     defer zgui.deinit();
 
     zgui.backend.init(
@@ -390,6 +391,12 @@ pub fn main() !void {
 
     while (!window.shouldClose() and window.getKey(.escape) != .press) {
         zglfw.pollEvents();
+
+        var draw_list = draw_lists.RenderList.init(gpa);
+        defer draw_list.deinit();
+
+        draw_list.addRect(.{ 10, 10 }, .{ 50, 50 }, .{ .tint = .{ 255, 0, 255, 255 } });
+
         update(demo);
         draw(demo);
     }
