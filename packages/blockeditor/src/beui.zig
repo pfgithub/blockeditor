@@ -26,7 +26,8 @@ const wgsl_common = (
     \\      @location(1) tint: vec4<f32>,
     \\  }
     \\  @vertex fn vert(in: VertexIn) -> VertexOut {
-    \\      let p = vec2(in.pos.x, 1.0 - in.pos.y);
+    \\      var p = (in.pos / uniforms.screen_size);
+    \\      p = vec2(p.x, 1.0 - p.y);
     \\      var output: VertexOut;
     \\      output.position_clip = vec4(p, 0.0, 1.0);
     \\      output.uv = in.uv;
@@ -42,6 +43,7 @@ const wgsl_common = (
     \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, in.uv, uniforms.mip_level);
     \\      if(true) { color = vec4<f32>(color.r); }
     \\      color *= in.tint;
+    \\      color = in.tint;
     \\      return color;
     \\  }
     \\
@@ -120,7 +122,7 @@ fn genAttributes(comptime Src: type) type {
 const Genres = genAttributes(draw_lists.RenderListVertex);
 
 const UniformsRes = genUniforms(extern struct {
-    aspect_ratio: f32,
+    screen_size: @Vector(2, f32),
     mip_level: f32,
 });
 
@@ -392,7 +394,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
 
             const mem = gctx.uniformsAllocate(UniformsRes.Uniforms, 1);
             mem.slice[0] = .{
-                .aspect_ratio = @as(f32, @floatFromInt(fb_width)) / @as(f32, @floatFromInt(fb_height)),
+                .screen_size = .{ @floatFromInt(fb_width), @floatFromInt(fb_height) },
                 .mip_level = @as(f32, @floatFromInt(demo.mip_level)),
             };
             pass.setBindGroup(0, bind_group, &.{mem.offset});
@@ -478,7 +480,7 @@ pub fn main() !void {
         var draw_list = draw_lists.RenderList.init(gpa);
         defer draw_list.deinit();
 
-        draw_list.addRect(.{ 0.1, 0.1 }, .{ 0.8, 0.8 }, .{
+        draw_list.addRect(.{ 10, 10 }, .{ 256, 256 }, .{
             .tint = .{ 255, 0, 255, 255 },
             .image = @enumFromInt(0),
             .uv_pos = .{ 0, 0 },
