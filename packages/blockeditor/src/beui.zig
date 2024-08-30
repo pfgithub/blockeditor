@@ -298,6 +298,8 @@ fn update(demo: *DemoState) void {
         demo.gctx.swapchain_descriptor.height,
     );
 
+    _ = zgui.DockSpaceOverViewport(zgui.getMainViewport(), .{ .passthru_central_node = true });
+
     zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .first_use_ever });
     zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
 
@@ -501,6 +503,12 @@ pub fn main() !void {
     );
     defer zgui.backend.deinit();
 
+    zgui.io.setConfigFlags(.{
+        .nav_enable_keyboard = true,
+        .dock_enable = true,
+        .dpi_enable_scale_fonts = true,
+    });
+
     zgui.getStyle().scaleAllSizes(scale_factor);
 
     while (!window.shouldClose() and window.getKey(.escape) != .press) {
@@ -528,6 +536,8 @@ pub fn main() !void {
             my_text_editor.gui(arena, &draw_list, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });
         }
         zgui.end();
+
+        zgui.showDemoWindow(null);
 
         draw(demo, &draw_list);
     }
