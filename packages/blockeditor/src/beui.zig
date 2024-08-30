@@ -339,7 +339,6 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
             .usage = .{ .copy_dst = true, .vertex = true },
             .size = draw_list.vertices.capacity * @sizeOf(Genres.Vertex),
         });
-        gctx.queue.writeBuffer(gctx.lookupResource(vertex_buffer).?, 0, Genres.Vertex, draw_list.vertices.items);
 
         demo.vertex_buffer = vertex_buffer;
         demo.vertex_buffer_len = draw_list.vertices.capacity;
@@ -351,10 +350,12 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
             .usage = .{ .copy_dst = true, .index = true },
             .size = draw_list.indices.capacity * @sizeOf(draw_lists.RenderListIndex),
         });
-        gctx.queue.writeBuffer(gctx.lookupResource(index_buffer).?, 0, draw_lists.RenderListIndex, draw_list.indices.items);
 
         demo.index_buffer = index_buffer;
     }
+
+    gctx.queue.writeBuffer(gctx.lookupResource(demo.vertex_buffer.?).?, 0, Genres.Vertex, draw_list.vertices.items);
+    gctx.queue.writeBuffer(gctx.lookupResource(demo.index_buffer.?).?, 0, draw_lists.RenderListIndex, draw_list.indices.items);
 
     const commands = commands: {
         const encoder = gctx.device.createCommandEncoder(null);
