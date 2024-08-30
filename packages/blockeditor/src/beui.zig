@@ -28,14 +28,11 @@ const wgsl_common = (
     \\      @builtin(position) position_clip: vec4<f32>,
     \\      @location(0) uv: vec2<f32>,
     \\  }
-    \\  @vertex fn vert(
-    \\      @location(0) position: vec2<f32>,
-    \\      @location(1) uv: vec2<f32>,
-    \\  ) -> VertexOut {
-    \\      let p = vec2(position.x / uniforms.aspect_ratio, position.y);
+    \\  @vertex fn vert(in: VertexIn) -> VertexOut {
+    \\      let p = vec2(in.position.x / uniforms.aspect_ratio, in.position.y);
     \\      var output: VertexOut;
     \\      output.position_clip = vec4(p, 0.0, 1.0);
-    \\      output.uv = uv;
+    \\      output.uv = in.uv;
     \\      return output;
     \\  }
     \\
@@ -48,36 +45,53 @@ const wgsl_common = (
     \\      if(true) { return vec4<f32>(color.r); }
     \\      return color;
     \\  }
+    \\
+    \\  struct VertexIn {
+++ Vertex.wgsl ++
+    \\  }
 );
 
-fn genAttributes(comptime Src: type) []const wgpu.VertexAttribute {
+const WgslRes = struct {
+    wgsl: []const u8,
+    attrs: []const wgpu.VertexAttribute,
+};
+fn genSub(comptime Src: type) struct { format: wgpu.VertexFormat, type_str: []const u8 } {
+    return switch (Src) {
+        @Vector(2, f32) => .{ .format = .float32x2, .type_str = "vec2<f32>" },
+        else => @compileError("TODO"),
+    };
+}
+fn genAttributes(comptime Src: type) WgslRes {
     var result: []const wgpu.VertexAttribute = &[_]wgpu.VertexAttribute{};
+    var result_wgsl: []const u8 = "";
     var shader_location: usize = 0;
 
     const ti: std.builtin.Type = @typeInfo(Src);
     for (ti.Struct.fields) |field| {
+        const sub = genSub(field.type);
         result = result ++ &[_]wgpu.VertexAttribute{.{
-            .format = switch (field.type) {
-                @Vector(2, f32) => .float32x2,
-                else => @compileError("TODO"),
-            },
+            .format = sub.format,
             .offset = @offsetOf(Src, field.name),
             .shader_location = shader_location,
         }};
+        result_wgsl = result_wgsl ++ std.fmt.comptimePrint("@location({d}) {s}: {s},\n", .{
+            shader_location,
+            field.name,
+            sub.type_str,
+        });
         shader_location += 1;
     }
 
-    return result;
-}
-fn genWgslStruct(attributes: []const wgpu.VertexAttribute) []const u8 {
-    _ = attributes;
+    return .{ .attrs = result, .wgsl = result_wgsl };
 }
 
 const Vertex = struct {
     position: @Vector(2, f32),
     uv: @Vector(2, f32),
 
-    pub const attributes = genAttributes(Vertex);
+    const genres = genAttributes(Vertex);
+    pub const wgsl = genres.wgsl;
+    pub const attributes = genres.attrs;
 };
 
 const Uniforms = extern struct {
