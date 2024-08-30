@@ -26,8 +26,8 @@ const wgsl_common = (
     \\      @location(1) tint: vec4<f32>,
     \\  }
     \\  @vertex fn vert(in: VertexIn) -> VertexOut {
-    \\      var p = (in.pos / uniforms.screen_size);
-    \\      p = vec2(p.x, 1.0 - p.y);
+    \\      var p = (in.pos / uniforms.screen_size) * vec2(2.0) - vec2(1.0);
+    \\      p = vec2(p.x, -p.y);
     \\      var output: VertexOut;
     \\      output.position_clip = vec4(p, 0.0, 1.0);
     \\      output.uv = in.uv;
@@ -43,7 +43,6 @@ const wgsl_common = (
     \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, in.uv, uniforms.mip_level);
     \\      if(true) { color = vec4<f32>(color.r); }
     \\      color *= in.tint;
-    \\      color = in.tint;
     \\      return color;
     \\  }
     \\
