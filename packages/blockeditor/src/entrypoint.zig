@@ -10,7 +10,7 @@ const wgpu = zgpu.wgpu;
 const zgui = @import("zgui");
 const zstbi = @import("zstbi");
 
-fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
+pub fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
     if (counter_anyref.contents()) |counter_contents| {
         const counter = counter_contents.client().cast(bi.CounterBlock);
         const server_int = if (counter_contents.server()) |server_value| ( //

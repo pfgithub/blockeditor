@@ -1,5 +1,9 @@
 const default_image = @embedFile("font.rgba"); // 97x161, 255 = white / 0 = black
 const draw_lists = @import("render_list.zig");
+const blocks_mod = @import("blocks");
+const bi = blocks_mod.blockinterface2;
+const db = blocks_mod.blockdb;
+const text_editor_view = @import("editor_view.zig");
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
@@ -432,8 +436,32 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
 }
 
 pub fn main() !void {
+    var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa_state.deinit();
+
+    const gpa = gpa_state.allocator();
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
     try zglfw.init();
     defer zglfw.terminate();
+
+    var interface = db.BlockDB.init(gpa);
+    defer interface.deinit();
+    var interface_thread = db.TcpSync.create(gpa, &interface);
+    defer interface_thread.destroy();
+
+    const my_counter = interface.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
+    defer my_counter.unref();
+
+    const my_text = interface.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
+    defer my_text.unref();
+
+    var my_text_editor: text_editor_view.EditorView = undefined;
+    my_text_editor.initFromDoc(gpa, my_text.typedComponent(bi.TextDocumentBlock).?); // .? asserts it's loaded which isn't what we want. we want to wait to init until it's loaded.
+    defer my_text_editor.deinit();
 
     // Change current working directory to where the executable is located.
     {
@@ -447,11 +475,6 @@ pub fn main() !void {
     const window = try zglfw.Window.create(800, 400, window_title, null);
     defer window.destroy();
     window.setSizeLimits(-1, -1, -1, -1);
-
-    var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa_state.deinit();
-
-    const gpa = gpa_state.allocator();
 
     const demo = try create(gpa, window);
     defer destroy(gpa, demo);
@@ -475,18 +498,28 @@ pub fn main() !void {
     zgui.getStyle().scaleAllSizes(scale_factor);
 
     while (!window.shouldClose() and window.getKey(.escape) != .press) {
+        _ = arena_state.reset(.retain_capacity);
         zglfw.pollEvents();
 
         var draw_list = draw_lists.RenderList.init(gpa);
         defer draw_list.deinit();
 
-        var x_pos: f32 = 10.0;
-        for ("Hello, World!") |char| {
-            draw_list.addChar(char, .{ x_pos, 10 }, .{ 1.0, 1.0, 1.0, 1.0 });
-            x_pos += draw_list.getCharAdvance(char);
-        }
-
         update(demo);
+
+        zgui.setNextWindowPos(.{ .x = 20.0, .y = 80.0, .cond = .first_use_ever });
+        zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
+        if (zgui.begin("My counter (editor 1)", .{})) {
+            @import("entrypoint.zig").renderCounter(arena, my_counter);
+        }
+        zgui.end();
+
+        zgui.setNextWindowPos(.{ .x = 250.0, .y = 80.0, .cond = .first_use_ever });
+        zgui.setNextWindowSize(.{ .w = 250, .h = 250, .cond = .first_use_ever });
+        if (zgui.begin("My Text Editor", .{})) {
+            my_text_editor.gui(arena, &draw_list);
+        }
+        zgui.end();
+
         draw(demo, &draw_list);
     }
 }
