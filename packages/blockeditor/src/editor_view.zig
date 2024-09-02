@@ -63,7 +63,7 @@ pub const EditorView = struct {
             if (is_invisible == null and pos[0] <= window_size[0] and pos[1] <= window_size[1] and pos[0] >= 0 and pos[1] >= 0) {
                 draw_list.addChar(char_or_invisible, window_pos + pos + @Vector(2, f32){ (invisible_advance - char_advance) / 2.0, 0.0 }, hexToFloat(DefaultTheme.synHlColor(switch (is_invisible != null) {
                     true => .invisible,
-                    false => .natural_language,
+                    false => .variable_mutable,
                 })));
             }
             if (pos[1] > window_size[1]) break;
@@ -133,7 +133,7 @@ pub const SynHlColorScope = enum {
     keyword,
 
     /// comment body text, excluding '//'
-    natural_language,
+    comment,
 
     /// editor color - your syntax highlighter never needs to output this
     invisible,
@@ -169,7 +169,7 @@ const DefaultTheme = struct {
             .keyword => 0x5ec4ff,
             .variable_constant => 0x8BD49C,
             .variable_mutable => 0xB7C5D3,
-            .natural_language => 0xff9d1c,
+            .comment => 0xff9d1c,
 
             .invisible => 0x2e3c47,
         };
