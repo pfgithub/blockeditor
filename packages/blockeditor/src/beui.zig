@@ -331,10 +331,12 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
     // TODO: size them to array_list.capacity, remake if array_list.capacity changes
 
     if (demo.vertex_buffer_len != draw_list.vertices.capacity) {
+        if (demo.vertex_buffer != null) gctx.releaseResource(demo.vertex_buffer.?);
         demo.vertex_buffer = null;
         demo.vertex_buffer_len = 0;
     }
     if (demo.index_buffer_len != draw_list.indices.capacity) {
+        if (demo.index_buffer != null) gctx.releaseResource(demo.index_buffer.?);
         demo.index_buffer = null;
         demo.index_buffer_len = 0;
     }
