@@ -39,17 +39,21 @@ const wgsl_common = (
     \\      return output;
     \\  }
     \\
+    \\  fn premultiply(tint: vec4<f32>) -> vec4<f32> {
+    \\      return vec4<f32>(tint.rgb * tint.a, tint.a);
+    \\  }
+    \\
     \\  @group(0) @binding(1) var image: texture_2d<f32>;
     \\  @group(0) @binding(2) var image_sampler: sampler;
     \\  @fragment fn frag(
     \\      in: VertexOut,
     \\  ) -> @location(0) vec4<f32> {
-    \\      if in.uv.x == -1234.0 { return vec4<f32>(in.tint.xyz * in.tint.a, in.tint.a); }
+    \\      if in.uv.x == -1234.0 { return premultiply(in.tint); }
     \\      // texture must be premultiplied
     \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, in.uv, uniforms.mip_level);
     \\      if true { color = vec4<f32>(color.r); }
     \\      color *= in.tint;
-    \\      return color;
+    \\      return premultiply(color);
     \\  }
     \\
     \\  struct VertexIn {
