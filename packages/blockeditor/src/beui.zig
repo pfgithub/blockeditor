@@ -260,8 +260,8 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         const color_targets = [_]wgpu.ColorTargetState{.{
             .format = zgpu.GraphicsContext.swapchain_format,
             .blend = &.{
-                .color = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha },
-                .alpha = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha },
+                .color = .{ .src_factor = .one_minus_dst_alpha, .dst_factor = .one },
+                .alpha = .{ .src_factor = .one_minus_dst_alpha, .dst_factor = .one },
             },
         }};
 
@@ -280,7 +280,7 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
                 .buffers = &vertex_buffers,
             },
             .primitive = .{
-                .front_face = .ccw, // list gets reversed, so clockwise-drawn items are rendered counterclockwise
+                .front_face = .cw,
                 .cull_mode = .back,
                 .topology = .triangle_list,
             },
@@ -372,11 +372,8 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
         demo.index_buffer = index_buffer;
     }
 
-    std.mem.reverse(draw_lists.RenderListIndex, draw_list.indices.items);
-    std.mem.reverse(draw_lists.RenderListCommand, draw_list.commands.items);
     gctx.queue.writeBuffer(gctx.lookupResource(demo.vertex_buffer.?).?, 0, Genres.Vertex, draw_list.vertices.items);
     gctx.queue.writeBuffer(gctx.lookupResource(demo.index_buffer.?).?, 0, draw_lists.RenderListIndex, draw_list.indices.items);
-    const total_indices: u32 = @intCast(draw_list.indices.items.len);
 
     const commands = commands: {
         const encoder = gctx.device.createCommandEncoder(null);
@@ -420,7 +417,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
             };
             pass.setBindGroup(0, bind_group, &.{mem.offset});
             for (draw_list.commands.items) |command| {
-                pass.drawIndexed(command.index_count, 1, total_indices - command.first_index - command.index_count, command.base_vertex, 0);
+                pass.drawIndexed(command.index_count, 1, command.first_index, command.base_vertex, 0);
             }
         }
 
@@ -629,7 +626,11 @@ pub fn main() !void {
         }
         for (0..11) |i| {
             const im: f32 = @floatFromInt(i);
-            draw_list.addRect(.{ 50 * im + 50, 75 }, .{ 50, 50 }, .{ .tint = .{ 0.0, 1.0, 0.0, im / 10.0 } });
+            draw_list.addRect(.{ 50 * im + 50, 83 }, .{ 50, 50 }, .{ .tint = .{ 0.0, 1.0, 0.0, im / 10.0 } });
+        }
+        for (0..11) |i| {
+            const im: f32 = @floatFromInt(i);
+            draw_list.addRect(.{ 50 * im + 50, 116 }, .{ 50, 50 }, .{ .tint = .{ 0.0, 0.0, 1.0, im / 10.0 } });
         }
 
         const allow_kbd = !zgui.io.getWantCaptureKeyboard();
