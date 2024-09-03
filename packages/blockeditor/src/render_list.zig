@@ -40,9 +40,9 @@ pub const RenderList = struct {
     pub fn init(gpa: std.mem.Allocator) RenderList {
         return .{
             .gpa = gpa,
-            .vertices = std.ArrayList(RenderListVertex).init(gpa),
-            .indices = std.ArrayList(RenderListIndex).init(gpa),
-            .commands = std.ArrayList(RenderListCommand).init(gpa),
+            .vertices = .init(gpa),
+            .indices = .init(gpa),
+            .commands = .init(gpa),
         };
     }
     pub fn deinit(self: *RenderList) void {
