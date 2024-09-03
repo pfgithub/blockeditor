@@ -448,6 +448,9 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
 // - we will still need ids for state
 //   - if a button is active, it needs to store that and be the only
 //     one to capture mouse events
+//   - if an input is active, it needs to store that and be the only
+//     reciever for text_input events
+//   - need to support tab, shift+tab for inputs
 // - ids are :/
 const BeuiEv = struct {
     frame: BeuiFrameEv,
