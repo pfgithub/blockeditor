@@ -852,6 +852,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             for (0..align_diff) |_| writer.writeByte('\x00') catch @panic("oom");
 
             // write spans (& merge adjacent)
+            // TODO: merge adjacent spans!
             iter = self.span_bbt.iterator(.{});
             while (iter.next()) |node_idx| {
                 const node = self.span_bbt.getNodeDataPtrConst(node_idx).?;
