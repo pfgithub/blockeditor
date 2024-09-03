@@ -440,6 +440,30 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
     _ = gctx.present();
 }
 
+const BeuiEv = struct {
+    frame: BeuiFrameEv,
+    persistent: BeuiPersistentEv,
+};
+const BeuiPersistentEv = struct {
+    pressed_keys: [256]bool,
+};
+const BeuiFrameEv = struct {
+    keys_down: [256]bool,
+    keys_up: [256]bool,
+    text_input: []const u8,
+};
+
+const callbacks = struct {
+    fn keyCallback(window: *zglfw.Window, key: zglfw.Key, scancode: i32, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
+        _ = window;
+        std.log.info("key callback: {s} {d} {s} {x}", .{ @tagName(key), scancode, @tagName(action), @as(u32, @bitCast(mods)) });
+    }
+    fn charCallback(window: *zglfw.Window, codepoint: u32) callconv(.C) void {
+        _ = window;
+        std.log.info("char callback: '{u}'", .{@as(u21, @intCast(codepoint))});
+    }
+};
+
 pub fn main() !void {
     var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa_state.deinit();
@@ -487,6 +511,18 @@ pub fn main() !void {
     const window = try zglfw.Window.create(800, 400, window_title, null);
     defer window.destroy();
     window.setSizeLimits(-1, -1, -1, -1);
+
+    _ = window.setPosCallback(null);
+    _ = window.setKeyCallback(&callbacks.keyCallback);
+    _ = window.setSizeCallback(null);
+    _ = window.setCharCallback(&callbacks.charCallback);
+    _ = window.setDropCallback(null);
+    _ = window.setScrollCallback(null);
+    _ = window.setCursorPosCallback(null);
+    _ = window.setCursorEnterCallback(null);
+    _ = window.setMouseButtonCallback(null);
+    _ = window.setContentScaleCallback(null);
+    _ = window.setFramebufferSizeCallback(null);
 
     const demo = try create(gpa, window);
     defer destroy(gpa, demo);
