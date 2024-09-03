@@ -44,8 +44,9 @@ const wgsl_common = (
     \\  @fragment fn frag(
     \\      in: VertexOut,
     \\  ) -> @location(0) vec4<f32> {
+    \\      if in.uv.x == -1234.0 { return in.tint; }
     \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, in.uv, uniforms.mip_level);
-    \\      if(true) { color = vec4<f32>(color.r); }
+    \\      if true { color = vec4<f32>(color.r); }
     \\      color *= in.tint;
     \\      return color;
     \\  }
@@ -470,8 +471,9 @@ pub fn main() !void {
     my_text_editor.core.document.applySimpleOperation(.{
         .position = my_text_editor.core.document.value.positionFromDocbyte(0),
         .delete_len = 0,
-        .insert_text = @embedFile("beui.zig"),
+        .insert_text = "hello!", //@embedFile("beui.zig"),
     }, null);
+    my_text_editor.core.executeCommand(.{ .set_cursor_pos = .{ .position = my_text_editor.core.document.value.positionFromDocbyte(0) } });
 
     // Change current working directory to where the executable is located.
     {
@@ -521,6 +523,10 @@ pub fn main() !void {
         defer draw_list.deinit();
 
         update(demo);
+
+        const allow_kbd = !zgui.io.getWantCaptureKeyboard();
+        const allow_mouse = !zgui.io.getWantCaptureMouse();
+        my_text_editor.event(window, arena, allow_kbd, allow_mouse);
 
         zgui.setNextWindowPos(.{ .x = 20.0, .y = 80.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });

@@ -540,7 +540,7 @@ const PositionItem = struct {
 pub const CursorPosState = enum { none, start, focus, end };
 pub const CursorPosRes = struct {
     left_cursor: CursorPosState,
-    highlight: bool,
+    selected: bool,
 };
 pub const CursorPositions = struct {
     idx: usize,
@@ -588,7 +588,7 @@ pub const CursorPositions = struct {
         }
         return .{
             .left_cursor = left_cursor,
-            .highlight = self.count != 0,
+            .selected = self.count != 0,
         };
     }
 };

@@ -4,7 +4,8 @@ const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
 const draw_lists = @import("render_list.zig");
-const zgui = @import("zgui");
+const zglfw = @import("zglfw");
+const zgui = @import("zgui"); // zgui doesn't have everything! we should use cimgui + translate-c like we used to
 
 const editor_core = blocks_mod.text_editor_core;
 
@@ -23,26 +24,73 @@ pub const EditorView = struct {
         self.core.deinit();
     }
 
+    // if we add an event listener for changes to the component:
+    // - we could maintain our own list of every character and its size, and modify
+    //   it when the component is edited
+    // - this will let us quickly go from bufbyte -> screen position
+    // - or from screen position -> bufbyte
+    // - and it will always give us access to total scroll height
+
+    pub fn event(self: *EditorView, window: *zglfw.Window, arena: std.mem.Allocator, allow_kbd: bool, allow_mouse: bool) void {
+        if (allow_kbd) {
+            // if(chord: .right_arrow) => .right, .unicode_grapheme, .move
+            // if(chord: .right_arrow, .shift) => .right, .unicode_grapheme, .select
+            // if(chord: .rigth_arrow, .ctrl|.alt) => .right, .word, .move
+            // if(chord: .rigth_arrow, .shift, .ctrl|.alt) => .right, .word, .select
+            // handle this in beui.zig by setting callbacks on the window
+            // for everything we need
+            if (window.getKey(.left) == .press) {
+                self.core.executeCommand(.{
+                    .move_cursor_left_right = .{
+                        .direction = .left,
+                        .stop = .byte,
+                        .mode = .move,
+                    },
+                });
+            }
+            if (window.getKey(.right) == .press) {
+                self.core.executeCommand(.{
+                    .move_cursor_left_right = .{
+                        .direction = .right,
+                        .stop = .byte,
+                        .mode = .move,
+                    },
+                });
+            }
+        }
+        _ = arena;
+        _ = allow_mouse;
+    }
+
     pub fn gui(self: *EditorView, arena: std.mem.Allocator, draw_list: *draw_lists.RenderList, content_region_size: @Vector(2, f32)) void {
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
         const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };
 
-        const allow_kbd = zgui.io.getWantCaptureKeyboard();
-        const allow_mouse = zgui.io.getWantCaptureMouse();
-        _ = allow_kbd;
-        _ = allow_mouse;
-
         const block = self.core.document.value;
 
-        const buffer = arena.alloc(u8, block.length()) catch @panic("oom");
+        const buffer = arena.alloc(u8, block.length() + 1) catch @panic("oom");
         defer arena.free(buffer);
-        block.readSlice(block.positionFromDocbyte(0), buffer);
+        block.readSlice(block.positionFromDocbyte(0), buffer[0..block.length()]);
+        // extra char to make handling events for and rendering the last cursor position easier
+        buffer[buffer.len - 1] = '\x00';
+
+        var cursor_positions = self.core.getCursorPositions();
+        defer cursor_positions.deinit();
 
         var pos: @Vector(2, f32) = .{ 0, 0 };
-        for (buffer) |char| {
-            const in_selection = false;
+        for (buffer, 0..) |char, i| {
+            const cursor_info = cursor_positions.advanceAndRead(i);
+
+            if (cursor_info.left_cursor == .focus) {
+                draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{
+                    1, draw_list.getCharHeight() + 2,
+                }, .{ .tint = .{ 1, 1, 1, 1 } });
+            }
+
+            const in_selection = cursor_info.selected;
             const show_invisibles = in_selection;
             const is_invisible: ?u8 = switch (char) {
+                '\x00' => '\x00',
                 ' ' => '_', // '·'
                 '\n' => '\n', // '⏎'
                 '\t' => '\t', // '⇥'

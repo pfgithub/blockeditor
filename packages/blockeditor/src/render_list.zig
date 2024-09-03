@@ -104,7 +104,7 @@ pub const RenderList = struct {
     }
 
     pub fn addRect(self: *RenderList, pos: @Vector(2, f32), size: @Vector(2, f32), opts: struct {
-        uv_pos: @Vector(2, f32) = .{ 0, 0 },
+        uv_pos: @Vector(2, f32) = .{ -1234.0, -1234.0 },
         uv_size: @Vector(2, f32) = .{ 0, 0 },
         image: ?RenderListImage = null,
         tint: @Vector(4, f32) = .{ 1, 1, 1, 1 },
