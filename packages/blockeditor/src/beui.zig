@@ -452,27 +452,63 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
 //     reciever for text_input events
 //   - need to support tab, shift+tab for inputs
 // - ids are :/
-const BeuiEv = struct {
-    frame: BeuiFrameEv,
-    persistent: BeuiPersistentEv,
+const Beui = struct {
+    frame: BeuiFrameEv = .{},
+    persistent: BeuiPersistentEv = .{},
 };
 const BeuiPersistentEv = struct {
-    pressed_keys: [256]bool,
+    held_keys: [BeuiKey.count]bool = [_]bool{false} ** BeuiKey.count,
 };
 const BeuiFrameEv = struct {
-    keys_down: [256]bool,
-    keys_up: [256]bool,
-    text_input: []const u8,
+    pressed_keys: [BeuiKey.count]bool = [_]bool{false} ** BeuiKey.count,
+    repeated_keys: [BeuiKey.count]bool = [_]bool{false} ** BeuiKey.count,
+    released_keys: [BeuiKey.count]bool = [_]bool{false} ** BeuiKey.count,
+    text_input: []const u8 = "",
 };
+const BeuiKey = enum(u32) {
+    _,
+    pub const count = 256;
+};
+
+fn zglfwKeyToBeuiKey(key: zglfw.Key) ?BeuiKey {
+    const val: i32 = @intFromEnum(key);
+    switch (val) {
+        0...BeuiKey.count => {
+            return @enumFromInt(@as(u32, @intCast(val)));
+        },
+        else => {
+            std.log.warn("TODO key: {s}", .{@tagName(key)});
+            return null;
+        },
+    }
+}
 
 const callbacks = struct {
     fn keyCallback(window: *zglfw.Window, key: zglfw.Key, scancode: i32, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
-        _ = window;
-        std.log.info("key callback: {s} {d} {s} {x}", .{ @tagName(key), scancode, @tagName(action), @as(u32, @bitCast(mods)) });
+        const beui = window.getUserPointer(Beui).?;
+        const beui_key = zglfwKeyToBeuiKey(key) orelse return;
+        _ = scancode;
+        _ = mods;
+        switch (action) {
+            .press => {
+                beui.persistent.held_keys[@intFromEnum(beui_key)] = true;
+                beui.frame.pressed_keys[@intFromEnum(beui_key)] = true;
+            },
+            .repeat => {
+                beui.persistent.held_keys[@intFromEnum(beui_key)] = true;
+                beui.frame.repeated_keys[@intFromEnum(beui_key)] = true;
+            },
+            .release => {
+                beui.persistent.held_keys[@intFromEnum(beui_key)] = true;
+                beui.frame.released_keys[@intFromEnum(beui_key)] = true;
+            },
+        }
     }
     fn charCallback(window: *zglfw.Window, codepoint: u32) callconv(.C) void {
-        _ = window;
-        std.log.info("char callback: '{u}'", .{@as(u21, @intCast(codepoint))});
+        const beui = window.getUserPointer(Beui).?;
+        _ = beui;
+        _ = codepoint;
+        // beui.frame.text_input.appendSlice( std.unicode.codepoint to thing(codepoint) )
     }
 };
 
@@ -523,6 +559,9 @@ pub fn main() !void {
     const window = try zglfw.Window.create(800, 400, window_title, null);
     defer window.destroy();
     window.setSizeLimits(-1, -1, -1, -1);
+
+    var beui: Beui = .{};
+    window.setUserPointer(@ptrCast(@alignCast(&beui)));
 
     _ = window.setPosCallback(null);
     _ = window.setKeyCallback(&callbacks.keyCallback);
