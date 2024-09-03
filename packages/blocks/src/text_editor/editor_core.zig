@@ -511,6 +511,86 @@ pub const EditorCore = struct {
     pub fn replaceRange(self: *EditorCore, operation: bi.text_component.TextDocument.SimpleOperation) void {
         self.document.applySimpleOperation(operation, null);
     }
+
+    pub fn getCursorPositions(self: *EditorCore) CursorPositions {
+        const block = self.document.value;
+
+        var positions: CursorPositions = .init(self.gpa);
+        for (self.cursor_positions.items) |cursor| {
+            const anchor = block.docbyteFromPosition(cursor.pos.anchor);
+            const focus = block.docbyteFromPosition(cursor.pos.focus);
+
+            positions.add(anchor, focus);
+        }
+        positions.sort();
+
+        return positions;
+    }
+};
+
+const PositionItem = struct {
+    bufbyte: usize,
+    mode: enum { start, end },
+    kind: enum { anchor, focus },
+
+    fn compareFn(_: void, a: PositionItem, b: PositionItem) bool {
+        return a.bufbyte < b.bufbyte;
+    }
+};
+pub const CursorPosState = enum { none, start, focus, end };
+pub const CursorPosRes = struct {
+    left_cursor: CursorPosState,
+    highlight: bool,
+};
+pub const CursorPositions = struct {
+    idx: usize,
+    count: i32,
+    positions: std.ArrayList(PositionItem),
+
+    pub fn init(gpa: std.mem.Allocator) CursorPositions {
+        return .{ .idx = 0, .count = 0, .positions = .init(gpa) };
+    }
+    pub fn deinit(self: *CursorPositions) void {
+        self.positions.deinit();
+    }
+    fn add(self: *CursorPositions, anchor: usize, focus: usize) void {
+        const left = @min(anchor, focus);
+        const right = @max(anchor, focus);
+        self.positions.append(.{ .mode = .start, .bufbyte = left, .kind = if (left == focus) .focus else .anchor }) catch @panic("oom");
+        self.positions.append(.{ .mode = .end, .bufbyte = right, .kind = if (left == focus) .anchor else .focus }) catch @panic("oom");
+    }
+    fn sort(self: *CursorPositions) void {
+        std.mem.sort(PositionItem, self.positions.items, {}, PositionItem.compareFn);
+    }
+
+    pub fn advanceAndRead(self: *CursorPositions, bufbyte: usize) CursorPosRes {
+        var left_cursor: CursorPosState = .none;
+        while (true) : (self.idx += 1) {
+            if (self.idx >= self.positions.items.len) break;
+            const itm = self.positions.items[self.idx];
+            if (itm.bufbyte > bufbyte) break;
+            switch (itm.mode) {
+                .start => self.count += 1,
+                .end => self.count -= 1,
+            }
+            if (itm.bufbyte == bufbyte) {
+                left_cursor = switch (left_cursor) {
+                    .none => switch (itm.kind) {
+                        .anchor => switch (itm.mode) {
+                            .start => .start,
+                            .end => .end,
+                        },
+                        .focus => .focus,
+                    },
+                    .start, .end, .focus => .focus,
+                };
+            }
+        }
+        return .{
+            .left_cursor = left_cursor,
+            .highlight = self.count != 0,
+        };
+    }
 };
 
 fn testEditorContent(expected: []const u8, editor: *EditorCore) !void {
@@ -518,33 +598,28 @@ fn testEditorContent(expected: []const u8, editor: *EditorCore) !void {
     const gpa = std.testing.allocator;
     var rendered = std.ArrayList(u8).init(gpa);
     defer rendered.deinit();
-    try rendered.appendNTimes(undefined, actual.value.length());
+    try rendered.ensureUnusedCapacity(actual.value.length() + 1);
+    rendered.appendNTimesAssumeCapacity(undefined, actual.value.length());
     actual.value.readSlice(actual.value.positionFromDocbyte(0), rendered.items);
+    rendered.appendAssumeCapacity('\x00');
 
-    const ResPosition = struct {
-        const ResPosition = @This();
-        pos: usize,
-        char: u8,
-        fn cmp(_: void, a: ResPosition, b: ResPosition) bool {
-            return a.pos > b.pos;
+    var positions = editor.getCursorPositions();
+    defer positions.deinit();
+    var rendered2 = std.ArrayList(u8).init(gpa);
+    defer rendered2.deinit();
+    for (rendered.items, 0..) |char, i| {
+        const pos_info = positions.advanceAndRead(i);
+        switch (pos_info.left_cursor) {
+            .none => {},
+            .start => try rendered2.append('['),
+            .focus => try rendered2.append('|'),
+            .end => try rendered2.append(']'),
         }
-    };
-    var res_positions = std.ArrayList(ResPosition).init(gpa);
-    defer res_positions.deinit();
-    for (editor.cursor_positions.items) |cursor_position| {
-        const anchor_pos = actual.value.docbyteFromPosition(cursor_position.pos.anchor);
-        const focus_pos = actual.value.docbyteFromPosition(cursor_position.pos.focus);
-
-        if (anchor_pos < focus_pos) try res_positions.append(.{ .pos = anchor_pos, .char = '[' });
-        if (anchor_pos > focus_pos) try res_positions.append(.{ .pos = anchor_pos, .char = ']' });
-        try res_positions.append(.{ .pos = focus_pos, .char = '|' });
+        try rendered2.append(char);
     }
-    std.mem.sort(ResPosition, res_positions.items, {}, ResPosition.cmp);
-    for (res_positions.items) |respos| {
-        try rendered.replaceRange(respos.pos, 0, &[_]u8{respos.char});
-    }
+    std.debug.assert(rendered2.pop() == '\x00');
 
-    try std.testing.expectEqualStrings(expected, rendered.items);
+    try std.testing.expectEqualStrings(expected, rendered2.items);
 }
 
 test EditorCore {
