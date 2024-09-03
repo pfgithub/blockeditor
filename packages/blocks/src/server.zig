@@ -129,9 +129,9 @@ pub fn main() !void {
 
     var state: State = .{
         .gpa = gpa,
-        .client_id_to_connection_map = std.AutoArrayHashMap(ClientID, Client).init(gpa),
+        .client_id_to_connection_map = .init(gpa),
 
-        .msg_queue = util.Queue(Msg).init(gpa),
+        .msg_queue = .init(gpa),
     };
 
     const listen_addr = std.net.Address.initIp4(.{ 0, 0, 0, 0 }, port);

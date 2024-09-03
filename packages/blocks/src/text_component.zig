@@ -68,7 +68,7 @@ fn BalancedBinaryTree(comptime Data: type) type {
 
         pub fn init(alloc: std.mem.Allocator) @This() {
             return .{
-                .pool = std.heap.MemoryPool(Node).init(alloc),
+                .pool = .init(alloc),
             };
         }
         pub fn deinit(self: *@This()) void {
@@ -928,8 +928,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         pub fn initEmpty(alloc: std.mem.Allocator) Doc {
             var res: Doc = .{
                 .span_bbt = undefined,
-                .buffer = std.ArrayList(T).init(alloc),
-                .segment_id_map = SegmentIDMap.init(alloc),
+                .buffer = .init(alloc),
+                .segment_id_map = .init(alloc),
                 .allocator = alloc,
 
                 .client_id = 0,
@@ -940,7 +940,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             // spans_bbt uses fieldParentPtr to find the buffer for counting
             // the inserted node, so it must be inside the document when
             // we call insertNodeBefore. It's okay if the pointer moves later.
-            res.span_bbt = BalancedBinaryTree(Span).init(alloc);
+            res.span_bbt = .init(alloc);
 
             res._insertBefore(.root, &[_]Span{
                 .{
@@ -1072,7 +1072,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
         fn _ensureInIdMap(self: *Doc, seg: SegmentID, start: usize, idx: BBT.NodeIndex) void {
             const gpres = self.segment_id_map.getOrPut(seg) catch @panic("oom");
-            if (!gpres.found_existing) gpres.value_ptr.* = std.ArrayList(BBT.NodeIndex).init(self.allocator);
+            if (!gpres.found_existing) gpres.value_ptr.* = .init(self.allocator);
             const insert_idx: usize = for (gpres.value_ptr.items, 0..) |itm, i| {
                 const itmv = self.span_bbt.getNodeDataPtrConst(itm).?;
                 if (start < itmv.start_segbyte) {
@@ -1807,13 +1807,13 @@ const BlockTester = struct {
     pub fn init(alloc: std.mem.Allocator) BlockTester {
         return .{
             .alloc = alloc,
-            .simple = std.ArrayList(u8).init(alloc),
-            .complex = TextDocument.initEmpty(alloc),
+            .simple = .init(alloc),
+            .complex = .initEmpty(alloc),
 
             .timings = .{},
 
-            .rendered_result = std.ArrayList(u8).init(alloc),
-            .opgen = std.ArrayList(TextDocument.Operation).init(alloc),
+            .rendered_result = .init(alloc),
+            .opgen = .init(alloc),
         };
     }
     pub fn deinit(self: *@This()) void {

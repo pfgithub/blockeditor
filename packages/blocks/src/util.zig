@@ -62,7 +62,7 @@ pub fn ThreadQueue(comptime T: type) type {
 
         pub fn init(alloc: std.mem.Allocator) Self {
             return .{
-                ._raw_queue = Queue(T).init(alloc),
+                ._raw_queue = .init(alloc),
                 .mutex = .{},
                 .condition = .{},
             };

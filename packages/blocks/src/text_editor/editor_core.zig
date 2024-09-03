@@ -188,7 +188,7 @@ pub const EditorCore = struct {
             .gpa = gpa,
             .document = document,
 
-            .cursor_positions = std.ArrayList(CursorPosition).init(gpa),
+            .cursor_positions = .init(gpa),
         };
         document.ref();
         document.addUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit)); // to keep the language server up to date

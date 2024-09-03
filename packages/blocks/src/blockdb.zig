@@ -188,10 +188,10 @@ pub const BlockDB = struct {
         return .{
             .gpa = gpa,
 
-            .path_to_blockref_map = std.AutoArrayHashMap(bi.BlockID, *BlockRef).init(gpa),
+            .path_to_blockref_map = .init(gpa),
 
-            .send_queue = util.ThreadQueue(ThreadInstruction).init(gpa),
-            .recv_queue = util.ThreadQueue(ToApplyInstruction).init(gpa),
+            .send_queue = .init(gpa),
+            .recv_queue = .init(gpa),
         };
     }
 
@@ -282,7 +282,7 @@ pub const BlockDB = struct {
             .id = generated_id,
 
             .ref_count = 1,
-            .unapplied_operations_queue = util.Queue(bi.AlignedByteSlice).init(self.gpa),
+            .unapplied_operations_queue = .init(self.gpa),
 
             ._contents = .{
                 .vtable = initial_value.vtable,
@@ -316,7 +316,7 @@ pub const BlockDB = struct {
             .id = id,
 
             .ref_count = 1,
-            .unapplied_operations_queue = util.Queue(bi.AlignedByteSlice).init(self.gpa),
+            .unapplied_operations_queue = .init(self.gpa),
 
             ._contents = null,
         };
