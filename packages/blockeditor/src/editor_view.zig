@@ -127,6 +127,9 @@ pub const EditorView = struct {
             zgui.text("draw_list items: {d} / {d}", .{ draw_list.vertices.items.len, draw_list.indices.items.len });
         }
         zgui.end();
+
+        // background
+        draw_list.addRect(.{ 0, 0 }, content_region_size, .{ .tint = hexToFloat(DefaultTheme.editor_bg) });
     }
 };
 

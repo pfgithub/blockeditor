@@ -254,6 +254,10 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
 
         const color_targets = [_]wgpu.ColorTargetState{.{
             .format = zgpu.GraphicsContext.swapchain_format,
+            .blend = &.{
+                .color = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha },
+                .alpha = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha },
+            },
         }};
 
         const vertex_buffers = [_]wgpu.VertexBufferLayout{.{
@@ -271,7 +275,7 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
                 .buffers = &vertex_buffers,
             },
             .primitive = .{
-                .front_face = .cw,
+                .front_face = .ccw, // list gets reversed, so clockwise-drawn items are rendered counterclockwise
                 .cull_mode = .back,
                 .topology = .triangle_list,
             },
@@ -363,8 +367,11 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
         demo.index_buffer = index_buffer;
     }
 
+    std.mem.reverse(draw_lists.RenderListIndex, draw_list.indices.items);
+    std.mem.reverse(draw_lists.RenderListCommand, draw_list.commands.items);
     gctx.queue.writeBuffer(gctx.lookupResource(demo.vertex_buffer.?).?, 0, Genres.Vertex, draw_list.vertices.items);
     gctx.queue.writeBuffer(gctx.lookupResource(demo.index_buffer.?).?, 0, draw_lists.RenderListIndex, draw_list.indices.items);
+    const total_indices: u32 = @intCast(draw_list.indices.items.len);
 
     const commands = commands: {
         const encoder = gctx.device.createCommandEncoder(null);
@@ -408,7 +415,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
             };
             pass.setBindGroup(0, bind_group, &.{mem.offset});
             for (draw_list.commands.items) |command| {
-                pass.drawIndexed(command.index_count, 1, command.first_index, command.base_vertex, 0);
+                pass.drawIndexed(command.index_count, 1, total_indices - command.first_index - command.index_count, command.base_vertex, 0);
             }
         }
 
