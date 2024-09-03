@@ -108,11 +108,16 @@ pub const EditorView = struct {
                 pos = .{ 0, pos[1] + draw_list.getCharHeight() };
             }
 
+            const char_offset = @Vector(2, f32){ (invisible_advance - char_advance) / 2.0, 0.0 };
+
             if (is_invisible == null and pos[0] <= window_size[0] and pos[1] <= window_size[1] and pos[0] >= 0 and pos[1] >= 0) {
-                draw_list.addChar(char_or_invisible, window_pos + pos + @Vector(2, f32){ (invisible_advance - char_advance) / 2.0, 0.0 }, hexToFloat(DefaultTheme.synHlColor(switch (is_invisible != null) {
+                draw_list.addChar(char_or_invisible, window_pos + pos + char_offset, hexToFloat(DefaultTheme.synHlColor(switch (is_invisible != null) {
                     true => .invisible,
                     false => .variable_mutable,
                 })));
+            }
+            if (cursor_info.selected) {
+                draw_list.addRect(window_pos + pos, .{ char_advance + 1, draw_list.getCharHeight() + 1 }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
             }
             if (pos[1] > window_size[1]) break;
 
