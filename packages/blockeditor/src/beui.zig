@@ -440,6 +440,15 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
     _ = gctx.present();
 }
 
+// BeUI:
+// - if we make draw lists go front to back, then draw order is in the
+//   same order as events. the first thing to see and capture an event
+//   can take it - items behind it are also visually behind it
+// - front to back is unusual but seems fine
+// - we will still need ids for state
+//   - if a button is active, it needs to store that and be the only
+//     one to capture mouse events
+// - ids are :/
 const BeuiEv = struct {
     frame: BeuiFrameEv,
     persistent: BeuiPersistentEv,
