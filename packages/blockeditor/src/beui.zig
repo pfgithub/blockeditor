@@ -44,7 +44,8 @@ const wgsl_common = (
     \\  @fragment fn frag(
     \\      in: VertexOut,
     \\  ) -> @location(0) vec4<f32> {
-    \\      if in.uv.x == -1234.0 { return in.tint; }
+    \\      if in.uv.x == -1234.0 { return vec4<f32>(in.tint.xyz * in.tint.a, in.tint.a); }
+    \\      // texture must be premultiplied
     \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, in.uv, uniforms.mip_level);
     \\      if true { color = vec4<f32>(color.r); }
     \\      color *= in.tint;
@@ -617,6 +618,15 @@ pub fn main() !void {
         defer draw_list.deinit();
 
         update(demo);
+
+        for (0..11) |i| {
+            const im: f32 = @floatFromInt(i);
+            draw_list.addRect(.{ 50 * im + 50, 50 }, .{ 50, 50 }, .{ .tint = .{ 1.0, 0.0, 0.0, im / 10.0 } });
+        }
+        for (0..11) |i| {
+            const im: f32 = @floatFromInt(i);
+            draw_list.addRect(.{ 50 * im + 50, 75 }, .{ 50, 50 }, .{ .tint = .{ 0.0, 1.0, 0.0, im / 10.0 } });
+        }
 
         const allow_kbd = !zgui.io.getWantCaptureKeyboard();
         const allow_mouse = !zgui.io.getWantCaptureMouse();
