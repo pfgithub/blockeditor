@@ -60,10 +60,10 @@ const wgsl_common = (
 
 fn genUniforms(comptime Src: type) type {
     const ti: std.builtin.Type = @typeInfo(Src);
-    if (ti.Struct.layout != .@"extern") @compileError("Uniforms info must be extern layout");
+    if (ti.@"struct".layout != .@"extern") @compileError("Uniforms info must be extern layout");
 
     var result: []const u8 = "";
-    for (ti.Struct.fields) |field| {
+    for (ti.@"struct".fields) |field| {
         const sub = genSub(field.type);
         result = result ++ std.fmt.comptimePrint("{s}: {s},\n", .{
             field.name,
@@ -97,7 +97,7 @@ fn genAttributes(comptime Src: type) type {
     var shader_location: usize = 0;
 
     const ti: std.builtin.Type = @typeInfo(Src);
-    for (ti.Struct.fields) |field| {
+    for (ti.@"struct".fields) |field| {
         const sub = genSub(field.type);
         result = result ++ &[_]wgpu.VertexAttribute{.{
             .format = sub.format,
