@@ -6,8 +6,8 @@
     },
     .dependencies = .{
         .zig_gamedev = .{
-            .url = "https://github.com/zig-gamedev/zig-gamedev/archive/0b983b024ac9d85dd7402822c8f82a4315727017.tar.gz",
-            .hash = "1220ef2304a00c547708d8e6b53c464d23cc30e3d1e9f7436716acdc36709467fe9a",
+            .url = "https://github.com/pfgithub/zig-gamedev/archive/b24a1bf4e7d984a24aadb6e5bd4c5f8e725e7d41.tar.gz",
+            .hash = "1220c47341b0dbe3a402a12882c775e9615b03f1cf39ac5dcb2ea466837bfbef20a9",
         },
         .blocks = .{
             .path = "../blocks",
