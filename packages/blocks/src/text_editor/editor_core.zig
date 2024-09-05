@@ -9,9 +9,16 @@ pub const Position = bi.text_component.Position;
 pub const Selection = struct {
     anchor: Position,
     focus: Position,
+    pub fn at(focus: Position) Selection {
+        return .{.anchor = focus, .focus = focus};
+    }
+    pub fn range(anchor: Position, focus: Position) Selection {
+        return .{.anchor = anchor, .focus = focus};
+    }
 };
 const PosLen = struct {
     pos: Position,
+    right: Position,
     len: usize,
 };
 pub const CursorPosition = struct {
@@ -21,6 +28,16 @@ pub const CursorPosition = struct {
     vertical_move_start: ?u64 = null,
     /// when selecting up with tree-sitter to allow selecting back down. resets on move.
     node_select_start: ?Selection = null,
+
+    pub fn from(sel: Selection) CursorPosition {
+        return .{.pos = sel};
+    }
+    pub fn at(focus: Position) CursorPosition {
+        return .from(.at(focus));
+    }
+    pub fn range(anchor: Position, focus: Position) CursorPosition {
+        return .from(.range(anchor, focus));
+    }
 };
 
 pub const DragInfo = struct {
@@ -308,6 +325,7 @@ pub const EditorCore = struct {
 
         return .{
             .pos = block.positionFromDocbyte(min),
+            .right = block.positionFromDocbyte(max),
             .len = max - min,
         };
     }
@@ -406,20 +424,23 @@ pub const EditorCore = struct {
             },
             .move_cursor_left_right => |lr_cmd| {
                 for (self.cursor_positions.items) |*cursor_position| {
+                    const current_pos = self.selectionToPosLen(cursor_position.pos);
+                    if(current_pos.len > 0 and lr_cmd.mode == .move) {
+                        cursor_position.* = switch(lr_cmd.direction) {
+                            .left => .at(current_pos.pos),
+                            .right => .at(current_pos.right),
+                        };
+                        return;
+                    }
+
                     const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop);
 
                     switch (lr_cmd.mode) {
                         .move => {
-                            cursor_position.* = .{ .pos = .{
-                                .anchor = moved,
-                                .focus = moved,
-                            } };
+                            cursor_position.* = .at(moved);
                         },
                         .select => {
-                            cursor_position.* = .{ .pos = .{
-                                .anchor = cursor_position.pos.anchor,
-                                .focus = moved,
-                            } };
+                            cursor_position.* = .range(cursor_position.pos.anchor, moved);
                         },
                         .delete => {
                             // if there is a selection, delete the selection
@@ -435,10 +456,7 @@ pub const EditorCore = struct {
                             });
                             const res_pos = pos_len.pos;
 
-                            cursor_position.* = .{ .pos = .{
-                                .anchor = res_pos,
-                                .focus = res_pos,
-                            } };
+                            cursor_position.* = .at(res_pos);
                         },
                     }
                 }
