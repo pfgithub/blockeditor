@@ -470,7 +470,7 @@ pub const Beui = struct {
     }
 
     pub fn isKeyPressed(self: *Beui, key: BeuiKey) bool {
-        return self.frame.pressed_keys.get(key);
+        return self.frame.pressed_keys.get(key) or self.frame.repeated_keys.get(key);
     }
 
     pub fn arena(self: *Beui) std.mem.Allocator {
