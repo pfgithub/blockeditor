@@ -66,31 +66,27 @@ pub const EditorView = struct {
     pub fn gui(self: *EditorView, beui: *beui_mod.Beui, content_region_size: @Vector(2, f32)) void {
         const arena = beui.arena();
         const draw_list = beui.draw();
+        const block = self.core.document.value;
 
-        // switch(beui.chooseKeyPressed(.{.left, .right})) {.left => , .right => ,}
-        if (beui.isKeyPressed(.left)) {
-            self.core.executeCommand(.{
-                .move_cursor_left_right = .{
-                    .direction = .left,
-                    .stop = .byte,
-                    .mode = .move,
+        if (beui.hotkey(.{ .alt = .maybe, .shift = .maybe }, &.{ .left, .right })) |hk| {
+            self.core.executeCommand(.{ .move_cursor_left_right = .{
+                .direction = switch (hk.key) {
+                    .left => .left,
+                    .right => .right,
                 },
-            });
-        }
-        if (beui.isKeyPressed(.right)) {
-            self.core.executeCommand(.{
-                .move_cursor_left_right = .{
-                    .direction = .right,
-                    .stop = .byte,
-                    .mode = .move,
+                .stop = switch (hk.alt) {
+                    false => .byte,
+                    true => .word,
                 },
-            });
+                .mode = switch (hk.shift) {
+                    false => .move,
+                    true => .select,
+                },
+            } });
         }
 
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
         const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };
-
-        const block = self.core.document.value;
 
         const buffer = arena.alloc(u8, block.length() + 1) catch @panic("oom");
         defer arena.free(buffer);
@@ -110,9 +106,7 @@ pub const EditorView = struct {
                     1, draw_list.getCharHeight() + 2,
                 }, .{ .tint = .{ 1, 1, 1, 1 } });
             }
-
-            const in_selection = cursor_info.selected;
-            const show_invisibles = in_selection;
+            const show_invisibles = cursor_info.selected;
             const is_invisible: ?u8 = switch (char) {
                 '\x00' => '\x00',
                 ' ' => '_', // '·'
@@ -141,7 +135,7 @@ pub const EditorView = struct {
                 })));
             }
             if (cursor_info.selected) {
-                draw_list.addRect(window_pos + pos, .{ char_advance + 1, draw_list.getCharHeight() + 1 }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
+                draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{ char_advance, draw_list.getCharHeight() + 2 }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
             }
             if (pos[1] > window_size[1]) break;
 

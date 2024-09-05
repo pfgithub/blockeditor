@@ -449,6 +449,52 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
     _ = gctx.present();
 }
 
+pub const BeuiHotkeyModOption = enum {
+    no,
+    maybe,
+    yes,
+
+    pub fn eql(self: BeuiHotkeyModOption, v: bool) bool {
+        return switch (self) {
+            .no => v == false,
+            .maybe => true,
+            .yes => v == true,
+        };
+    }
+};
+pub const BeuiHotkeyMods = struct {
+    ctrl_or_cmd: BeuiHotkeyModOption = .no,
+    alt: BeuiHotkeyModOption = .no,
+    shift: BeuiHotkeyModOption = .no,
+
+    // pub fn parse(str: []const u8) BeuiHotkey {
+
+    // }
+};
+
+fn HotkeyResult(mods: BeuiHotkeyMods, key_opts: []const BeuiKey) type {
+    var fields: []const std.builtin.Type.EnumField = &.{};
+    for (key_opts) |ko| {
+        fields = fields ++ &[_]std.builtin.Type.EnumField{.{
+            .name = @tagName(ko),
+            .value = @intFromEnum(ko),
+        }};
+    }
+    const ti: std.builtin.Type = .{ .@"enum" = .{
+        .tag_type = @typeInfo(BeuiKey).@"enum".tag_type,
+        .fields = fields,
+        .decls = &.{},
+        .is_exhaustive = true,
+    } };
+    return struct {
+        const FilteredKey = @Type(ti);
+        ctrl_or_cmd: if (mods.ctrl_or_cmd == .maybe) bool else void,
+        alt: if (mods.alt == .maybe) bool else void,
+        shift: if (mods.shift == .maybe) bool else void,
+        key: FilteredKey,
+    };
+}
+
 // BeUI:
 // - if we make draw lists go front to back, then draw order is in the
 //   same order as events. the first thing to see and capture an event
@@ -467,6 +513,26 @@ pub const Beui = struct {
 
     fn newFrame(self: *Beui, cfg: BeuiFrameCfg) void {
         self.frame = .{ .frame_cfg = cfg };
+    }
+
+    pub fn hotkey(self: *Beui, comptime mods: BeuiHotkeyMods, comptime key_opts: []const BeuiKey) ?HotkeyResult(mods, key_opts) {
+        const ctrl_down = self.persistent.held_keys.get(.left_control) or self.persistent.held_keys.get(.right_control);
+        const cmd_down = self.persistent.held_keys.get(.left_super) or self.persistent.held_keys.get(.right_super);
+        const shift_down = self.persistent.held_keys.get(.left_shift) or self.persistent.held_keys.get(.right_shift);
+        const alt_down = self.persistent.held_keys.get(.left_alt) or self.persistent.held_keys.get(.right_alt);
+        const mods_eql = mods.shift.eql(shift_down) and mods.ctrl_or_cmd.eql(ctrl_down or cmd_down) and mods.alt.eql(alt_down);
+
+        if (!mods_eql) return null;
+        const key = for (key_opts) |key| {
+            if (self.isKeyPressed(key)) break key;
+        } else return null;
+
+        return .{
+            .ctrl_or_cmd = if (mods.ctrl_or_cmd == .maybe) ctrl_down or cmd_down else {},
+            .alt = if (mods.alt == .maybe) alt_down else {},
+            .shift = if (mods.shift == .maybe) shift_down else {},
+            .key = @enumFromInt(@intFromEnum(key)),
+        };
     }
 
     pub fn isKeyPressed(self: *Beui, key: BeuiKey) bool {
