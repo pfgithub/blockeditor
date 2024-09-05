@@ -461,22 +461,198 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
 //     reciever for text_input events
 //   - need to support tab, shift+tab for inputs
 // - ids are :/
-const Beui = struct {
+pub const Beui = struct {
     frame: BeuiFrameEv = .{},
     persistent: BeuiPersistentEv = .{},
+
+    fn newFrame(self: *Beui, cfg: BeuiFrameCfg) void {
+        self.frame = .{ .frame_cfg = cfg };
+    }
+
+    pub fn isKeyPressed(self: *Beui, key: BeuiKey) bool {
+        return self.frame.pressed_keys.get(key);
+    }
+
+    pub fn arena(self: *Beui) std.mem.Allocator {
+        return self.frame.frame_cfg.?.arena;
+    }
+    pub fn draw(self: *Beui) *draw_lists.RenderList {
+        return self.frame.frame_cfg.?.draw_list;
+    }
+};
+pub fn EnumArray(comptime Enum: type, comptime Value: type) type {
+    const count = blk: {
+        const enum_ti = @typeInfo(Enum);
+        if (!enum_ti.@"enum".is_exhaustive) {
+            break :blk Enum.count;
+        }
+        var count_v: usize = 0;
+        for (enum_ti.@"enum".fields) |field| {
+            const field_v: std.builtin.Type.EnumField = field;
+            count_v = @max(count_v, field_v.value);
+        }
+        break :blk count_v;
+    };
+    if (count > 1000) @panic("count large");
+    return struct {
+        const Self = @This();
+        values: [count]Value, // for ints we can use PackedIntArray
+        pub fn init(default_value: Value) Self {
+            return .{ .values = [_]Value{default_value} ** count };
+        }
+        fn toIdx(key: Enum) usize {
+            const res = @intFromEnum(key);
+            if (res >= count) @panic("enum too big");
+            return res;
+        }
+        pub fn get(self: *const Self, key: Enum) Value {
+            return self.values[toIdx(key)];
+        }
+        pub fn set(self: *Self, key: Enum, value: Value) void {
+            self.values[toIdx(key)] = value;
+        }
+    };
+}
+const BeuiFrameCfg = struct {
+    can_capture_keyboard: bool,
+    can_capture_mouse: bool,
+    arena: std.mem.Allocator,
+    draw_list: *draw_lists.RenderList,
 };
 const BeuiPersistentEv = struct {
-    held_keys: [BeuiKey.count]bool = [_]bool{false} ** BeuiKey.count,
+    held_keys: EnumArray(BeuiKey, bool) = .init(false),
 };
 const BeuiFrameEv = struct {
-    pressed_keys: [BeuiKey.count]bool = [_]bool{false} ** BeuiKey.count,
-    repeated_keys: [BeuiKey.count]bool = [_]bool{false} ** BeuiKey.count,
-    released_keys: [BeuiKey.count]bool = [_]bool{false} ** BeuiKey.count,
+    pressed_keys: EnumArray(BeuiKey, bool) = .init(false),
+    repeated_keys: EnumArray(BeuiKey, bool) = .init(false),
+    released_keys: EnumArray(BeuiKey, bool) = .init(false),
     text_input: []const u8 = "",
+    frame_cfg: ?BeuiFrameCfg = null,
 };
 const BeuiKey = enum(u32) {
+    space = 32,
+    apostrophe = 39,
+    comma = 44,
+    minus = 45,
+    period = 46,
+    slash = 47,
+    zero = 48,
+    one = 49,
+    two = 50,
+    three = 51,
+    four = 52,
+    five = 53,
+    six = 54,
+    seven = 55,
+    eight = 56,
+    nine = 57,
+    semicolon = 59,
+    equal = 61,
+    a = 65,
+    b = 66,
+    c = 67,
+    d = 68,
+    e = 69,
+    f = 70,
+    g = 71,
+    h = 72,
+    i = 73,
+    j = 74,
+    k = 75,
+    l = 76,
+    m = 77,
+    n = 78,
+    o = 79,
+    p = 80,
+    q = 81,
+    r = 82,
+    s = 83,
+    t = 84,
+    u = 85,
+    v = 86,
+    w = 87,
+    x = 88,
+    y = 89,
+    z = 90,
+    left_bracket = 91,
+    backslash = 92,
+    right_bracket = 93,
+    grave_accent = 96,
+    world_1 = 161,
+    world_2 = 162,
+
+    escape = 256,
+    enter = 257,
+    tab = 258,
+    backspace = 259,
+    insert = 260,
+    delete = 261,
+    right = 262,
+    left = 263,
+    down = 264,
+    up = 265,
+    page_up = 266,
+    page_down = 267,
+    home = 268,
+    end = 269,
+    caps_lock = 280,
+    scroll_lock = 281,
+    num_lock = 282,
+    print_screen = 283,
+    pause = 284,
+    F1 = 290,
+    F2 = 291,
+    F3 = 292,
+    F4 = 293,
+    F5 = 294,
+    F6 = 295,
+    F7 = 296,
+    F8 = 297,
+    F9 = 298,
+    F10 = 299,
+    F11 = 300,
+    F12 = 301,
+    F13 = 302,
+    F14 = 303,
+    F15 = 304,
+    F16 = 305,
+    F17 = 306,
+    F18 = 307,
+    F19 = 308,
+    F20 = 309,
+    F21 = 310,
+    F22 = 311,
+    F23 = 312,
+    F24 = 313,
+    F25 = 314,
+    kp_0 = 320,
+    kp_1 = 321,
+    kp_2 = 322,
+    kp_3 = 323,
+    kp_4 = 324,
+    kp_5 = 325,
+    kp_6 = 326,
+    kp_7 = 327,
+    kp_8 = 328,
+    kp_9 = 329,
+    kp_decimal = 330,
+    kp_divide = 331,
+    kp_multiply = 332,
+    kp_subtract = 333,
+    kp_add = 334,
+    kp_enter = 335,
+    kp_equal = 336,
+    left_shift = 340,
+    left_control = 341,
+    left_alt = 342,
+    left_super = 343,
+    right_shift = 344,
+    right_control = 345,
+    right_alt = 346,
+    right_super = 347,
+    menu = 348,
     _,
-    pub const count = 256;
+    pub const count = 400;
 };
 
 fn zglfwKeyToBeuiKey(key: zglfw.Key) ?BeuiKey {
@@ -495,21 +671,27 @@ fn zglfwKeyToBeuiKey(key: zglfw.Key) ?BeuiKey {
 const callbacks = struct {
     fn keyCallback(window: *zglfw.Window, key: zglfw.Key, scancode: i32, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
         const beui = window.getUserPointer(Beui).?;
+
+        if (action != .release) {
+            if (beui.frame.frame_cfg == null) return;
+            if (!beui.frame.frame_cfg.?.can_capture_keyboard) return;
+        }
+
         const beui_key = zglfwKeyToBeuiKey(key) orelse return;
         _ = scancode;
         _ = mods;
         switch (action) {
             .press => {
-                beui.persistent.held_keys[@intFromEnum(beui_key)] = true;
-                beui.frame.pressed_keys[@intFromEnum(beui_key)] = true;
+                beui.persistent.held_keys.set(beui_key, true);
+                beui.frame.pressed_keys.set(beui_key, true);
             },
             .repeat => {
-                beui.persistent.held_keys[@intFromEnum(beui_key)] = true;
-                beui.frame.repeated_keys[@intFromEnum(beui_key)] = true;
+                beui.persistent.held_keys.set(beui_key, true);
+                beui.frame.repeated_keys.set(beui_key, true);
             },
             .release => {
-                beui.persistent.held_keys[@intFromEnum(beui_key)] = true;
-                beui.frame.released_keys[@intFromEnum(beui_key)] = true;
+                beui.persistent.held_keys.set(beui_key, false);
+                beui.frame.released_keys.set(beui_key, true);
             },
         }
     }
@@ -613,10 +795,17 @@ pub fn main() !void {
 
     while (!window.shouldClose() and window.getKey(.escape) != .press) {
         _ = arena_state.reset(.retain_capacity);
-        zglfw.pollEvents();
 
         var draw_list = draw_lists.RenderList.init(gpa);
         defer draw_list.deinit();
+
+        beui.newFrame(.{
+            .can_capture_keyboard = !zgui.io.getWantCaptureKeyboard(),
+            .can_capture_mouse = !zgui.io.getWantCaptureMouse(),
+            .draw_list = &draw_list,
+            .arena = arena,
+        });
+        zglfw.pollEvents();
 
         update(demo);
 
@@ -633,10 +822,6 @@ pub fn main() !void {
             draw_list.addRect(.{ 50 * im + 50, 116 }, .{ 50, 50 }, .{ .tint = .{ 0.0, 0.0, 1.0, im / 10.0 } });
         }
 
-        const allow_kbd = !zgui.io.getWantCaptureKeyboard();
-        const allow_mouse = !zgui.io.getWantCaptureMouse();
-        my_text_editor.event(window, arena, allow_kbd, allow_mouse);
-
         zgui.setNextWindowPos(.{ .x = 20.0, .y = 80.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
         if (zgui.begin("My counter (editor 1)", .{})) {
@@ -650,7 +835,7 @@ pub fn main() !void {
             const gctx = demo.gctx;
             const fb_width = gctx.swapchain_descriptor.width;
             const fb_height = gctx.swapchain_descriptor.height;
-            my_text_editor.gui(arena, &draw_list, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });
+            my_text_editor.gui(&beui, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });
         }
         zgui.end();
 

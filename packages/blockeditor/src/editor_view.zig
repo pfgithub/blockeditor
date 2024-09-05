@@ -6,6 +6,7 @@ const util = blocks_mod.util;
 const draw_lists = @import("render_list.zig");
 const zglfw = @import("zglfw");
 const zgui = @import("zgui"); // zgui doesn't have everything! we should use cimgui + translate-c like we used to
+const beui_mod = @import("beui.zig");
 
 const editor_core = blocks_mod.text_editor_core;
 
@@ -62,7 +63,30 @@ pub const EditorView = struct {
         _ = allow_mouse;
     }
 
-    pub fn gui(self: *EditorView, arena: std.mem.Allocator, draw_list: *draw_lists.RenderList, content_region_size: @Vector(2, f32)) void {
+    pub fn gui(self: *EditorView, beui: *beui_mod.Beui, content_region_size: @Vector(2, f32)) void {
+        const arena = beui.arena();
+        const draw_list = beui.draw();
+
+        // switch(beui.chooseKeyPressed(.{.left, .right})) {.left => , .right => ,}
+        if (beui.isKeyPressed(.left)) {
+            self.core.executeCommand(.{
+                .move_cursor_left_right = .{
+                    .direction = .left,
+                    .stop = .byte,
+                    .mode = .move,
+                },
+            });
+        }
+        if (beui.isKeyPressed(.right)) {
+            self.core.executeCommand(.{
+                .move_cursor_left_right = .{
+                    .direction = .right,
+                    .stop = .byte,
+                    .mode = .move,
+                },
+            });
+        }
+
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
         const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };
 
