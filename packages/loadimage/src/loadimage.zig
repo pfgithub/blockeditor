@@ -1,5 +1,6 @@
 const std = @import("std");
 const wuffs = @import("wuffs");
+const log = std.log.scoped(.loadimage);
 
 const LoadedImage = struct {
     w: usize,
@@ -107,7 +108,7 @@ pub fn loadImage(gpa: std.mem.Allocator, file_cont: []const u8) !LoadedImage {
 
 fn wrapErr(status: wuffs.wuffs_base__status) !void {
     if (wuffs.wuffs_base__status__message(&status)) |emsg| {
-        std.log.err("image load error: {s}", .{emsg});
+        log.err("image load error: {s}", .{emsg});
         return error.WuffsError;
     }
 }
