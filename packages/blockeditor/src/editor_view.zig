@@ -68,6 +68,39 @@ pub const EditorView = struct {
         const draw_list = beui.draw();
         const block = self.core.document.value;
 
+        // # hotkey dsl?
+        //
+        // $word = (alt | ctrl)
+        // $select = shift
+        // $reverse = shift
+        // $hotkey = (ctrl | cmd)
+        //
+        // ?$word ?$select (left | right) => move_cursor_lr [
+        //     .direction = $3(.left, .right),
+        //     .stop = $1(.byte, .word),
+        //     .mode = $2(.move, .select),
+        // ]
+        // ?$word (backspace | delete) => delete [
+        //     .direction = $2(.left, .right),
+        //     .stop = $1(.byte, .word),
+        // ]
+        // $word (down | up) => ts_select_node [
+        //     .direction = $2(.down, .up),
+        // ]
+        // ?$select (down | up) => move_cursor_ud [
+        //     .direction = $2(.down, .up),
+        //     .metric = .raw,
+        //     .mode = $1(.move, .select),
+        // ]
+        // enter => newline
+        // ?$reverse tab => indent_selection [
+        //     .direction = $1(.right, .left),
+        // ]
+        // $hotkey a => select_all
+        // $hotkey ?$reverse z => $2(undo, redo)
+        // $hotkey y => redo
+
+
         // what's missing:
         // rather than 'alt', we would like to say 'select_word' where that is defined as (ctrl | alt)
         if (beui.hotkey(.{ .alt = .maybe, .shift = .maybe }, &.{ .left, .right })) |hk| {
@@ -99,26 +132,26 @@ pub const EditorView = struct {
                 .mode = .delete,
             } });
         }
-        if (beui.hotkey(.{ .alt = .maybe }, &.{ .down, .up })) |hk| {
-            switch (hk.alt) {
-                true => self.core.executeCommand(.{ .ts_select_node = .{
+        if (beui.hotkey(.{ .alt = .yes }, &.{ .down, .up })) |hk| {
+            self.core.executeCommand(.{ .ts_select_node = .{
                     .direction = switch (hk.key) {
                         .down => .child,
                         .up => .parent,
                     },
-                } }),
-                false => self.core.executeCommand(.{ .move_cursor_up_down = .{
+                } });
+        }
+        if (beui.hotkey(.{ .shift = .maybe }, &.{ .down, .up })) |hk| {
+            self.core.executeCommand(.{ .move_cursor_up_down = .{
                     .direction = switch (hk.key) {
                         .down => .down,
                         .up => .up,
                     },
                     .metric = .raw,
-                    .mode = switch (hk.alt) {
+                    .mode = switch (hk.shift) {
                         false => .move,
                         true => .select,
                     },
-                } }),
-            }
+                } });
         }
         if (beui.hotkey(.{}, &.{.enter})) |_| {
             self.core.executeCommand(.newline);
