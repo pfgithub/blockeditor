@@ -835,4 +835,9 @@ test EditorCore {
     try testEditorContent("here are a few words to traverse!|", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
     try testEditorContent("here are a few words to traverse!|", &editor);
+
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try testEditorContent("|here are a few words to traverse!", &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
+    try testEditorContent("here are a few words to traverse!|", &editor);
 }
