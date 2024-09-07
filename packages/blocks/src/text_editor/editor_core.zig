@@ -291,7 +291,7 @@ pub const EditorCore = struct {
         };
     }
 
-    fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop) Position {
+    fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop, mode: enum { left, right, select }) Position {
         const block = self.document.value;
         var index: usize = block.docbyteFromPosition(pos);
         const len = block.length();
@@ -307,8 +307,19 @@ pub const EditorCore = struct {
             var bytes: [2]u8 = undefined;
             block.readSlice(block.positionFromDocbyte(index - 1), &bytes);
             const marker = hasStop(bytes[0], bytes[1], stop) orelse continue;
-            switch (marker) {
-                else => break,
+            switch (mode) {
+                .left => switch (marker) {
+                    .left_or_select, .both => break,
+                    .right_or_select, .right_only => {},
+                },
+                .right => switch (marker) {
+                    .right_or_select, .right_only, .both => break,
+                    .left_or_select => {},
+                },
+                .select => switch (marker) {
+                    .left_or_select, .right_or_select, .both => break,
+                    .right_only => {},
+                },
             }
         }
         return block.positionFromDocbyte(index);
@@ -435,7 +446,10 @@ pub const EditorCore = struct {
                         return;
                     }
 
-                    const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop);
+                    const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
+                        .left => .left,
+                        .right => .right,
+                    });
 
                     switch (lr_cmd.mode) {
                         .move => {
