@@ -140,7 +140,11 @@ pub const EditorCommand = union(enum) {
     move_cursor_left_right: struct {
         direction: LRDirection,
         stop: CursorLeftRightStop,
-        mode: enum { move, select, delete },
+        mode: enum { move, select },
+    },
+    delete: struct {
+        direction: LRDirection,
+        stop: CursorLeftRightStop,
     },
     move_cursor_up_down: struct {
         direction: enum { up, down },
@@ -458,23 +462,30 @@ pub const EditorCore = struct {
                         .select => {
                             cursor_position.* = .range(cursor_position.pos.anchor, moved);
                         },
-                        .delete => {
-                            // if there is a selection, delete the selection
-                            // if there is no selection, delete from the focus in the direction to the stop
-                            var pos_len = self.selectionToPosLen(cursor_position.pos);
-                            if (pos_len.len == 0) {
-                                pos_len = self.selectionToPosLen(.{ .anchor = cursor_position.pos.focus, .focus = moved });
-                            }
-                            self.replaceRange(.{
-                                .position = pos_len.pos,
-                                .delete_len = pos_len.len,
-                                .insert_text = "",
-                            });
-                            const res_pos = pos_len.pos;
-
-                            cursor_position.* = .at(res_pos);
-                        },
                     }
+                }
+            },
+            .delete => |lr_cmd| {
+                for (self.cursor_positions.items) |*cursor_position| {
+                    const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
+                        .left => .left,
+                        .right => .right,
+                    });
+
+                    // if there is a selection, delete the selection
+                    // if there is no selection, delete from the focus in the direction to the stop
+                    var pos_len = self.selectionToPosLen(cursor_position.pos);
+                    if (pos_len.len == 0) {
+                        pos_len = self.selectionToPosLen(.{ .anchor = cursor_position.pos.focus, .focus = moved });
+                    }
+                    self.replaceRange(.{
+                        .position = pos_len.pos,
+                        .delete_len = pos_len.len,
+                        .insert_text = "",
+                    });
+                    const res_pos = pos_len.pos;
+
+                    cursor_position.* = .at(res_pos);
                 }
             },
             .newline => {
@@ -679,23 +690,23 @@ test EditorCore {
     try testEditorContent("abcd!|hello!", &editor);
     editor.executeCommand(.{ .set_cursor_pos = .{ .position = src_component.value.positionFromDocbyte(0) } });
     try testEditorContent("|abcd!hello!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
+    editor.executeCommand(.{ .delete = .{ .direction = .right, .stop = .byte } });
     try testEditorContent("|bcd!hello!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .delete } });
+    editor.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
     try testEditorContent("|bcd!hello!", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
     try testEditorContent("[b|cd!hello!", &editor);
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
     try testEditorContent("[bc|d!hello!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
+    editor.executeCommand(.{ .delete = .{ .direction = .right, .stop = .byte } });
     try testEditorContent("|d!hello!", &editor);
     editor.executeCommand(.{ .insert_text = .{ .text = "……" } });
     try testEditorContent("……|d!hello!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .codepoint, .mode = .delete } });
+    editor.executeCommand(.{ .delete = .{ .direction = .left, .stop = .codepoint } });
     try testEditorContent("…|d!hello!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .line, .mode = .delete } });
+    editor.executeCommand(.{ .delete = .{ .direction = .right, .stop = .line } });
     try testEditorContent("…|", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .line, .mode = .delete } });
+    editor.executeCommand(.{ .delete = .{ .direction = .left, .stop = .line } });
     try testEditorContent("|", &editor);
     editor.executeCommand(.{ .insert_text = .{ .text = "    hi();" } });
     try testEditorContent("    hi();|", &editor);
@@ -724,7 +735,7 @@ test EditorCore {
     try testEditorContent("    [hi();\n        goodbye();\n|", &editor); // not sure if this is what we want
     editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
     try testEditorContent("[hi();\n    goodbye();\n|", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .delete } });
+    editor.executeCommand(.{ .delete = .{ .direction = .right, .stop = .byte } });
     try testEditorContent("|", &editor);
     editor.executeCommand(.{ .insert_text = .{ .text = "hello\nto the world!" } });
     editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .move } });

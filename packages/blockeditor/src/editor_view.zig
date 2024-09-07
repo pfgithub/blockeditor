@@ -105,7 +105,7 @@ pub const EditorView = struct {
             } });
         }
         if (beui.hotkey(.{ .alt = .maybe }, &.{ .backspace, .delete })) |hk| {
-            self.core.executeCommand(.{ .move_cursor_left_right = .{
+            self.core.executeCommand(.{ .delete = .{
                 .direction = switch (hk.key) {
                     .backspace => .left,
                     .delete => .right,
@@ -114,7 +114,6 @@ pub const EditorView = struct {
                     false => .byte,
                     true => .word,
                 },
-                .mode = .delete,
             } });
         }
         if (beui.hotkey(.{ .alt = .yes }, &.{ .down, .up })) |hk| {
