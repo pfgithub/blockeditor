@@ -10,10 +10,10 @@ pub const Selection = struct {
     anchor: Position,
     focus: Position,
     pub fn at(focus: Position) Selection {
-        return .{.anchor = focus, .focus = focus};
+        return .{ .anchor = focus, .focus = focus };
     }
     pub fn range(anchor: Position, focus: Position) Selection {
-        return .{.anchor = anchor, .focus = focus};
+        return .{ .anchor = anchor, .focus = focus };
     }
 };
 const PosLen = struct {
@@ -30,7 +30,7 @@ pub const CursorPosition = struct {
     node_select_start: ?Selection = null,
 
     pub fn from(sel: Selection) CursorPosition {
-        return .{.pos = sel};
+        return .{ .pos = sel };
     }
     pub fn at(focus: Position) CursorPosition {
         return .from(.at(focus));
@@ -425,8 +425,8 @@ pub const EditorCore = struct {
             .move_cursor_left_right => |lr_cmd| {
                 for (self.cursor_positions.items) |*cursor_position| {
                     const current_pos = self.selectionToPosLen(cursor_position.pos);
-                    if(current_pos.len > 0 and lr_cmd.mode == .move) {
-                        cursor_position.* = switch(lr_cmd.direction) {
+                    if (current_pos.len > 0 and lr_cmd.mode == .move) {
+                        cursor_position.* = switch (lr_cmd.direction) {
                             .left => .at(current_pos.pos),
                             .right => .at(current_pos.right),
                         };
@@ -741,4 +741,31 @@ test EditorCore {
         \\hello!
         \\to the| world!
     , &editor);
+
+    editor.executeCommand(.select_all);
+    editor.executeCommand(.{ .insert_text = .{ .text = "hello" } });
+    try testEditorContent("hello|", &editor);
+
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
+    try testEditorContent("hel|lo", &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .select } });
+    try testEditorContent("hel[lo|", &editor);
+
+    editor.executeCommand(.select_all);
+    editor.executeCommand(.{ .insert_text = .{ .text = "hela\n\ninput\n\n\nlo!" } });
+    try testEditorContent("hela\n\ninput\n\n\nlo!|", &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try testEditorContent("hela\n\ninput\n\n|\nlo!", &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try testEditorContent("hela\n\ninput\n|\n\nlo!", &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try testEditorContent("hela\n\ninp|ut\n\n\nlo!", &editor);
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
+    try testEditorContent("hela\n\ninput|\n\n\nlo!", &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try testEditorContent("hela\n|\ninput\n\n\nlo!", &editor);
+    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try testEditorContent("hela|\n\ninput\n\n\nlo!", &editor);
 }
