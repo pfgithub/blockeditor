@@ -49,6 +49,11 @@ pub const EditorView = struct {
         //     .stop = $1(.byte, .word),
         //     .mode = $2(.move, .select),
         // ]
+        // ?$select (home | end) => move_cursor_lr [
+        //     .direction = $2(.left, .right),
+        //     .stop = .line,
+        //     .mode = $1(.move, .select),
+        // ]
         // ?$word (backspace | delete) => delete [
         //     .direction = $2(.left, .right),
         //     .stop = $1(.byte, .word),
@@ -79,6 +84,20 @@ pub const EditorView = struct {
                     false => .byte,
                     true => .word,
                 },
+                .mode = switch (hk.shift) {
+                    false => .move,
+                    true => .select,
+                },
+            } });
+        }
+        if (beui.hotkey(.{ .shift = .maybe }, &.{ .home, .end })) |hk| {
+            // maybe should be .move_cursor_to_line_side
+            self.core.executeCommand(.{ .move_cursor_left_right = .{
+                .direction = switch (hk.key) {
+                    .home => .left,
+                    .end => .right,
+                },
+                .stop = .line,
                 .mode = switch (hk.shift) {
                     false => .move,
                     true => .select,
