@@ -730,6 +730,7 @@ const BeuiKey = enum(u32) {
 fn zglfwKeyToBeuiKey(key: zglfw.Key) ?BeuiKey {
     const val: i32 = @intFromEnum(key);
     switch (val) {
+        -1 => return null, // 'unknown'
         0...BeuiKey.count => {
             return @enumFromInt(@as(u32, @intCast(val)));
         },
@@ -770,7 +771,7 @@ const callbacks = struct {
     fn charCallback(window: *zglfw.Window, codepoint: u32) callconv(.C) void {
         const beui = window.getUserPointer(Beui).?;
         const codepoint_u21 = std.math.cast(u21, codepoint) orelse {
-            std.log.err("charCallback codepoint out of range: {d}", .{codepoint});
+            std.log.warn("charCallback codepoint out of range: {d}", .{codepoint});
             return;
         };
         const printed = std.fmt.allocPrint(beui.frame.frame_cfg.?.arena, "{s}{u}", .{ beui.frame.text_input, codepoint_u21 }) catch @panic("oom");
