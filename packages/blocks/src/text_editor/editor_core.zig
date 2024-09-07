@@ -405,9 +405,11 @@ pub const EditorCore = struct {
                         .down => self.getNextLineStart(this_line_start),
                     };
 
+                    const new_line_start_pos = block.docbyteFromPosition(new_line_start);
                     const new_line_end_pos = block.docbyteFromPosition(self.getThisLineEnd(new_line_start));
+                    const new_line_len = new_line_end_pos - new_line_start_pos;
 
-                    const res_offset = @min(new_line_end_pos, distance);
+                    const res_offset = @min(new_line_len, distance);
                     const res_pos = block.positionFromDocbyte(block.docbyteFromPosition(new_line_start) + res_offset);
 
                     cursor_position.* = .{
