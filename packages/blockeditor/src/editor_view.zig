@@ -68,6 +68,8 @@ pub const EditorView = struct {
         const draw_list = beui.draw();
         const block = self.core.document.value;
 
+        // what's missing:
+        // rather than 'alt', we would like to say 'select_word' where that is defined as (ctrl | alt)
         if (beui.hotkey(.{ .alt = .maybe, .shift = .maybe }, &.{ .left, .right })) |hk| {
             self.core.executeCommand(.{ .move_cursor_left_right = .{
                 .direction = switch (hk.key) {
@@ -83,6 +85,63 @@ pub const EditorView = struct {
                     true => .select,
                 },
             } });
+        }
+        if (beui.hotkey(.{ .alt = .maybe }, &.{ .backspace, .delete })) |hk| {
+            self.core.executeCommand(.{ .move_cursor_left_right = .{
+                .direction = switch (hk.key) {
+                    .backspace => .left,
+                    .delete => .right,
+                },
+                .stop = switch (hk.alt) {
+                    false => .byte,
+                    true => .word,
+                },
+                .mode = .delete,
+            } });
+        }
+        if (beui.hotkey(.{ .alt = .maybe }, &.{ .down, .up })) |hk| {
+            switch (hk.alt) {
+                true => self.core.executeCommand(.{ .ts_select_node = .{
+                    .direction = switch (hk.key) {
+                        .down => .child,
+                        .up => .parent,
+                    },
+                } }),
+                false => self.core.executeCommand(.{ .move_cursor_up_down = .{
+                    .direction = switch (hk.key) {
+                        .down => .down,
+                        .up => .up,
+                    },
+                    .metric = .raw,
+                    .mode = switch (hk.alt) {
+                        false => .move,
+                        true => .select,
+                    },
+                } }),
+            }
+        }
+        if (beui.hotkey(.{}, &.{.enter})) |_| {
+            self.core.executeCommand(.newline);
+        }
+        if (beui.hotkey(.{ .shift = .maybe }, &.{.tab})) |hk| {
+            self.core.executeCommand(.{ .indent_selection = .{
+                .direction = switch (hk.shift) {
+                    false => .right,
+                    true => .left,
+                },
+            } });
+        }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.a})) |_| {
+            self.core.executeCommand(.select_all);
+        }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes, .shift = .maybe }, &.{.z})) |hk| {
+            self.core.executeCommand(switch (hk.shift) {
+                false => .undo,
+                true => .redo,
+            });
+        }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.y})) |_| {
+            self.core.executeCommand(.redo);
         }
 
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
