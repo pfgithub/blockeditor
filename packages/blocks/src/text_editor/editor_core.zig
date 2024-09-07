@@ -252,6 +252,7 @@ pub const EditorCore = struct {
         const prev_line_start_byte = block.docbyteFromPosition(prev_line_start);
 
         if (prev_line_start_byte == next_line_start_byte) return prev_line_start;
+        if (next_line_start_byte == block.length()) return block.positionFromDocbyte(next_line_start_byte);
         std.debug.assert(next_line_start_byte > prev_line_start_byte);
         return block.positionFromDocbyte(next_line_start_byte - 1);
     }
@@ -420,12 +421,21 @@ pub const EditorCore = struct {
                         .down => self.getNextLineStart(this_line_start),
                     };
 
+                    const this_line_start_pos = block.docbyteFromPosition(this_line_start);
                     const new_line_start_pos = block.docbyteFromPosition(new_line_start);
                     const new_line_end_pos = block.docbyteFromPosition(self.getThisLineEnd(new_line_start));
                     const new_line_len = new_line_end_pos - new_line_start_pos;
 
                     const res_offset = @min(new_line_len, distance);
-                    const res_pos = block.positionFromDocbyte(block.docbyteFromPosition(new_line_start) + res_offset);
+                    var res_pos_idx = block.docbyteFromPosition(new_line_start) + res_offset;
+                    if (this_line_start_pos == new_line_start_pos) {
+                        if (new_line_start_pos == 0 and ud_cmd.direction == .up) {
+                            res_pos_idx = new_line_start_pos;
+                        } else if (new_line_end_pos == block.length() and ud_cmd.direction == .down) {
+                            res_pos_idx = new_line_end_pos;
+                        }
+                    }
+                    const res_pos = block.positionFromDocbyte(res_pos_idx);
 
                     cursor_position.* = .{
                         .pos = .{
