@@ -32,37 +32,6 @@ pub const EditorView = struct {
     // - or from screen position -> bufbyte
     // - and it will always give us access to total scroll height
 
-    pub fn event(self: *EditorView, window: *zglfw.Window, arena: std.mem.Allocator, allow_kbd: bool, allow_mouse: bool) void {
-        if (allow_kbd) {
-            // if(chord: .right_arrow) => .right, .unicode_grapheme, .move
-            // if(chord: .right_arrow, .shift) => .right, .unicode_grapheme, .select
-            // if(chord: .rigth_arrow, .ctrl|.alt) => .right, .word, .move
-            // if(chord: .rigth_arrow, .shift, .ctrl|.alt) => .right, .word, .select
-            // handle this in beui.zig by setting callbacks on the window
-            // for everything we need
-            if (window.getKey(.left) == .press) {
-                self.core.executeCommand(.{
-                    .move_cursor_left_right = .{
-                        .direction = .left,
-                        .stop = .byte,
-                        .mode = .move,
-                    },
-                });
-            }
-            if (window.getKey(.right) == .press) {
-                self.core.executeCommand(.{
-                    .move_cursor_left_right = .{
-                        .direction = .right,
-                        .stop = .byte,
-                        .mode = .move,
-                    },
-                });
-            }
-        }
-        _ = arena;
-        _ = allow_mouse;
-    }
-
     pub fn gui(self: *EditorView, beui: *beui_mod.Beui, content_region_size: @Vector(2, f32)) void {
         const arena = beui.arena();
         const draw_list = beui.draw();
@@ -100,8 +69,6 @@ pub const EditorView = struct {
         // $hotkey ?$reverse z => $2(undo, redo)
         // $hotkey y => redo
 
-        // what's missing:
-        // rather than 'alt', we would like to say 'select_word' where that is defined as (ctrl | alt)
         if (beui.hotkey(.{ .alt = .maybe, .shift = .maybe }, &.{ .left, .right })) |hk| {
             self.core.executeCommand(.{ .move_cursor_left_right = .{
                 .direction = switch (hk.key) {
