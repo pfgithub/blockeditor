@@ -515,6 +515,12 @@ pub const Beui = struct {
         self.frame = .{ .frame_cfg = cfg };
     }
 
+    pub fn textInput(self: *Beui) ?[]const u8 {
+        const res = self.frame.text_input;
+        if (res.len == 0) return null;
+        self.frame.text_input = "";
+        return res;
+    }
     pub fn hotkey(self: *Beui, comptime mods: BeuiHotkeyMods, comptime key_opts: []const BeuiKey) ?HotkeyResult(mods, key_opts) {
         const ctrl_down = self.persistent.held_keys.get(.left_control) or self.persistent.held_keys.get(.right_control);
         const cmd_down = self.persistent.held_keys.get(.left_super) or self.persistent.held_keys.get(.right_super);
@@ -763,9 +769,12 @@ const callbacks = struct {
     }
     fn charCallback(window: *zglfw.Window, codepoint: u32) callconv(.C) void {
         const beui = window.getUserPointer(Beui).?;
-        _ = beui;
-        _ = codepoint;
-        // beui.frame.text_input.appendSlice( std.unicode.codepoint to thing(codepoint) )
+        const codepoint_u21 = std.math.cast(u21, codepoint) orelse {
+            std.log.err("charCallback codepoint out of range: {d}", .{codepoint});
+            return;
+        };
+        const printed = std.fmt.allocPrint(beui.frame.frame_cfg.?.arena, "{s}{u}", .{ beui.frame.text_input, codepoint_u21 }) catch @panic("oom");
+        beui.frame.text_input = printed;
     }
 };
 

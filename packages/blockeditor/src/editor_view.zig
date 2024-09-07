@@ -100,7 +100,6 @@ pub const EditorView = struct {
         // $hotkey ?$reverse z => $2(undo, redo)
         // $hotkey y => redo
 
-
         // what's missing:
         // rather than 'alt', we would like to say 'select_word' where that is defined as (ctrl | alt)
         if (beui.hotkey(.{ .alt = .maybe, .shift = .maybe }, &.{ .left, .right })) |hk| {
@@ -134,24 +133,24 @@ pub const EditorView = struct {
         }
         if (beui.hotkey(.{ .alt = .yes }, &.{ .down, .up })) |hk| {
             self.core.executeCommand(.{ .ts_select_node = .{
-                    .direction = switch (hk.key) {
-                        .down => .child,
-                        .up => .parent,
-                    },
-                } });
+                .direction = switch (hk.key) {
+                    .down => .child,
+                    .up => .parent,
+                },
+            } });
         }
         if (beui.hotkey(.{ .shift = .maybe }, &.{ .down, .up })) |hk| {
             self.core.executeCommand(.{ .move_cursor_up_down = .{
-                    .direction = switch (hk.key) {
-                        .down => .down,
-                        .up => .up,
-                    },
-                    .metric = .raw,
-                    .mode = switch (hk.shift) {
-                        false => .move,
-                        true => .select,
-                    },
-                } });
+                .direction = switch (hk.key) {
+                    .down => .down,
+                    .up => .up,
+                },
+                .metric = .raw,
+                .mode = switch (hk.shift) {
+                    false => .move,
+                    true => .select,
+                },
+            } });
         }
         if (beui.hotkey(.{}, &.{.enter})) |_| {
             self.core.executeCommand(.newline);
@@ -175,6 +174,10 @@ pub const EditorView = struct {
         }
         if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.y})) |_| {
             self.core.executeCommand(.redo);
+        }
+
+        if (beui.textInput()) |text| {
+            self.core.executeCommand(.{ .insert_text = .{ .text = text } });
         }
 
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
