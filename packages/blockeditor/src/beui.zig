@@ -617,7 +617,7 @@ const BeuiFrameCfg = struct {
 };
 const BeuiPersistentEv = struct {
     config: struct {
-        dbl_click_time: i64 = 1000,
+        dbl_click_time: i64 = 500,
         dbl_click_dist: f32 = 10.0,
     } = .{},
     held_keys: EnumArray(BeuiKey, bool) = .init(false),
