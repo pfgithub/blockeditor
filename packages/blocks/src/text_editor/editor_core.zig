@@ -80,7 +80,7 @@ fn hasStop(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?BetweenCha
             }
             return null;
         },
-        .unicode_grapheme => {
+        .unicode_grapheme_cluster => {
             // maybe we should pass in the Position we're testing? not sure
             @panic("function does not have enough information to determine grapheme stop");
         },
@@ -115,12 +115,19 @@ pub const CursorLeftRightStop = enum {
     // in descriptions: '<' indicates left stop, '>' indicates right stop, '|' indicates both, '.' indicates eof
     // ']' indicates right-only stop, not counted for selections
 
+    // TODO:
+    // - 'word' can sometimes stop you in the middle of a grapheme cluster
+    //   eg: "e\u{301}" is a single grapheme cluster, but 'word' will put your
+    //   cursor right in the middle of it when you press <alt+right arrow>.
+    //   ideally, anything after unicode_grapheme_cluster in this list will never
+    //   place your cursor inside of a grapheme cluster.
+
     /// .|h|e|l|l|o| |w|o|r|l|d|.
     byte,
     /// .|a|…|b|.
     codepoint,
     /// .|म|नी|ष|.
-    unicode_grapheme,
+    unicode_grapheme_cluster,
     /// .|fn> <demo()> <void> <{}|.
     word,
     /// like word but for natural language instead of code. there is a unicode algorithm for this.
@@ -838,17 +845,23 @@ test hasStop {
             },
             .codepoint => {
                 try testFindStops("|u|\xE2\x80\xA6|!|", v);
+                try testFindStops("|H|e|\u{301}|l|l|o|", .codepoint);
             },
-            .unicode_grapheme => {
-                // testFindStops("|म|नी|ष|", .unicode_grapheme); // todo
+            .unicode_grapheme_cluster => {
+                // TODO
+                // try testFindStops("|म|नी|ष|", v);
+                // try testFindStops("|H|e\u{301}|l|l|o|", v);
             },
             .word => {
                 try testFindStops("|hello> <world|", v);
                 try testFindStops("|    <\\\\>    <}>\n    <\\\\>    <@|vertex> <fn> <vert|(|in|:> <VertexIn|)|", v);
                 try testFindStops("| <myfn|(|crazy|)> |", v);
+                try testFindStops("|He|\u{301}|llo|", v); // TODO: don't put word stops in the middle of a grapheme cluster
             },
             .unicode_word => {
-                // try testFindStops("|这|只是|一些|随机|的|文本|", .unicode_word); // todo. also unicode word segmentation is system language dependant for some reason.
+                // TODO. also unicode word segmentation is system language dependant for some reason.
+                // so either make it use english or ask for the system language and use that.
+                // try testFindStops("|这|只是|一些|随机|的|文本|", v);
             },
             .line => {
                 try testFindStops("|line one]\n<line two]\n<line three|", v);
