@@ -331,8 +331,9 @@ fn hexToFloat(hex: u32) @Vector(4, f32) {
 }
 
 const DefaultTheme = struct {
-    pub const editor_bg: u32 = 0x1F252B;
-    pub const selection_color: u32 = 0x2A3239;
+    // colors are defined in srgb
+    pub const editor_bg: u32 = 0x1d252c;
+    pub const selection_color: u32 = 0x28323a;
 
     pub fn synHlColor(syn_hl_color: SynHlColorScope) u32 {
         return switch (syn_hl_color) {
