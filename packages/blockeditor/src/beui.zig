@@ -593,6 +593,7 @@ const BeuiFrameCfg = struct {
 };
 const BeuiPersistentEv = struct {
     held_keys: EnumArray(BeuiKey, bool) = .init(false),
+    mouse_pos: @Vector(2, f32) = .{ 0, 0 },
 };
 const BeuiFrameEv = struct {
     pressed_keys: EnumArray(BeuiKey, bool) = .init(false),
@@ -600,8 +601,18 @@ const BeuiFrameEv = struct {
     released_keys: EnumArray(BeuiKey, bool) = .init(false),
     text_input: []const u8 = "",
     frame_cfg: ?BeuiFrameCfg = null,
+    scroll: @Vector(2, f32) = .{ 0, 0 },
 };
 const BeuiKey = enum(u32) {
+    mouse_left = 1,
+    mouse_right = 2,
+    mouse_middle = 3,
+    mouse_four = 4,
+    mouse_five = 5,
+    mouse_six = 6,
+    mouse_seven = 7,
+    mouse_eight = 8,
+
     space = 32,
     apostrophe = 39,
     comma = 44,
@@ -740,8 +751,37 @@ fn zglfwKeyToBeuiKey(key: zglfw.Key) ?BeuiKey {
         },
     }
 }
+fn zglfwButtonToBeuiKey(button: zglfw.MouseButton) ?BeuiKey {
+    return switch (button) {
+        .left => .mouse_left,
+        .right => .mouse_right,
+        .middle => .mouse_middle,
+        .four => .mouse_four,
+        .five => .mouse_five,
+        .six => .mouse_six,
+        .seven => .mouse_seven,
+        .eight => .mouse_eight,
+    };
+}
 
 const callbacks = struct {
+    fn handleKeyWithAction(beui: *Beui, key: BeuiKey, action: zglfw.Action) void {
+        switch (action) {
+            .press => {
+                beui.persistent.held_keys.set(key, true);
+                beui.frame.pressed_keys.set(key, true);
+            },
+            .repeat => {
+                beui.persistent.held_keys.set(key, true);
+                beui.frame.repeated_keys.set(key, true);
+            },
+            .release => {
+                beui.persistent.held_keys.set(key, false);
+                beui.frame.released_keys.set(key, true);
+            },
+        }
+    }
+
     fn keyCallback(window: *zglfw.Window, key: zglfw.Key, scancode: i32, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
         const beui = window.getUserPointer(Beui).?;
 
@@ -753,20 +793,7 @@ const callbacks = struct {
         const beui_key = zglfwKeyToBeuiKey(key) orelse return;
         _ = scancode;
         _ = mods;
-        switch (action) {
-            .press => {
-                beui.persistent.held_keys.set(beui_key, true);
-                beui.frame.pressed_keys.set(beui_key, true);
-            },
-            .repeat => {
-                beui.persistent.held_keys.set(beui_key, true);
-                beui.frame.repeated_keys.set(beui_key, true);
-            },
-            .release => {
-                beui.persistent.held_keys.set(beui_key, false);
-                beui.frame.released_keys.set(beui_key, true);
-            },
-        }
+        handleKeyWithAction(beui, beui_key, action);
     }
     fn charCallback(window: *zglfw.Window, codepoint: u32) callconv(.C) void {
         const beui = window.getUserPointer(Beui).?;
@@ -776,6 +803,32 @@ const callbacks = struct {
         };
         const printed = std.fmt.allocPrint(beui.frame.frame_cfg.?.arena, "{s}{u}", .{ beui.frame.text_input, codepoint_u21 }) catch @panic("oom");
         beui.frame.text_input = printed;
+    }
+
+    fn scrollCallback(window: *zglfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
+        const beui = window.getUserPointer(Beui).?;
+        beui.frame.scroll += @floatCast(@Vector(2, f64){ xoffset, yoffset });
+    }
+    fn cursorPosCallback(window: *zglfw.Window, xpos: f64, ypos: f64) callconv(.C) void {
+        const beui = window.getUserPointer(Beui).?;
+        beui.persistent.mouse_pos = @floatCast(@Vector(2, f64){ xpos, ypos });
+    }
+    fn cursorEnterCallback(window: *zglfw.Window, entered: i32) callconv(.C) void {
+        _ = window;
+        if (entered != 0) {
+            // entered
+        } else {
+            // left
+        }
+    }
+    fn mouseButtonCallback(window: *zglfw.Window, button: zglfw.MouseButton, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
+        const beui = window.getUserPointer(Beui).?;
+        const beui_key = zglfwButtonToBeuiKey(button) orelse {
+            std.log.warn("not supported glfw button: {}", .{button});
+            return;
+        };
+        _ = mods;
+        handleKeyWithAction(beui, beui_key, action);
     }
 };
 
@@ -835,10 +888,10 @@ pub fn main() !void {
     _ = window.setSizeCallback(null);
     _ = window.setCharCallback(&callbacks.charCallback);
     _ = window.setDropCallback(null);
-    _ = window.setScrollCallback(null);
-    _ = window.setCursorPosCallback(null);
-    _ = window.setCursorEnterCallback(null);
-    _ = window.setMouseButtonCallback(null);
+    _ = window.setScrollCallback(&callbacks.scrollCallback);
+    _ = window.setCursorPosCallback(&callbacks.cursorPosCallback);
+    _ = window.setCursorEnterCallback(&callbacks.cursorEnterCallback);
+    _ = window.setMouseButtonCallback(&callbacks.mouseButtonCallback);
     _ = window.setContentScaleCallback(null);
     _ = window.setFramebufferSizeCallback(null);
 
