@@ -13,6 +13,7 @@ const editor_core = blocks_mod.text_editor_core;
 pub const EditorView = struct {
     gpa: std.mem.Allocator,
     core: editor_core.EditorCore,
+    selecting: bool = false,
 
     pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
         self.* = .{
@@ -178,6 +179,8 @@ pub const EditorView = struct {
         defer cursor_positions.deinit();
 
         var pos: @Vector(2, f32) = .{ 0, 0 };
+        var prev_char_advance: f32 = 0;
+        var click_target: ?usize = null;
         for (buffer, 0..) |char, i| {
             const cursor_info = cursor_positions.advanceAndRead(i);
 
@@ -199,7 +202,15 @@ pub const EditorView = struct {
                 char_or_invisible = is_invisible.?;
             }
 
+            {
+                const min = window_pos + pos + @Vector(2, f32){ -prev_char_advance / 2.0, 0 };
+                if (@reduce(.And, beui.persistent.mouse_pos > min)) {
+                    click_target = i;
+                }
+            }
+
             const char_advance: f32 = draw_list.getCharAdvance(char);
+            prev_char_advance = char_advance;
             const invisible_advance: f32 = draw_list.getCharAdvance(char_or_invisible);
 
             if (pos[0] + char_advance > window_size[0]) {
@@ -226,8 +237,24 @@ pub const EditorView = struct {
             }
         }
 
+        if (click_target) |clicked_bufbyte| {
+            const clicked_pos = block.positionFromDocbyte(clicked_bufbyte);
+
+            if (beui.isKeyPressed(.mouse_left)) {
+                self.core.onClick(clicked_pos, beui.leftMouseClickedCount(), beui.isKeyHeld(.left_shift));
+                self.selecting = true;
+            } else if (self.selecting and beui.isKeyHeld(.mouse_left)) {
+                self.core.onDrag(clicked_pos);
+            }
+        }
+        if (!beui.isKeyHeld(.mouse_left)) {
+            self.selecting = false;
+        }
+
         if (zgui.begin("Editor Debug", .{})) {
             zgui.text("draw_list items: {d} / {d}", .{ draw_list.vertices.items.len, draw_list.indices.items.len });
+            zgui.text("click_target: {?d}", .{click_target});
+            zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
         }
         zgui.end();
 

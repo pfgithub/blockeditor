@@ -562,6 +562,81 @@ pub const EditorCore = struct {
             },
         }
     }
+    pub fn onClick(self: *EditorCore, pos: Position, click_count: usize, shift_held: bool) void {
+        _ = self;
+        _ = pos;
+        _ = click_count;
+        _ = shift_held;
+        // const sel_mode: DragSelectionMode = switch (click_count) {
+        //     1 => .none,
+        //     2 => .word,
+        //     3 => .line,
+        //     else => .ignore_drag,
+        // };
+        // if (shift_held) {
+        //     if (sel_mode != .none) self.drag_info.selection_mode = sel_mode;
+        // } else {
+        //     self.drag_info = .{
+        //         .selection_mode = sel_mode,
+        //         .start_pos = ByteOffset{ .value = index },
+        //     };
+        // }
+        // if (click_count == 4) {
+        //     self.executeCommand(.select_all);
+        //     return;
+        // }
+        // self.onDrag(index);
+    }
+    pub fn onDrag(self: *EditorCore, pos: Position) void {
+        _ = self;
+        _ = pos;
+        // switch (self.drag_info.selection_mode) {
+        //     .none => {
+        //         const anchor_pos = self.drag_info.start_pos.?.value;
+        //         self.select(anchor_pos, index);
+        //     },
+        //     .word => {
+        //         // this isn't quite right
+        //         // from orig_pos:
+        //         // if whitespace both sides:
+        //         // - select whitespace (not to word boundary, just to edge of whitespace)
+        //         // if whitespace left:
+        //         // - right to word boundary
+        //         // if whitespace right:
+        //         // - left to word boundary
+        //         // else:
+        //         // - right to word boundary then left from there to word start
+        //         //
+        //         // we can implement this as fn selectWord(center_pos)
+        //         const orig_pos = self.drag_info.start_pos.?.value;
+        //         const orig_word_end = self.rightToWordBoundary(orig_pos);
+        //         const orig_word_start = self.leftToWordBoundary(orig_word_end);
+
+        //         const word_end = self.rightToWordBoundary(index);
+        //         const word_start = self.leftToWordBoundary(word_end);
+
+        //         if (word_start < orig_word_start) {
+        //             self.select(orig_word_end, word_start);
+        //         } else {
+        //             self.select(orig_word_start, word_end);
+        //         }
+        //     },
+        //     .line => {
+        //         const orig_pos = self.drag_info.start_pos.?.value;
+        //         const orig_line_start = self.thisLineStart(orig_pos);
+        //         const orig_next_line_start = self.nextLineStart(orig_pos);
+
+        //         const line_start = self.thisLineStart(index);
+        //         const next_line_start = self.nextLineStart(index);
+        //         if (line_start < orig_line_start) {
+        //             self.select(orig_next_line_start, line_start);
+        //         } else {
+        //             self.select(orig_line_start, next_line_start);
+        //         }
+        //     },
+        //     .ignore_drag => {},
+        // }
+    }
 
     pub fn replaceRange(self: *EditorCore, operation: bi.text_component.TextDocument.SimpleOperation) void {
         self.document.applySimpleOperation(operation, null);

@@ -544,12 +544,35 @@ pub const Beui = struct {
     pub fn isKeyPressed(self: *Beui, key: BeuiKey) bool {
         return self.frame.pressed_keys.get(key) or self.frame.repeated_keys.get(key);
     }
+    pub fn isKeyHeld(self: *Beui, key: BeuiKey) bool {
+        return self.persistent.held_keys.get(key);
+    }
+    pub fn leftMouseClickedCount(self: *Beui) usize {
+        self._maybeResetLeftClick(self.frame.frame_cfg.?.now_ms);
+        return self.persistent.left_mouse_dblclick_info.count;
+    }
 
     pub fn arena(self: *Beui) std.mem.Allocator {
         return self.frame.frame_cfg.?.arena;
     }
     pub fn draw(self: *Beui) *draw_lists.RenderList {
         return self.frame.frame_cfg.?.draw_list;
+    }
+
+    fn _maybeResetLeftClick(self: *Beui, now: i64) void {
+        const dist_vec = self.persistent.mouse_pos - self.persistent.left_mouse_dblclick_info.last_click_pos;
+        const dist_sca = std.math.hypot(dist_vec[0], dist_vec[1]);
+        if ((self.persistent.left_mouse_dblclick_info.last_click_time <= now - self.persistent.config.dbl_click_time) //
+        or dist_sca > self.persistent.config.dbl_click_dist) {
+            self.persistent.left_mouse_dblclick_info = .{};
+        }
+    }
+    fn _leftClickNow(self: *Beui) void {
+        const now = std.time.milliTimestamp();
+        self._maybeResetLeftClick(now);
+        self.persistent.left_mouse_dblclick_info.count += 1;
+        self.persistent.left_mouse_dblclick_info.last_click_time = now;
+        self.persistent.left_mouse_dblclick_info.last_click_pos = self.persistent.mouse_pos;
     }
 };
 pub fn EnumArray(comptime Enum: type, comptime Value: type) type {
@@ -590,10 +613,20 @@ const BeuiFrameCfg = struct {
     can_capture_mouse: bool,
     arena: std.mem.Allocator,
     draw_list: *draw_lists.RenderList,
+    now_ms: i64,
 };
 const BeuiPersistentEv = struct {
+    config: struct {
+        dbl_click_time: i64 = 1000,
+        dbl_click_dist: f32 = 10.0,
+    } = .{},
     held_keys: EnumArray(BeuiKey, bool) = .init(false),
     mouse_pos: @Vector(2, f32) = .{ 0, 0 },
+    left_mouse_dblclick_info: struct {
+        count: usize = 0,
+        last_click_time: i64 = 0,
+        last_click_pos: @Vector(2, f32) = .{ 0.0, 0.0 },
+    } = .{},
 };
 const BeuiFrameEv = struct {
     pressed_keys: EnumArray(BeuiKey, bool) = .init(false),
@@ -829,6 +862,9 @@ const callbacks = struct {
         };
         _ = mods;
         handleKeyWithAction(beui, beui_key, action);
+        if (button == .left and action == .press) {
+            beui._leftClickNow();
+        }
     }
 };
 
@@ -933,6 +969,7 @@ pub fn main() !void {
             .can_capture_mouse = !zgui.io.getWantCaptureMouse(),
             .draw_list = &draw_list,
             .arena = arena,
+            .now_ms = std.time.milliTimestamp(),
         });
         zglfw.pollEvents();
 
