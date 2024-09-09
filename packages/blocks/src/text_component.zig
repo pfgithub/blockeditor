@@ -622,11 +622,10 @@ pub const TextDocument = Document(u8, 0);
 /// TODO: document needs to call deinit on T if it is available
 pub fn Document(comptime T: type, comptime T_empty: T) type {
     return struct {
-        // TODO serialization:
-        // first, write all the spans and tombstones. merge any adjacent ones that can be merged
-        // next, align back to 16 and write all the buffer content
-        // make sure the whole buffer is fully in span order when serialized.
-        // tombstones don't end up in the serialized output!
+        // TODO: SimpleOperation
+        // whenever the document changes, it needs to emit SimpleOperation
+        // events. We can't just put this in applyOperation, it probably needs
+        // to keep a callback list unfortunately.
         const Doc = @This();
         pub const SimpleOperation = struct {
             position: Position,
