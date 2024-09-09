@@ -8,7 +8,7 @@ const zglfw = @import("zglfw");
 const zgui = @import("zgui"); // zgui doesn't have everything! we should use cimgui + translate-c like we used to
 const beui_mod = @import("beui.zig");
 
-const editor_core = blocks_mod.text_editor_core;
+const editor_core = @import("texteditor").core;
 
 pub const EditorView = struct {
     gpa: std.mem.Allocator,

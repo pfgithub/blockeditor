@@ -1,9 +1,10 @@
 //! text editing core that is mostly agnostic to the visual editor
 
 const std = @import("std");
-const db_mod = @import("../blockdb.zig");
-const bi = @import("../blockinterface2.zig");
-const util = @import("../util.zig");
+const blocks_mod = @import("blocks");
+const db_mod = blocks_mod.blockdb;
+const bi = blocks_mod.blockinterface2;
+const util = blocks_mod.util;
 
 pub const Position = bi.text_component.Position;
 pub const Selection = struct {

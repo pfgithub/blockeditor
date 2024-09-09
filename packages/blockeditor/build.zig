@@ -46,6 +46,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     blockeditor_exe.root_module.addImport("blocks", blocks_dep.module("blocks"));
+    const texteditor_dep = b.dependency("texteditor", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    blockeditor_exe.root_module.addImport("texteditor", texteditor_dep.module("texteditor"));
 
     // tree sitter stuff
     {
