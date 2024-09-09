@@ -144,3 +144,35 @@ pub fn Callback(comptime Arg_: type, comptime Ret_: type) type {
         }
     };
 }
+
+pub fn CallbackList(comptime cb_type: type) type {
+    return struct {
+        const Self = @This();
+        callbacks: std.ArrayList(cb_type),
+        pub fn init(alloc: std.mem.Allocator) Self {
+            return .{
+                .callbacks = std.ArrayList(cb_type).init(alloc),
+            };
+        }
+        pub fn deinit(self: *Self) void {
+            std.debug.assert(self.callbacks.items.len == 0);
+            self.callbacks.deinit();
+        }
+
+        pub fn addListener(self: *Self, cb: cb_type) void {
+            self.callbacks.append(cb) catch @panic("oom");
+        }
+        pub fn removeListener(self: *Self, cb: cb_type) void {
+            const i = for (self.callbacks.items, 0..) |ufn, i| {
+                if (ufn.eql(cb)) break i;
+            } else return; // already removed
+            _ = self.callbacks.swapRemove(i); // unordered should be okay
+        }
+        pub fn call(self: *Self, arg: cb_type.Arg) void {
+            if (cb_type.Ret != void) @compileLog(cb_type.Ret);
+            for (self.callbacks.items) |cb| {
+                cb.call(arg);
+            }
+        }
+    };
+}
