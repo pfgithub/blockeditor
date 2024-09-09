@@ -7,6 +7,9 @@
 //!   - SpanByte: index into a span
 //! - Buffer: raw unordered text data referenced by spans
 //!    - BufByte: index into the buffer
+//!
+//! WARNING: BufByte and DocByte have been confused frequently
+//! TODO: audit code for uses of 'bufbyte' and correct them to 'docbyte' where needed
 
 const bi = @import("blockinterface2.zig");
 

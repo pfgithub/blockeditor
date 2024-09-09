@@ -28,6 +28,8 @@ pub const CursorPosition = struct {
     vertical_move_start: ?u64 = null,
     /// when selecting up with tree-sitter to allow selecting back down. resets on move.
     node_select_start: ?Selection = null,
+    /// select
+    drag_info: ?DragInfo = null,
 
     pub fn from(sel: Selection) CursorPosition {
         return .{ .pos = sel };
@@ -41,15 +43,12 @@ pub const CursorPosition = struct {
 };
 
 pub const DragInfo = struct {
-    start_pos: ?Position = null,
-    selection_mode: DragSelectionMode = .ignore_drag,
+    start_pos: Position,
+    sel_mode: DragSelectionMode,
 };
-pub const DragSelectionMode = enum {
-    none,
-    word,
-    line,
-
-    ignore_drag,
+pub const DragSelectionMode = struct {
+    stop: CursorLeftRightStop,
+    select: bool,
 };
 
 const BetweenCharsStop = enum {
@@ -102,6 +101,9 @@ fn hasStop(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?BetweenCha
             if (right_byte == '\n') return .right_only;
             return null;
         },
+        .visual_line => {
+            @panic("function does not have enough information to determine visual line stop");
+        },
     }
 }
 pub const CursorLeftRightStop = enum {
@@ -125,6 +127,8 @@ pub const CursorLeftRightStop = enum {
     unicode_word,
     /// .|\n<hello]\n<\n<goodbye!]\n|.
     line,
+    /// like line but includes soft wrapped start/ends
+    visual_line,
 };
 pub const LRDirection = enum {
     left,
@@ -197,7 +201,6 @@ pub const EditorCore = struct {
     document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
 
     cursor_positions: std.ArrayList(CursorPosition),
-    drag_info: DragInfo = .{},
 
     config: EditorConfig = .{
         .indent_with = .{ .spaces = 4 },
@@ -296,10 +299,21 @@ pub const EditorCore = struct {
         };
     }
 
-    fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop, mode: enum { left, right, select }) Position {
+    fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop, mode: enum { left, right, select, select_allow_nomove }) Position {
         const block = self.document.value;
-        var index: usize = block.docbyteFromPosition(pos);
+        const src_index = block.docbyteFromPosition(pos);
+        var index: usize = src_index;
         const len = block.length();
+        if (mode == .select_allow_nomove) {
+            switch (direction) {
+                .left => if (index < len) {
+                    index += 1;
+                },
+                .right => if (index > 0) {
+                    index -= 1;
+                },
+            }
+        }
         while (switch (direction) {
             .left => index > 0,
             .right => index < len,
@@ -321,7 +335,7 @@ pub const EditorCore = struct {
                     .right_or_select, .right_only, .both => break,
                     .left_or_select => {},
                 },
-                .select => switch (marker) {
+                .select, .select_allow_nomove => switch (marker) {
                     .left_or_select, .right_or_select, .both => break,
                     .right_only => {},
                 },
@@ -359,6 +373,12 @@ pub const EditorCore = struct {
         }
         // TODO: merge any overlapping cursors
     }
+    pub fn select(self: *EditorCore, selection: Selection) void {
+        self.cursor_positions.clearRetainingCapacity();
+        self.cursor_positions.append(.{
+            .pos = selection,
+        }) catch @panic("oom");
+    }
     pub fn executeCommand(self: *EditorCore, command: EditorCommand) void {
         const block = self.document.value;
 
@@ -367,13 +387,7 @@ pub const EditorCore = struct {
 
         switch (command) {
             .set_cursor_pos => |sc_op| {
-                self.cursor_positions.clearRetainingCapacity();
-                self.cursor_positions.append(.{
-                    .pos = .{
-                        .anchor = sc_op.position,
-                        .focus = sc_op.position,
-                    },
-                }) catch @panic("oom");
+                self.select(.at(sc_op.position));
             },
             .select_all => {
                 self.cursor_positions.clearRetainingCapacity();
@@ -562,80 +576,77 @@ pub const EditorCore = struct {
             },
         }
     }
+    fn getEnsureOneCursor(self: *EditorCore, default_pos: Position) *CursorPosition {
+        if (self.cursor_positions.items.len == 0) {
+            self.select(.at(default_pos));
+        } else if (self.cursor_positions.items.len > 1) {
+            self.cursor_positions.items.len = 1;
+        }
+        return &self.cursor_positions.items[0];
+    }
     pub fn onClick(self: *EditorCore, pos: Position, click_count: usize, shift_held: bool) void {
-        _ = self;
-        _ = pos;
-        _ = click_count;
-        _ = shift_held;
-        // const sel_mode: DragSelectionMode = switch (click_count) {
-        //     1 => .none,
-        //     2 => .word,
-        //     3 => .line,
-        //     else => .ignore_drag,
-        // };
-        // if (shift_held) {
-        //     if (sel_mode != .none) self.drag_info.selection_mode = sel_mode;
-        // } else {
-        //     self.drag_info = .{
-        //         .selection_mode = sel_mode,
-        //         .start_pos = ByteOffset{ .value = index },
-        //     };
-        // }
-        // if (click_count == 4) {
-        //     self.executeCommand(.select_all);
-        //     return;
-        // }
-        // self.onDrag(index);
+        const cursor = self.getEnsureOneCursor(pos);
+        const sel_mode: DragSelectionMode = switch (click_count) {
+            1 => .{ .stop = .byte, .select = false },
+            2 => .{ .stop = .word, .select = true },
+            3 => .{ .stop = .line, .select = true },
+            else => {
+                cursor.drag_info = null;
+                self.executeCommand(.select_all);
+                return;
+            },
+        };
+
+        if (shift_held) {
+            if (cursor.drag_info == null) {
+                cursor.drag_info = .{
+                    .start_pos = cursor.pos.focus,
+                    .sel_mode = sel_mode,
+                };
+            }
+            if (sel_mode.select) cursor.drag_info.?.sel_mode = sel_mode;
+        } else {
+            cursor.drag_info = .{
+                .start_pos = pos,
+                .sel_mode = sel_mode,
+            };
+        }
+        self.onDrag(pos);
     }
     pub fn onDrag(self: *EditorCore, pos: Position) void {
-        _ = self;
-        _ = pos;
-        // switch (self.drag_info.selection_mode) {
-        //     .none => {
-        //         const anchor_pos = self.drag_info.start_pos.?.value;
-        //         self.select(anchor_pos, index);
-        //     },
-        //     .word => {
-        //         // this isn't quite right
-        //         // from orig_pos:
-        //         // if whitespace both sides:
-        //         // - select whitespace (not to word boundary, just to edge of whitespace)
-        //         // if whitespace left:
-        //         // - right to word boundary
-        //         // if whitespace right:
-        //         // - left to word boundary
-        //         // else:
-        //         // - right to word boundary then left from there to word start
-        //         //
-        //         // we can implement this as fn selectWord(center_pos)
-        //         const orig_pos = self.drag_info.start_pos.?.value;
-        //         const orig_word_end = self.rightToWordBoundary(orig_pos);
-        //         const orig_word_start = self.leftToWordBoundary(orig_word_end);
+        const cursor = self.getEnsureOneCursor(pos);
+        if (cursor.drag_info == null) return;
 
-        //         const word_end = self.rightToWordBoundary(index);
-        //         const word_start = self.leftToWordBoundary(word_end);
+        const drag_info = cursor.drag_info.?;
+        const stop = drag_info.sel_mode.stop;
+        const anchor_pos = drag_info.start_pos;
+        const anchor_l = self.toWordBoundary(anchor_pos, .left, stop, .select_allow_nomove);
+        const focus_l = self.toWordBoundary(pos, .left, stop, .select_allow_nomove);
+        if (drag_info.sel_mode.select) {
+            const anchor_r = self.toWordBoundary(anchor_pos, .right, stop, .select);
+            const focus_r = self.toWordBoundary(pos, .right, stop, .select);
 
-        //         if (word_start < orig_word_start) {
-        //             self.select(orig_word_end, word_start);
-        //         } else {
-        //             self.select(orig_word_start, word_end);
-        //         }
-        //     },
-        //     .line => {
-        //         const orig_pos = self.drag_info.start_pos.?.value;
-        //         const orig_line_start = self.thisLineStart(orig_pos);
-        //         const orig_next_line_start = self.nextLineStart(orig_pos);
+            // now:
+            // we select from @min(all) to @max(all) and put the cursor on (focus_l < anchor_l ? left : right)
 
-        //         const line_start = self.thisLineStart(index);
-        //         const next_line_start = self.nextLineStart(index);
-        //         if (line_start < orig_line_start) {
-        //             self.select(orig_next_line_start, line_start);
-        //         } else {
-        //             self.select(orig_line_start, next_line_start);
-        //         }
-        //     },
-        //     .ignore_drag => {},
-        // }
+            const anchor_l_docbyte = self.document.value.docbyteFromPosition(anchor_l);
+            const anchor_r_docbyte = self.document.value.docbyteFromPosition(anchor_r);
+            const focus_l_docbyte = self.document.value.docbyteFromPosition(focus_l);
+            const focus_r_docbyte = self.document.value.docbyteFromPosition(focus_r);
+
+            const min_docbyte = @min(@min(anchor_l_docbyte, anchor_r_docbyte), @min(focus_l_docbyte, focus_r_docbyte));
+            const max_docbyte = @max(@max(anchor_l_docbyte, anchor_r_docbyte), @max(focus_l_docbyte, focus_r_docbyte));
+            const min_pos = self.document.value.positionFromDocbyte(min_docbyte);
+            const max_pos = self.document.value.positionFromDocbyte(max_docbyte);
+
+            if (focus_l_docbyte < anchor_l_docbyte) {
+                cursor.pos = .range(max_pos, min_pos);
+            } else {
+                cursor.pos = .range(min_pos, max_pos);
+            }
+        } else {
+            cursor.pos = .range(anchor_l, focus_l);
+        }
     }
 
     pub fn replaceRange(self: *EditorCore, operation: bi.text_component.TextDocument.SimpleOperation) void {
@@ -926,10 +937,10 @@ test EditorCore {
     editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
     try testEditorContent("here are a few words to traverse!|", &editor);
 
-    editor.onClick(editor.document.value.positionFromDocbyte(12), 1, false);
-    try testEditorContent("here are a f|ew words to traverse!", &editor);
-    editor.onClick(editor.document.value.positionFromDocbyte(15), 1, true);
-    try testEditorContent("here are a f[ew |words to traverse!", &editor);
+    editor.onClick(editor.document.value.positionFromDocbyte(13), 1, false);
+    try testEditorContent("here are a fe|w words to traverse!", &editor);
+    editor.onClick(editor.document.value.positionFromDocbyte(17), 1, true);
+    try testEditorContent("here are a fe[w wo|rds to traverse!", &editor);
     editor.onClick(editor.document.value.positionFromDocbyte(6), 1, false);
     try testEditorContent("here a|re a few words to traverse!", &editor);
     editor.onClick(editor.document.value.positionFromDocbyte(6), 2, false);
