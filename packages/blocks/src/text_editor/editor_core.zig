@@ -758,206 +758,234 @@ fn testEditorContent(expected: []const u8, editor: *EditorCore) !void {
     try std.testing.expectEqualStrings(expected, rendered2.items);
 }
 
+const EditorTester = struct {
+    gpa: std.mem.Allocator,
+    my_db: db_mod.BlockDB,
+    src_block: *db_mod.BlockRef,
+    src_component: db_mod.TypedComponentRef(bi.TextDocumentBlock.Child),
+    editor: EditorCore,
+
+    pub fn init(res: *EditorTester, gpa: std.mem.Allocator, initial_text: []const u8) void {
+        res.* = .{
+            .gpa = gpa,
+            .my_db = undefined,
+            .src_block = undefined,
+            .src_component = undefined,
+            .editor = undefined,
+        };
+        res.my_db = .init(gpa);
+        res.src_block = res.my_db.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
+        res.src_component = res.src_block.typedComponent(bi.TextDocumentBlock) orelse unreachable;
+        res.editor.initFromDoc(gpa, res.src_component);
+
+        res.src_component.applySimpleOperation(.{ .position = res.src_component.value.positionFromDocbyte(0), .delete_len = 0, .insert_text = initial_text }, null);
+    }
+    pub fn deinit(self: *EditorTester) void {
+        self.editor.deinit();
+        self.src_block.unref();
+        self.my_db.deinit();
+    }
+
+    pub fn expectContent(self: *EditorTester, expected: []const u8) !void {
+        try testEditorContent(expected, &self.editor);
+    }
+    pub fn executeCommand(self: *EditorTester, command: EditorCommand) void {
+        self.editor.executeCommand(command);
+    }
+    pub fn pos(self: *EditorTester, docbyte: usize) Position {
+        return self.editor.document.value.positionFromDocbyte(docbyte);
+    }
+};
+
 test EditorCore {
-    const gpa = std.testing.allocator;
-    var my_db = db_mod.BlockDB.init(gpa);
-    defer my_db.deinit();
-    const src_block = my_db.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
-    defer src_block.unref();
+    var tester: EditorTester = undefined;
+    tester.init(std.testing.allocator, "hello!");
+    defer tester.deinit();
 
-    const src_component = src_block.typedComponent(bi.TextDocumentBlock) orelse return error.NotLoaded;
-
-    src_component.applySimpleOperation(.{ .position = src_component.value.positionFromDocbyte(0), .delete_len = 0, .insert_text = "hello!" }, null);
-
-    // now initialize the editor
-    var editor: EditorCore = undefined;
-    editor.initFromDoc(gpa, src_component);
-    defer editor.deinit();
-
-    try testEditorContent("hello!", &editor);
-    editor.executeCommand(.{ .set_cursor_pos = .{ .position = src_component.value.positionFromDocbyte(0) } });
-    try testEditorContent("|hello!", &editor);
-    editor.executeCommand(.{ .insert_text = .{ .text = "abcd!" } });
-    try testEditorContent("abcd!|hello!", &editor);
-    editor.executeCommand(.{ .set_cursor_pos = .{ .position = src_component.value.positionFromDocbyte(0) } });
-    try testEditorContent("|abcd!hello!", &editor);
-    editor.executeCommand(.{ .delete = .{ .direction = .right, .stop = .byte } });
-    try testEditorContent("|bcd!hello!", &editor);
-    editor.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
-    try testEditorContent("|bcd!hello!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
-    try testEditorContent("[b|cd!hello!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
-    try testEditorContent("[bc|d!hello!", &editor);
-    editor.executeCommand(.{ .delete = .{ .direction = .right, .stop = .byte } });
-    try testEditorContent("|d!hello!", &editor);
-    editor.executeCommand(.{ .insert_text = .{ .text = "……" } });
-    try testEditorContent("……|d!hello!", &editor);
-    editor.executeCommand(.{ .delete = .{ .direction = .left, .stop = .codepoint } });
-    try testEditorContent("…|d!hello!", &editor);
-    editor.executeCommand(.{ .delete = .{ .direction = .right, .stop = .line } });
-    try testEditorContent("…|", &editor);
-    editor.executeCommand(.{ .delete = .{ .direction = .left, .stop = .line } });
-    try testEditorContent("|", &editor);
-    editor.executeCommand(.{ .insert_text = .{ .text = "    hi();" } });
-    try testEditorContent("    hi();|", &editor);
-    editor.executeCommand(.newline);
-    try testEditorContent("    hi();\n    |", &editor);
-    editor.executeCommand(.{ .insert_text = .{ .text = "goodbye();" } });
-    try testEditorContent("    hi();\n    goodbye();|", &editor);
-    editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
-    try testEditorContent("    hi();\ngoodbye();|", &editor);
-    editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
-    try testEditorContent("    hi();\n    goodbye();|", &editor);
-    editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
-    try testEditorContent("    hi();\n        goodbye();|", &editor);
-    editor.executeCommand(.newline);
-    try testEditorContent("    hi();\n        goodbye();\n        |", &editor);
-    editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
-    editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
-    try testEditorContent("    hi();\n        goodbye();\n|", &editor);
-    editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
-    try testEditorContent("    hi();\n        goodbye();\n    |", &editor);
-    editor.executeCommand(.select_all);
-    try testEditorContent("[    hi();\n        goodbye();\n    |", &editor);
-    editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
-    try testEditorContent("[hi();\n    goodbye();\n|", &editor);
-    editor.executeCommand(.{ .indent_selection = .{ .direction = .right } });
-    try testEditorContent("    [hi();\n        goodbye();\n|", &editor); // not sure if this is what we want
-    editor.executeCommand(.{ .indent_selection = .{ .direction = .left } });
-    try testEditorContent("[hi();\n    goodbye();\n|", &editor);
-    editor.executeCommand(.{ .delete = .{ .direction = .right, .stop = .byte } });
-    try testEditorContent("|", &editor);
-    editor.executeCommand(.{ .insert_text = .{ .text = "hello\nto the world!" } });
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .move } });
-    try testEditorContent(
+    try tester.expectContent("hello!");
+    tester.executeCommand(.{ .set_cursor_pos = .{ .position = tester.pos(0) } });
+    try tester.expectContent("|hello!");
+    tester.executeCommand(.{ .insert_text = .{ .text = "abcd!" } });
+    try tester.expectContent("abcd!|hello!");
+    tester.executeCommand(.{ .set_cursor_pos = .{ .position = tester.pos(0) } });
+    try tester.expectContent("|abcd!hello!");
+    tester.executeCommand(.{ .delete = .{ .direction = .right, .stop = .byte } });
+    try tester.expectContent("|bcd!hello!");
+    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
+    try tester.expectContent("|bcd!hello!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
+    try tester.expectContent("[b|cd!hello!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .byte, .mode = .select } });
+    try tester.expectContent("[bc|d!hello!");
+    tester.executeCommand(.{ .delete = .{ .direction = .right, .stop = .byte } });
+    try tester.expectContent("|d!hello!");
+    tester.executeCommand(.{ .insert_text = .{ .text = "……" } });
+    try tester.expectContent("……|d!hello!");
+    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .codepoint } });
+    try tester.expectContent("…|d!hello!");
+    tester.executeCommand(.{ .delete = .{ .direction = .right, .stop = .line } });
+    try tester.expectContent("…|");
+    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .line } });
+    try tester.expectContent("|");
+    tester.executeCommand(.{ .insert_text = .{ .text = "    hi();" } });
+    try tester.expectContent("    hi();|");
+    tester.executeCommand(.newline);
+    try tester.expectContent("    hi();\n    |");
+    tester.executeCommand(.{ .insert_text = .{ .text = "goodbye();" } });
+    try tester.expectContent("    hi();\n    goodbye();|");
+    tester.executeCommand(.{ .indent_selection = .{ .direction = .left } });
+    try tester.expectContent("    hi();\ngoodbye();|");
+    tester.executeCommand(.{ .indent_selection = .{ .direction = .right } });
+    try tester.expectContent("    hi();\n    goodbye();|");
+    tester.executeCommand(.{ .indent_selection = .{ .direction = .right } });
+    try tester.expectContent("    hi();\n        goodbye();|");
+    tester.executeCommand(.newline);
+    try tester.expectContent("    hi();\n        goodbye();\n        |");
+    tester.executeCommand(.{ .indent_selection = .{ .direction = .left } });
+    tester.executeCommand(.{ .indent_selection = .{ .direction = .left } });
+    try tester.expectContent("    hi();\n        goodbye();\n|");
+    tester.executeCommand(.{ .indent_selection = .{ .direction = .right } });
+    try tester.expectContent("    hi();\n        goodbye();\n    |");
+    tester.executeCommand(.select_all);
+    try tester.expectContent("[    hi();\n        goodbye();\n    |");
+    tester.executeCommand(.{ .indent_selection = .{ .direction = .left } });
+    try tester.expectContent("[hi();\n    goodbye();\n|");
+    tester.executeCommand(.{ .indent_selection = .{ .direction = .right } });
+    try tester.expectContent("    [hi();\n        goodbye();\n|"); // not sure if this is what we want
+    tester.executeCommand(.{ .indent_selection = .{ .direction = .left } });
+    try tester.expectContent("[hi();\n    goodbye();\n|");
+    tester.executeCommand(.{ .delete = .{ .direction = .right, .stop = .byte } });
+    try tester.expectContent("|");
+    tester.executeCommand(.{ .insert_text = .{ .text = "hello\nto the world!" } });
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .move } });
+    try tester.expectContent(
         \\hello
         \\to the world|!
-    , &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
-    try testEditorContent(
+    );
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try tester.expectContent(
         \\hello|
         \\to the world!
-    , &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
-    try testEditorContent(
+    );
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
+    try tester.expectContent(
         \\hello
         \\to the world|!
-    , &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
-    try testEditorContent(
+    );
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try tester.expectContent(
         \\hello|
         \\to the world!
-    , &editor);
-    editor.executeCommand(.{ .insert_text = .{ .text = "!" } });
-    try testEditorContent(
+    );
+    tester.executeCommand(.{ .insert_text = .{ .text = "!" } });
+    try tester.expectContent(
         \\hello!|
         \\to the world!
-    , &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
-    try testEditorContent(
+    );
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
+    try tester.expectContent(
         \\hello!
         \\to the| world!
-    , &editor);
+    );
 
-    editor.executeCommand(.select_all);
-    editor.executeCommand(.{ .insert_text = .{ .text = "hello" } });
-    try testEditorContent("hello|", &editor);
+    tester.executeCommand(.select_all);
+    tester.executeCommand(.{ .insert_text = .{ .text = "hello" } });
+    try tester.expectContent("hello|");
 
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
-    try testEditorContent("hel|lo", &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .select } });
-    try testEditorContent("hel[lo|", &editor);
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
+    try tester.expectContent("hel|lo");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .select } });
+    try tester.expectContent("hel[lo|");
 
-    editor.executeCommand(.select_all);
-    editor.executeCommand(.{ .insert_text = .{ .text = "hela\n\ninput\n\n\nlo!" } });
-    try testEditorContent("hela\n\ninput\n\n\nlo!|", &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
-    try testEditorContent("hela\n\ninput\n\n|\nlo!", &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
-    try testEditorContent("hela\n\ninput\n|\n\nlo!", &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
-    try testEditorContent("hela\n\ninp|ut\n\n\nlo!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
-    try testEditorContent("hela\n\ninput|\n\n\nlo!", &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
-    try testEditorContent("hela\n|\ninput\n\n\nlo!", &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
-    try testEditorContent("hela|\n\ninput\n\n\nlo!", &editor);
+    tester.executeCommand(.select_all);
+    tester.executeCommand(.{ .insert_text = .{ .text = "hela\n\ninput\n\n\nlo!" } });
+    try tester.expectContent("hela\n\ninput\n\n\nlo!|");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try tester.expectContent("hela\n\ninput\n\n|\nlo!");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try tester.expectContent("hela\n\ninput\n|\n\nlo!");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try tester.expectContent("hela\n\ninp|ut\n\n\nlo!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
+    try tester.expectContent("hela\n\ninput|\n\n\nlo!");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try tester.expectContent("hela\n|\ninput\n\n\nlo!");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try tester.expectContent("hela|\n\ninput\n\n\nlo!");
 
-    editor.executeCommand(.select_all);
-    editor.executeCommand(.{ .insert_text = .{ .text = "here are a few words to traverse!" } });
-    try testEditorContent("here are a few words to traverse!|", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few words to traverse|!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few words to |traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few words |to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few |words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a |few words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
-    try testEditorContent("here are |a few words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
-    try testEditorContent("here |are a few words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
-    try testEditorContent("|here are a few words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
-    try testEditorContent("|here are a few words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
-    try testEditorContent("here| are a few words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
-    try testEditorContent("here are| a few words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a| few words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few| words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few words| to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few words to| traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few words to traverse|!", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few words to traverse!|", &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
-    try testEditorContent("here are a few words to traverse!|", &editor);
+    tester.executeCommand(.select_all);
+    tester.executeCommand(.{ .insert_text = .{ .text = "here are a few words to traverse!" } });
+    try tester.expectContent("here are a few words to traverse!|");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few words to traverse|!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few words to |traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few words |to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few |words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a |few words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are |a few words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
+    try tester.expectContent("here |are a few words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
+    try tester.expectContent("|here are a few words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .word } });
+    try tester.expectContent("|here are a few words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
+    try tester.expectContent("here| are a few words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are| a few words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a| few words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few| words to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few words| to traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few words to| traverse!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few words to traverse|!");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few words to traverse!|");
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
+    try tester.expectContent("here are a few words to traverse!|");
 
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
-    try testEditorContent("|here are a few words to traverse!", &editor);
-    editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
-    try testEditorContent("here are a few words to traverse!|", &editor);
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    try tester.expectContent("|here are a few words to traverse!");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
+    try tester.expectContent("here are a few words to traverse!|");
 
-    editor.onClick(editor.document.value.positionFromDocbyte(13), 1, false);
-    try testEditorContent("here are a fe|w words to traverse!", &editor);
-    editor.onClick(editor.document.value.positionFromDocbyte(17), 1, true);
-    try testEditorContent("here are a fe[w wo|rds to traverse!", &editor);
-    editor.onClick(editor.document.value.positionFromDocbyte(6), 1, false);
-    try testEditorContent("here a|re a few words to traverse!", &editor);
-    editor.onClick(editor.document.value.positionFromDocbyte(6), 2, false);
-    try testEditorContent("here [are| a few words to traverse!", &editor);
-    editor.onDrag(editor.document.value.positionFromDocbyte(13));
-    try testEditorContent("here [are a few| words to traverse!", &editor);
-    editor.onDrag(editor.document.value.positionFromDocbyte(1));
-    try testEditorContent("|here are] a few words to traverse!", &editor);
+    tester.editor.onClick(tester.pos(13), 1, false);
+    try tester.expectContent("here are a fe|w words to traverse!");
+    tester.editor.onClick(tester.pos(17), 1, true);
+    try tester.expectContent("here are a fe[w wo|rds to traverse!");
+    tester.editor.onClick(tester.pos(6), 1, false);
+    try tester.expectContent("here a|re a few words to traverse!");
+    tester.editor.onClick(tester.pos(6), 2, false);
+    try tester.expectContent("here [are| a few words to traverse!");
+    tester.editor.onDrag(tester.pos(13));
+    try tester.expectContent("here [are a few| words to traverse!");
+    tester.editor.onDrag(tester.pos(1));
+    try tester.expectContent("|here are] a few words to traverse!");
 
-    editor.executeCommand(.select_all);
-    editor.executeCommand(.{ .insert_text = .{ .text = (
+    tester.executeCommand(.select_all);
+    tester.executeCommand(.{ .insert_text = .{ .text = (
         \\    \\    }
         \\    \\    @vertex fn vert(in: VertexIn)
     ) } });
-    editor.executeCommand(.{ .set_cursor_pos = .{ .position = editor.document.value.positionFromDocbyte(11) } });
-    try testEditorContent(
+    tester.executeCommand(.{ .set_cursor_pos = .{ .position = tester.pos(11) } });
+    try tester.expectContent(
         \\    \\    }|
         \\    \\    @vertex fn vert(in: VertexIn)
-    , &editor);
-    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .word, .mode = .move } });
-    try testEditorContent(
+    );
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .word, .mode = .move } });
+    try tester.expectContent(
         \\    \\    }
         \\    \\|    @vertex fn vert(in: VertexIn)
-    , &editor);
+    );
 }
