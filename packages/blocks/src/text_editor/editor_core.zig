@@ -797,6 +797,46 @@ const EditorTester = struct {
     }
 };
 
+/// Chars:
+/// left_or_select : `<`
+/// right_or_select : `>`
+/// right_only : `]`
+/// both : `|`
+fn testFindStops(expected: []const u8, stop_type: CursorLeftRightStop) !void {
+    var test_src = std.ArrayList(u8).init(std.testing.allocator);
+    defer test_src.deinit();
+    for (expected) |char| {
+        switch (char) {
+            '<', '>', ']', '|' => {},
+            else => try test_src.append(char),
+        }
+    }
+    var test_res = std.ArrayList(u8).init(std.testing.allocator);
+    defer test_res.deinit();
+    for (0..test_src.items.len + 1) |i| {
+        const hs_res = blk: {
+            if (i == 0 or i == test_src.items.len) break :blk .both;
+            break :blk hasStop(test_src.items[i - 1], test_src.items[i], stop_type);
+        };
+        if (hs_res) |hr| try test_res.append(switch (hr) {
+            .left_or_select => '<',
+            .right_or_select => '>',
+            .right_only => ']',
+            .both => '|',
+        });
+        if (i < test_src.items.len) try test_res.append(test_src.items[i]);
+    }
+    try std.testing.expectEqualStrings(expected, test_res.items);
+}
+test hasStop {
+    try testFindStops("|h|e|l|l|o|", .byte);
+    try testFindStops("|u|\xE2|\x80|\xA6|!|", .byte);
+    try testFindStops("|u|\xE2\x80\xA6|!|", .codepoint);
+    // testFindStops("|म|नी|ष|", .unicode_grapheme); // todo
+    try testFindStops("|hello> <world|", .word);
+    try testFindStops("|    <\\\\>    <}>\n    <\\\\>    <@|vertex> <fn> <vert|(|in|:> <VertexIn|)|", .word);
+}
+
 test EditorCore {
     var tester: EditorTester = undefined;
     tester.init(std.testing.allocator, "hello!");
