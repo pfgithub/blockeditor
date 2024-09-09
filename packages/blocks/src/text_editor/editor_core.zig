@@ -829,12 +829,35 @@ fn testFindStops(expected: []const u8, stop_type: CursorLeftRightStop) !void {
     try std.testing.expectEqualStrings(expected, test_res.items);
 }
 test hasStop {
-    try testFindStops("|h|e|l|l|o|", .byte);
-    try testFindStops("|u|\xE2|\x80|\xA6|!|", .byte);
-    try testFindStops("|u|\xE2\x80\xA6|!|", .codepoint);
-    // testFindStops("|म|नी|ष|", .unicode_grapheme); // todo
-    try testFindStops("|hello> <world|", .word);
-    try testFindStops("|    <\\\\>    <}>\n    <\\\\>    <@|vertex> <fn> <vert|(|in|:> <VertexIn|)|", .word);
+    inline for (std.meta.fields(CursorLeftRightStop)) |field| {
+        const v = @field(CursorLeftRightStop, field.name);
+        switch (v) {
+            .byte => {
+                try testFindStops("|h|e|l|l|o|", v);
+                try testFindStops("|u|\xE2|\x80|\xA6|!|", v);
+            },
+            .codepoint => {
+                try testFindStops("|u|\xE2\x80\xA6|!|", v);
+            },
+            .unicode_grapheme => {
+                // testFindStops("|म|नी|ष|", .unicode_grapheme); // todo
+            },
+            .word => {
+                try testFindStops("|hello> <world|", v);
+                try testFindStops("|    <\\\\>    <}>\n    <\\\\>    <@|vertex> <fn> <vert|(|in|:> <VertexIn|)|", v);
+                try testFindStops("| <myfn|(|crazy|)> |", v);
+            },
+            .unicode_word => {
+                // try testFindStops("|这|只是|一些|随机|的|文本|", .unicode_word); // todo. also unicode word segmentation is system language dependant for some reason.
+            },
+            .line => {
+                try testFindStops("|line one]\n<line two]\n<line three|", v);
+            },
+            .visual_line => {
+                // todo
+            },
+        }
+    }
 }
 
 test EditorCore {
