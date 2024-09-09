@@ -853,19 +853,32 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             // write spans (& merge adjacent)
             // TODO: merge adjacent spans!
             iter = self.span_bbt.iterator(.{});
+            var uncommitted_span: ?serialized_span = null;
             while (iter.next()) |node_idx| {
                 const node = self.span_bbt.getNodeDataPtrConst(node_idx).?;
 
                 std.debug.assert(node.length != 0);
                 std.debug.assert(node.length <= std.math.maxInt(u63));
 
-                writer.writeStructEndian(serialized_span{
+                if (uncommitted_span) |*uc| {
+                    if (uc.length.deleted == node.deleted() and uc.id == node.id) {
+                        // the span can be mutated instead of written
+                        uc.*.length.len += @intCast(node.length);
+                        continue;
+                    }
+
+                    writer.writeStructEndian(uc.*, .little) catch @panic("oom");
+                }
+                uncommitted_span = serialized_span{
                     .length = .{
                         .deleted = node.deleted(),
                         .len = @intCast(node.length),
                     },
                     .id = node.id,
-                }, .little) catch @panic("oom");
+                };
+            }
+            if (uncommitted_span) |uc| {
+                writer.writeStructEndian(uc, .little) catch @panic("oom");
             }
         }
         pub fn deserialize(gpa: std.mem.Allocator, fbs: *bi.AlignedFbsReader) bi.DeserializeError!Doc {
