@@ -88,8 +88,8 @@ fn hasStop(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?BetweenCha
             const left = asciiClassify(left_byte);
             const right = asciiClassify(right_byte);
             if (left == right) return null;
-            if (left == .whitespace or left == .symbols) return .left_or_select;
-            if (right == .whitespace or left == .symbols) return .right_or_select;
+            if (left == .whitespace) return .left_or_select;
+            if (right == .whitespace) return .right_or_select;
             return .both;
         },
         .unicode_word => {
