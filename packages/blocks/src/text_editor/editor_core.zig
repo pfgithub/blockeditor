@@ -944,4 +944,20 @@ test EditorCore {
     try testEditorContent("here [are a few| words to traverse!", &editor);
     editor.onDrag(editor.document.value.positionFromDocbyte(1));
     try testEditorContent("|here are] a few words to traverse!", &editor);
+
+    editor.executeCommand(.select_all);
+    editor.executeCommand(.{ .insert_text = .{ .text = (
+        \\    \\    }
+        \\    \\    @vertex fn vert(in: VertexIn)
+    ) } });
+    editor.executeCommand(.{ .set_cursor_pos = .{ .position = editor.document.value.positionFromDocbyte(11) } });
+    try testEditorContent(
+        \\    \\    }|
+        \\    \\    @vertex fn vert(in: VertexIn)
+    , &editor);
+    editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .word, .mode = .move } });
+    try testEditorContent(
+        \\    \\    }
+        \\    \\|    @vertex fn vert(in: VertexIn)
+    , &editor);
 }
