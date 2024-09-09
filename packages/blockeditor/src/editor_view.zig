@@ -14,6 +14,7 @@ pub const EditorView = struct {
     gpa: std.mem.Allocator,
     core: editor_core.EditorCore,
     selecting: bool = false,
+    scroll_position: f64 = 0.0,
 
     pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
         self.* = .{
@@ -90,8 +91,7 @@ pub const EditorView = struct {
                     true => .select,
                 },
             } });
-        }
-        if (beui.hotkey(.{ .shift = .maybe }, &.{ .home, .end })) |hk| {
+        } else if (beui.hotkey(.{ .shift = .maybe }, &.{ .home, .end })) |hk| {
             // maybe should be .move_cursor_to_line_side
             self.core.executeCommand(.{ .move_cursor_left_right = .{
                 .direction = switch (hk.key) {
@@ -104,8 +104,7 @@ pub const EditorView = struct {
                     true => .select,
                 },
             } });
-        }
-        if (beui.hotkey(.{ .alt = .maybe }, &.{ .backspace, .delete })) |hk| {
+        } else if (beui.hotkey(.{ .alt = .maybe }, &.{ .backspace, .delete })) |hk| {
             self.core.executeCommand(.{ .delete = .{
                 .direction = switch (hk.key) {
                     .backspace => .left,
@@ -116,16 +115,14 @@ pub const EditorView = struct {
                     true => .word,
                 },
             } });
-        }
-        if (beui.hotkey(.{ .alt = .yes }, &.{ .down, .up })) |hk| {
+        } else if (beui.hotkey(.{ .alt = .yes }, &.{ .down, .up })) |hk| {
             self.core.executeCommand(.{ .ts_select_node = .{
                 .direction = switch (hk.key) {
                     .down => .child,
                     .up => .parent,
                 },
             } });
-        }
-        if (beui.hotkey(.{ .shift = .maybe }, &.{ .down, .up })) |hk| {
+        } else if (beui.hotkey(.{ .shift = .maybe }, &.{ .down, .up })) |hk| {
             self.core.executeCommand(.{ .move_cursor_up_down = .{
                 .direction = switch (hk.key) {
                     .down => .down,
@@ -137,34 +134,31 @@ pub const EditorView = struct {
                     true => .select,
                 },
             } });
-        }
-        if (beui.hotkey(.{}, &.{.enter})) |_| {
+        } else if (beui.hotkey(.{}, &.{.enter})) |_| {
             self.core.executeCommand(.newline);
-        }
-        if (beui.hotkey(.{ .shift = .maybe }, &.{.tab})) |hk| {
+        } else if (beui.hotkey(.{ .shift = .maybe }, &.{.tab})) |hk| {
             self.core.executeCommand(.{ .indent_selection = .{
                 .direction = switch (hk.shift) {
                     false => .right,
                     true => .left,
                 },
             } });
-        }
-        if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.a})) |_| {
+        } else if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.a})) |_| {
             self.core.executeCommand(.select_all);
-        }
-        if (beui.hotkey(.{ .ctrl_or_cmd = .yes, .shift = .maybe }, &.{.z})) |hk| {
+        } else if (beui.hotkey(.{ .ctrl_or_cmd = .yes, .shift = .maybe }, &.{.z})) |hk| {
             self.core.executeCommand(switch (hk.shift) {
                 false => .undo,
                 true => .redo,
             });
-        }
-        if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.y})) |_| {
+        } else if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.y})) |_| {
             self.core.executeCommand(.redo);
         }
 
         if (beui.textInput()) |text| {
             self.core.executeCommand(.{ .insert_text = .{ .text = text } });
         }
+
+        self.scroll_position += @floatCast(beui.frame.scroll[0]);
 
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
         const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };
