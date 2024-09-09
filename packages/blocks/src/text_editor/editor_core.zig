@@ -925,4 +925,17 @@ test EditorCore {
     try testEditorContent("|here are a few words to traverse!", &editor);
     editor.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
     try testEditorContent("here are a few words to traverse!|", &editor);
+
+    editor.onClick(editor.document.value.positionFromDocbyte(12), 1, false);
+    try testEditorContent("here are a f|ew words to traverse!", &editor);
+    editor.onClick(editor.document.value.positionFromDocbyte(15), 1, true);
+    try testEditorContent("here are a f[ew |words to traverse!", &editor);
+    editor.onClick(editor.document.value.positionFromDocbyte(6), 1, false);
+    try testEditorContent("here a|re a few words to traverse!", &editor);
+    editor.onClick(editor.document.value.positionFromDocbyte(6), 2, false);
+    try testEditorContent("here [are| a few words to traverse!", &editor);
+    editor.onDrag(editor.document.value.positionFromDocbyte(13));
+    try testEditorContent("here [are a few| words to traverse!", &editor);
+    editor.onDrag(editor.document.value.positionFromDocbyte(1));
+    try testEditorContent("|here are] a few words to traverse!", &editor);
 }
