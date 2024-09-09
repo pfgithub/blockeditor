@@ -299,29 +299,24 @@ pub const EditorCore = struct {
         };
     }
 
-    fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop, mode: enum { left, right, select, select_allow_nomove }) Position {
+    fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop, mode: enum { left, right, select }, nomove: enum { must_move, may_move }) Position {
         const block = self.document.value;
         const src_index = block.docbyteFromPosition(pos);
         var index: usize = src_index;
         const len = block.length();
-        if (mode == .select_allow_nomove) {
-            switch (direction) {
-                .left => if (index < len) {
-                    index += 1;
-                },
-                .right => if (index > 0) {
-                    index -= 1;
-                },
-            }
-        }
         while (switch (direction) {
             .left => index > 0,
             .right => index < len,
-        }) {
-            switch (direction) {
+        }) : ({
+            if (nomove == .may_move) switch (direction) {
                 .left => index -= 1,
                 .right => index += 1,
-            }
+            };
+        }) {
+            if (nomove == .must_move) switch (direction) {
+                .left => index -= 1,
+                .right => index += 1,
+            };
             if (index <= 0 or index >= len) continue; // readSlice will go out of range
             var bytes: [2]u8 = undefined;
             block.readSlice(block.positionFromDocbyte(index - 1), &bytes);
@@ -335,7 +330,7 @@ pub const EditorCore = struct {
                     .right_or_select, .right_only, .both => break,
                     .left_or_select => {},
                 },
-                .select, .select_allow_nomove => switch (marker) {
+                .select => switch (marker) {
                     .left_or_select, .right_or_select, .both => break,
                     .right_only => {},
                 },
@@ -477,7 +472,7 @@ pub const EditorCore = struct {
                     const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
                         .left => .left,
                         .right => .right,
-                    });
+                    }, .must_move);
 
                     switch (lr_cmd.mode) {
                         .move => {
@@ -494,7 +489,7 @@ pub const EditorCore = struct {
                     const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
                         .left => .left,
                         .right => .right,
-                    });
+                    }, .must_move);
 
                     // if there is a selection, delete the selection
                     // if there is no selection, delete from the focus in the direction to the stop
@@ -620,11 +615,11 @@ pub const EditorCore = struct {
         const drag_info = cursor.drag_info.?;
         const stop = drag_info.sel_mode.stop;
         const anchor_pos = drag_info.start_pos;
-        const anchor_l = self.toWordBoundary(anchor_pos, .left, stop, .select_allow_nomove);
-        const focus_l = self.toWordBoundary(pos, .left, stop, .select_allow_nomove);
+        const anchor_l = self.toWordBoundary(anchor_pos, .left, stop, .select, .may_move);
+        const focus_l = self.toWordBoundary(pos, .left, stop, .select, .may_move);
         if (drag_info.sel_mode.select) {
-            const anchor_r = self.toWordBoundary(anchor_pos, .right, stop, .select);
-            const focus_r = self.toWordBoundary(pos, .right, stop, .select);
+            const anchor_r = self.toWordBoundary(anchor_pos, .right, stop, .select, .must_move);
+            const focus_r = self.toWordBoundary(pos, .right, stop, .select, .must_move);
 
             // now:
             // we select from @min(all) to @max(all) and put the cursor on (focus_l < anchor_l ? left : right)
