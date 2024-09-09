@@ -810,7 +810,7 @@ pub fn main() !void {
     my_text_editor.core.document.applySimpleOperation(.{
         .position = my_text_editor.core.document.value.positionFromDocbyte(0),
         .delete_len = 0,
-        .insert_text = "hello!", //@embedFile("beui.zig"),
+        .insert_text = @embedFile("beui.zig"),
     }, null);
     my_text_editor.core.executeCommand(.{ .set_cursor_pos = .{ .position = my_text_editor.core.document.value.positionFromDocbyte(0) } });
 
