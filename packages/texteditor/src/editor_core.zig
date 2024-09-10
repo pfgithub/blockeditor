@@ -99,7 +99,8 @@ fn hasStop(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?BetweenCha
         .line => {
             // not sure what to do for empty lines?
             if (left_byte == '\n') return .left_or_select;
-            if (right_byte == '\n') return .right_only;
+            if (right_byte == '\r') return .right_only;
+            if (right_byte == '\n' and left_byte != '\r') return .right_only;
             return null;
         },
         .visual_line => {
@@ -1086,7 +1087,7 @@ fn clusterLine(line_content: []const u8) void {
     // this is what we want
     const gd = getGlobalGraphemeData();
     var iter = zg_grapheme.Iterator.init(line_content, gd);
-    while(iter.next()) |gc| {
+    while (iter.next()) |gc| {
         // gc.offset, gc.len
         _ = gc;
     }
