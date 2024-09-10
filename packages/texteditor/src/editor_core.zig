@@ -1066,3 +1066,29 @@ test EditorCore {
         \\    \\|    @vertex fn vert(in: VertexIn)
     );
 }
+
+const zg_grapheme = @import("zg_grapheme");
+var _global_grapheme_data: ?zg_grapheme.GraphemeData = null;
+var _global_zg_alloc: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+fn getGlobalGraphemeData() *const zg_grapheme.GraphemeData {
+    if (_global_grapheme_data == null) {
+        _global_grapheme_data = zg_grapheme.GraphemeData.init(_global_zg_alloc.allocator()) catch @panic("grapheme data init fail");
+    }
+    return &_global_grapheme_data.?;
+}
+test "grapheme cluster" {
+    const gd = getGlobalGraphemeData();
+    const str = "He\u{301}! …मनीष!";
+
+    var iter = zg_grapheme.Iterator.init(str, gd);
+    while (iter.next()) |gc| {
+        std.log.err("gc: \"{s}\"", .{str[gc.offset..][0..gc.len]});
+    }
+
+    // if we can't seek backwards, we can segment out the whole line
+    // until we find the segment we care about
+
+    // i wonder if we could walk backwards one byte at a time until
+    // the first cluster is found that does not contain the target byte?
+    // or if that is invalid with some character setups
+}
