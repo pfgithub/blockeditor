@@ -220,7 +220,7 @@ pub const EditorView = struct {
                 })));
             }
             if (cursor_info.selected) {
-                draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{ char_advance, draw_list.getCharHeight() + 2 }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
+                draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{ char_advance, draw_list.getCharHeight() + 2 - 1 }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
             }
             if (pos[1] > window_size[1]) break;
 
