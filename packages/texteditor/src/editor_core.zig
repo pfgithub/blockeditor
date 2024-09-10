@@ -1125,3 +1125,11 @@ test "grapheme cluster" {
     // the first cluster is found that does not contain the target byte?
     // or if that is invalid with some character setups
 }
+
+// plan:
+// - remove zg
+// - add https://github.com/unicode-rs/unicode-segmentation
+//   - we can compile it to risc v and use the risc v emulator
+//   - or compile it to wasm and copy zig's wasm2c
+//   - or cross-compile it as a library to every platform we want
+//     and keep it as precompiled .so/.dylib/.dll files
