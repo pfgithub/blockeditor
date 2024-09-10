@@ -1076,9 +1076,39 @@ fn getGlobalGraphemeData() *const zg_grapheme.GraphemeData {
     }
     return &_global_grapheme_data.?;
 }
-test "grapheme cluster" {
+
+// this will be problematic on very long lines
+// also apparently \r\n is a single grapheme cluster
+// we'll constantly be putting cursors in the middle of it with the current
+// end of line detection, but that can be fixed
+fn clusterLine(line_content: []const u8) void {
+    // https://docs.rs/unicode-segmentation/1.8.0/unicode_segmentation/struct.GraphemeCursor.html
+    // this is what we want
     const gd = getGlobalGraphemeData();
-    const str = "He\u{301}! …मनीष!";
+    var iter = zg_grapheme.Iterator.init(line_content, gd);
+    while(iter.next()) |gc| {
+        // gc.offset, gc.len
+        _ = gc;
+    }
+}
+
+// apparently sometimes you're not supposed to backspace the whole
+// grapheme cluster? like we need backspace_only marks in text
+// segmentation because "किमपि" is three grapheme clusters but five
+// backspaces. but "👨‍👩‍👧‍👧" is one grapheme cluster and one backspace.
+
+test "grapheme cluster" {
+    // so unfortunately:
+    // - starting clustering partway through a codepoint produces a bunch of
+    //   grapheme clusters holding just a single byte
+    // - starting clustering partway through a cluster sometimes splits that cluster
+    //   up into two. ie |A[zwj]B -> "A[zwj]B" but A|[zwj]B -> "[zwj]" "B"
+    // - "🇷🇸🇮🇴" <- this is worst case. a line full of flags you just have to keep
+    //   searching back and back and back until the start, then walk forwards
+    //   again. deleting one codepoint could shift every flag after it.
+
+    const gd = getGlobalGraphemeData();
+    const str = "He\u{301}! …मनीष!👨‍👩‍👧‍👧";
 
     var iter = zg_grapheme.Iterator.init(str, gd);
     while (iter.next()) |gc| {
