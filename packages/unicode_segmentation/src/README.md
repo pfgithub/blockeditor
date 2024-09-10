@@ -1,0 +1,3 @@
+```
+cargo zigbuild --profile zig_debug --target aarch64-apple-darwin
+```

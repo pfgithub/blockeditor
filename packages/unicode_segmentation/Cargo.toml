@@ -1,0 +1,32 @@
+[package]
+name = "unicode_segmentation_bindings"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[profile.zig_debug]
+inherits="dev"
+panic="abort"
+
+[profile.release_small]
+inherits = "release"
+opt-level = "z"
+debug-assertions=false
+panic="abort"
+
+[profile.release_fast]
+inherits = "release"
+opt-level = 3
+debug-assertions=false
+panic="abort"
+
+[profile.release_safe]
+inherits = "release"
+opt-level = 3
+debug-assertions=true
+panic="abort"
+
+[dependencies]
+unicode-segmentation = "1.11.0"
