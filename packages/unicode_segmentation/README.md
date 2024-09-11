@@ -1,4 +1,5 @@
 ```
 bun rust_build.ts
-zig build test
+# edit build.zig.zon to .path = "src"
+zig build test -Dlocal
 ```
