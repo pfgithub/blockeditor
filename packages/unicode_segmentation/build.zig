@@ -14,8 +14,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
     test_exe.addObjectFile(b.path("target/aarch64-apple-darwin/zig_debug/libunicode_segmentation_bindings.a"));
+
+    const grapheme_cursor_mod = b.addModule("grapheme_cursor", .{
+        .root_source_file = b.path("src/grapheme_cursor.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    grapheme_cursor_mod.addObjectFile(b.path("target/aarch64-apple-darwin/zig_debug/libunicode_segmentation_bindings.a"));
 
     b.installArtifact(test_exe);
 

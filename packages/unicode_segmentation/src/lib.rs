@@ -15,6 +15,89 @@ pub struct AndStr {
     ptr: *mut u8,
     len: usize,
 }
+impl AndStr {
+    fn val(self: &AndStr) -> &str {
+        unsafe {
+            let chunk_str = core::slice::from_raw_parts(self.ptr, self.len);
+            core::str::from_utf8_unchecked(chunk_str)
+        }
+    }
+}
+
+fn cr_ok<A: core::marker::Copy, B: core::marker::Copy>(val: A) -> CResult<A, B> {
+    CResult {
+        tag: Result_union_tag::ok,
+        value: Result_union { ok: val },
+    }
+}
+fn cr_err<A: core::marker::Copy, B: core::marker::Copy>(val: B) -> CResult<A, B> {
+    CResult {
+        tag: Result_union_tag::err,
+        value: Result_union { err: val },
+    }
+}
+impl From<unicode_segmentation::GraphemeIncomplete> for GraphemeIncomplete {
+    fn from(itm: unicode_segmentation::GraphemeIncomplete) -> GraphemeIncomplete {
+        GraphemeIncomplete {
+            tag: match itm {
+                unicode_segmentation::GraphemeIncomplete::PreContext(_) => {
+                    GraphemeIncomplete_tag::pre_context
+                }
+                unicode_segmentation::GraphemeIncomplete::PrevChunk => {
+                    GraphemeIncomplete_tag::prev_chunk
+                }
+                unicode_segmentation::GraphemeIncomplete::NextChunk => {
+                    GraphemeIncomplete_tag::next_chunk
+                }
+                unicode_segmentation::GraphemeIncomplete::InvalidOffset => {
+                    GraphemeIncomplete_tag::invalid_offset
+                }
+            },
+            pre_context_offset: match itm {
+                unicode_segmentation::GraphemeIncomplete::PreContext(v) => v,
+                _ => 0,
+            },
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+#[allow(non_camel_case_types)]
+pub struct CResult<Ok: core::marker::Copy, Err: core::marker::Copy> {
+    tag: Result_union_tag,
+    value: Result_union<Ok, Err>,
+}
+#[repr(u8)]
+#[derive(Copy, Clone)]
+#[allow(non_camel_case_types)]
+pub enum Result_union_tag {
+    ok,
+    err,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+#[allow(non_camel_case_types)]
+pub union Result_union<Ok: core::marker::Copy, Err: core::marker::Copy> {
+    ok: Ok,
+    err: Err,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+#[allow(non_camel_case_types)]
+pub struct GraphemeIncomplete {
+    tag: GraphemeIncomplete_tag,
+    pre_context_offset: usize,
+}
+#[repr(u8)]
+#[derive(Copy, Clone)]
+#[allow(non_camel_case_types)]
+pub enum GraphemeIncomplete_tag {
+    pre_context,
+    prev_chunk,
+    next_chunk,
+    invalid_offset,
+}
 
 extern "C" {
     fn zig_panic(ptr: *const u8, len: usize) -> !;
@@ -104,21 +187,46 @@ pub extern "C" fn provide_context(
     chunk: AndStr,
     chunk_start: usize,
 ) -> () {
-    unsafe {
-        let chunk_str = core::slice::from_raw_parts(chunk.ptr, chunk.len);
-        let chunk_str_utf8 = match core::str::from_utf8(chunk_str) {
-            Ok(str) => str,
-            Err(_) => {
-                // uh oh :/
-                // on the zig side, we're fine with invalid utf-8
-                // maybe before psasing to provide_context, we can replace invalid utf-8 bytes with '?'
-                panic!("err(emsg)");
-            }
-        };
-        this.provide_context(chunk_str_utf8, chunk_start);
+    this.provide_context(chunk.val(), chunk_start);
+}
+
+// extern fn unicode_segmentation__GraphemeCursor__is_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(bool, GraphemeIncomplete);
+#[export_name = "unicode_segmentation__GraphemeCursor__is_boundary"]
+pub extern "C" fn is_boundary(
+    this: &mut GraphemeCursor,
+    chunk: AndStr,
+    chunk_start: usize,
+) -> CResult<bool, GraphemeIncomplete> {
+    match this.is_boundary(chunk.val(), chunk_start) {
+        Ok(result) => cr_ok(result),
+        Err(eval) => cr_err(eval.into()),
     }
 }
 
-// extern fn unicode_segmentation__GraphemeCursor__is_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) IsBoundaryResult;
-// extern fn unicode_segmentation__GraphemeCursor__next_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) NextPrevBoundaryResult;
-// extern fn unicode_segmentation__GraphemeCursor__prev_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) NextPrevBoundaryResult;
+// extern fn unicode_segmentation__GraphemeCursor__next_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(Result(usize, void), GraphemeIncomplete);
+#[export_name = "unicode_segmentation__GraphemeCursor__next_boundary"]
+pub extern "C" fn next_boundary(
+    this: &mut GraphemeCursor,
+    chunk: AndStr,
+    chunk_start: usize,
+) -> CResult<CResult<usize, ()>, GraphemeIncomplete> {
+    match this.next_boundary(chunk.val(), chunk_start) {
+        Ok(Some(result)) => cr_ok(cr_ok(result)),
+        Ok(None) => cr_ok(cr_err(())),
+        Err(eval) => cr_err(eval.into()),
+    }
+}
+
+// extern fn unicode_segmentation__GraphemeCursor__prev_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(Result(usize, void), GraphemeIncomplete);
+#[export_name = "unicode_segmentation__GraphemeCursor__prev_boundary"]
+pub extern "C" fn prev_boundary(
+    this: &mut GraphemeCursor,
+    chunk: AndStr,
+    chunk_start: usize,
+) -> CResult<CResult<usize, ()>, GraphemeIncomplete> {
+    match this.prev_boundary(chunk.val(), chunk_start) {
+        Ok(Some(result)) => cr_ok(cr_ok(result)),
+        Ok(None) => cr_ok(cr_err(())),
+        Err(eval) => cr_err(eval.into()),
+    }
+}
