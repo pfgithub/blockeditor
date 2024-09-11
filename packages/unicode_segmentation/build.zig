@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -9,19 +9,21 @@ pub fn build(b: *std.Build) void {
     });
     b.getInstallStep().dependOn(&fmt_step.step);
 
+    const obj_f_path = b.path("bin/aarch64-macos/libunicode_segmentation_bindings.a");
+
     const test_exe = b.addTest(.{
         .root_source_file = b.path("src/grapheme_cursor.zig"),
         .target = target,
         .optimize = optimize,
     });
-    test_exe.addObjectFile(b.path("target/aarch64-apple-darwin/zig_debug/libunicode_segmentation_bindings.a"));
+    test_exe.addObjectFile(obj_f_path);
 
     const grapheme_cursor_mod = b.addModule("grapheme_cursor", .{
         .root_source_file = b.path("src/grapheme_cursor.zig"),
         .target = target,
         .optimize = optimize,
     });
-    grapheme_cursor_mod.addObjectFile(b.path("target/aarch64-apple-darwin/zig_debug/libunicode_segmentation_bindings.a"));
+    grapheme_cursor_mod.addObjectFile(obj_f_path);
 
     b.installArtifact(test_exe);
 
