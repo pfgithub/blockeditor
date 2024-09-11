@@ -27,6 +27,7 @@ pub fn loadImage(gpa: std.mem.Allocator, file_cont: []const u8) !LoadedImage {
     if (g_fourcc < 0) return error.CouldNotGuessFileFormat;
 
     // can't stack allocate the decoder because it requires #define WUFFS_IMPLEMENTATION
+    // TODO: stack allocate the decoder anyway based on its known size and alignment, and assert that it's right
     const decoder_raw, const g_image_decoder = switch (g_fourcc) {
         wuffs.WUFFS_BASE__FOURCC__PNG => blk: {
             const decoder_raw = wuffs.wuffs_png__decoder__alloc() orelse return error.OutOfMemory;
