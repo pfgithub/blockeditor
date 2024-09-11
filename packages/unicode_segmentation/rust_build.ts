@@ -12,7 +12,7 @@ const targets: {zig: string, rs: string, rsn: string}[] = [
     {zig: "aarch64-linux-musl", rs: "aarch64-unknown-linux-musl", rsn: "libunicode_segmentation_bindings.a"},
     {zig: "x86_64-linux-gnu", rs: "x86_64-unknown-linux-gnu", rsn: "libunicode_segmentation_bindings.a"},
     {zig: "x86_64-linux-musl", rs: "x86_64-unknown-linux-musl", rsn: "libunicode_segmentation_bindings.a"},
-    {zig: "riscv32+i+m+a+c-unknown-none-elf", rs: "riscv32imac-unknown-none-elf", rsn: "libunicode_segmentation_bindings.a"},
+    {zig: "riscv32-unknown-none-elf", rs: "riscv32imac-unknown-none-elf", rsn: "libunicode_segmentation_bindings.a"},
     {zig: "wasm32-freestanding", rs: "wasm32-unknown-unknown", rsn: "libunicode_segmentation_bindings.a"},
 ];
 for(const {zig, rs, rsn} of targets) {
