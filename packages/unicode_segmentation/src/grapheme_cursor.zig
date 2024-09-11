@@ -9,7 +9,7 @@ const std = @import("std");
 var is_correct: std.atomic.Value(bool) = .init(false);
 fn assertCorrect() void {
     if (is_correct.load(.unordered)) return;
-    std.debug.assert(std.meta.eql(unicode_segmentation__GraphemeCursor__layout(), GraphemeCursor.layout));
+    if(!std.meta.eql(unicode_segmentation__GraphemeCursor__layout(), GraphemeCursor.layout)) @panic("bad layout for GraphemeCursor");
     is_correct.store(true, .unordered);
 }
 
