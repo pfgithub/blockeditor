@@ -1,7 +1,7 @@
 #![no_std]
-// use core::fmt;
-// use core::fmt::Write;
-// use core::panic::PanicInfo;
+use core::fmt;
+use core::fmt::Write;
+use core::panic::PanicInfo;
 use unicode_segmentation::GraphemeCursor;
 
 #[repr(C)]
@@ -99,41 +99,41 @@ pub enum GraphemeIncomplete_tag {
     invalid_offset,
 }
 
-// extern "C" {
-//     fn zig_panic(ptr: *const u8, len: usize) -> !;
-// }
+extern "C" {
+    fn zig_panic(ptr: *const u8, len: usize) -> !;
+}
 
-// struct BufWriter<'a> {
-//     // with no_std rust doesn't even have a FixedBufferStream :/
-//     buf: &'a mut [u8],
-//     pos: usize,
-// }
-// impl<'a> fmt::Write for BufWriter<'a> {
-//     fn write_str(&mut self, s: &str) -> fmt::Result {
-//         let bytes = s.as_bytes();
-//         let len = bytes.len();
+struct BufWriter<'a> {
+    // with no_std rust doesn't even have a FixedBufferStream :/
+    buf: &'a mut [u8],
+    pos: usize,
+}
+impl<'a> fmt::Write for BufWriter<'a> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let bytes = s.as_bytes();
+        let len = bytes.len();
 
-//         if self.pos + len > self.buf.len() {
-//             return Err(core::fmt::Error);
-//         }
+        if self.pos + len > self.buf.len() {
+            return Err(core::fmt::Error);
+        }
 
-//         self.buf[self.pos..self.pos + len].copy_from_slice(bytes);
-//         self.pos += len;
-//         Ok(())
-//     }
-// }
+        self.buf[self.pos..self.pos + len].copy_from_slice(bytes);
+        self.pos += len;
+        Ok(())
+    }
+}
 
-// #[panic_handler]
-// fn panic(info: &PanicInfo) -> ! {
-//     let mut buf = [0u8; 65536];
-//     let mut writer = BufWriter {
-//         buf: &mut buf,
-//         pos: 0,
-//     };
-//     write!(writer, "{}", info).unwrap();
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    let mut buf = [0u8; 65536];
+    let mut writer = BufWriter {
+        buf: &mut buf,
+        pos: 0,
+    };
+    write!(writer, "{}", info).unwrap();
 
-//     unsafe { zig_panic(writer.buf.as_ptr(), writer.pos) }
-// }
+    unsafe { zig_panic(writer.buf.as_ptr(), writer.pos) }
+}
 
 // consider https://github.com/mozilla/cbindgen
 
