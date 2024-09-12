@@ -9,42 +9,28 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&fmt_step.step);
 
-    const path = switch (target.result.os.tag) {
-        .macos => switch (target.result.cpu.arch) {
-            .aarch64 => "aarch64-macos/libunicode_segmentation_bindings.a",
-            .x86_64 => "x86_64-macos/libunicode_segmentation_bindings.a",
-            else => @panic(b.fmt("TODO target: {s}", .{try target.query.zigTriple(b.allocator)})),
-        },
-        .windows => switch (target.result.cpu.arch) {
-            .aarch64 => "aarch64-windows-msvc/unicode_segmentation_bindings.lib",
-            .x86_64 => switch (target.result.abi) {
-                .gnu => "x86_64-windows-gnu/libunicode_segmentation_bindings.a",
-                .msvc => "x86_64-windows-msvc/unicode_segmentation_bindings.lib",
-                else => @panic(b.fmt("TODO target: {s}", .{try target.query.zigTriple(b.allocator)})),
-            },
-            else => @panic(b.fmt("TODO target: {s}", .{try target.query.zigTriple(b.allocator)})),
-        },
-        .linux => switch (target.result.cpu.arch) {
-            .aarch64 => switch (target.result.abi) {
-                .gnu => "aarch64-linux-gnu/libunicode_segmentation_bindings.a",
-                .musl => "aarch64-linux-musl/libunicode_segmentation_bindings.a",
-                else => @panic(b.fmt("TODO target: {s}", .{try target.query.zigTriple(b.allocator)})),
-            },
-            .x86_64 => switch (target.result.abi) {
-                .gnu => "x86_64-linux-gnu/libunicode_segmentation_bindings.a",
-                .musl => "x86_64-linux-musl/libunicode_segmentation_bindings.a",
-                else => @panic(b.fmt("TODO target: {s}", .{try target.query.zigTriple(b.allocator)})),
-            },
-            else => @panic(b.fmt("TODO target: {s}", .{try target.query.zigTriple(b.allocator)})),
-        },
-        else => @panic(b.fmt("TODO target: {s}", .{try target.query.zigTriple(b.allocator)})),
+    var binary_target = std.Target.Query.fromTarget(target.result);
+    binary_target.os_version_min = .{ .none = undefined };
+    binary_target.os_version_max = .{ .none = undefined };
+    binary_target.glibc_version = null;
+    const zig_triple = try binary_target.zigTriple(b.allocator);
+    const afile = switch (target.result.abi == .msvc) {
+        true => "unicode_segmentation_bindings.lib",
+        false => "libunicode_segmentation_bindings.a",
     };
+    const path = b.fmt("{s}/{s}", .{ zig_triple, afile });
 
     const obj_f_dep = b.dependency(switch (b.option(bool, "local", "use local") orelse false) {
         false => "us",
         true => "us_local",
     }, .{});
     const obj_f_path = obj_f_dep.path(path);
+    if (std.fs.cwd().access(obj_f_path.getPath(b), .{})) {
+        // ok
+    } else |_| {
+        std.log.err("unicode_segmentation binary not available provided for target: {s}", .{zig_triple});
+        return error.MakeFailed;
+    }
 
     const test_exe = b.addTest(.{
         .root_source_file = b.path("src/grapheme_cursor.zig"),
