@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const segmentation_issue_139 = true; // https://github.com/unicode-rs/unicode-segmentation/issues/139
+
 // bindings for
 // https://docs.rs/unicode-segmentation/1.8.0/unicode_segmentation/struct.GraphemeCursor.html
 //
@@ -302,6 +304,7 @@ pub const SliceDocument = struct {
 };
 
 test "genericdocument family test" {
+    if (segmentation_issue_139) return error.SkipZigTest;
     const family_emoji = "A👨‍👩‍👧‍👧B";
     const slice_doc = SliceDocument{ .slice = family_emoji };
     const doc = slice_doc.doc();
@@ -319,6 +322,7 @@ test "genericdocument family test" {
     }
 }
 test "family test" {
+    if (segmentation_issue_139) return error.SkipZigTest;
     const family_emoji: []const u8 = "A👨‍👩‍👧‍👧B";
 
     var view = std.unicode.Utf8View.initUnchecked(family_emoji);
