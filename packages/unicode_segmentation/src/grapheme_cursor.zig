@@ -50,14 +50,15 @@ pub fn Result(comptime Ok: type, comptime Err: type) type {
         value: extern union { ok: Ok, err: Err },
     };
 }
+pub const GraphemeIncompleteTag = enum(u8) {
+    pre_context,
+    prev_chunk,
+    next_chunk,
+    invalid_offset,
+};
 pub const GraphemeIncomplete = extern struct {
     // https://docs.rs/unicode-segmentation/1.8.0/unicode_segmentation/enum.GraphemeIncomplete.html
-    tag: enum(u8) {
-        pre_context,
-        prev_chunk,
-        next_chunk,
-        invalid_offset,
-    },
+    tag: GraphemeIncompleteTag,
     pre_context_offset: usize,
 };
 
@@ -124,6 +125,71 @@ test replaceInvalidUtf8 {
 
 test "sizes" {
     assertCorrect();
+}
+
+// we would like to make isBoundary, prevBoundary, and nextBoundary:
+// - only require one call, pass in context & method to get str
+// - take care of codepoint boundaries at the edge of the context window
+// - replace invalid utf-8 with '?' before passing to rust
+
+test "flag test" {
+    // apparently vscode doesn't even handle flags right. it selects all of them in a single cursor movement.
+    const my_str = "🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴";
+    var cursor: GraphemeCursor = .init(0, my_str.len, true);
+
+    for (&[_]usize{ 0, 8, 16 }) |pos| {
+        cursor.setCursor(pos);
+        const is_boundary_res = cursor.isBoundary(.from(my_str), 0);
+        try std.testing.expectEqual(ResultTag.ok, is_boundary_res.tag);
+        try std.testing.expectEqual(true, is_boundary_res.value.ok);
+    }
+    for (&[_]usize{ 4, 12 }) |pos| {
+        cursor.setCursor(pos);
+        const is_boundary_res = cursor.isBoundary(.from(my_str), 0);
+        try std.testing.expectEqual(ResultTag.ok, is_boundary_res.tag);
+        try std.testing.expectEqual(false, is_boundary_res.value.ok);
+    }
+
+    // now try but with bad context
+    cursor.setCursor(16);
+    {
+        const is_boundary_res = cursor.isBoundary(.from(my_str[0..4]), 0);
+        try std.testing.expectEqual(ResultTag.err, is_boundary_res.tag);
+        try std.testing.expectEqual(GraphemeIncompleteTag.invalid_offset, is_boundary_res.value.err.tag);
+    }
+    {
+        const is_boundary_res = cursor.isBoundary(.from(my_str[16..20]), 16);
+        try std.testing.expectEqual(ResultTag.err, is_boundary_res.tag);
+        try std.testing.expectEqual(GraphemeIncompleteTag.pre_context, is_boundary_res.value.err.tag);
+        try std.testing.expectEqual(@as(usize, 16), is_boundary_res.value.err.pre_context_offset);
+    }
+    cursor.provideContext(.from(my_str[12..16]), 12);
+    {
+        const is_boundary_res = cursor.isBoundary(.from(my_str[16..20]), 16);
+        try std.testing.expectEqual(ResultTag.err, is_boundary_res.tag);
+        try std.testing.expectEqual(GraphemeIncompleteTag.pre_context, is_boundary_res.value.err.tag);
+        try std.testing.expectEqual(@as(usize, 12), is_boundary_res.value.err.pre_context_offset);
+    }
+    cursor.provideContext(.from(my_str[8..12]), 8);
+    {
+        const is_boundary_res = cursor.isBoundary(.from(my_str[16..20]), 16);
+        try std.testing.expectEqual(ResultTag.err, is_boundary_res.tag);
+        try std.testing.expectEqual(GraphemeIncompleteTag.pre_context, is_boundary_res.value.err.tag);
+        try std.testing.expectEqual(@as(usize, 8), is_boundary_res.value.err.pre_context_offset);
+    }
+    cursor.provideContext(.from(my_str[0..8]), 0);
+    {
+        const is_boundary_res = cursor.isBoundary(.from(my_str[16..20]), 16);
+        try std.testing.expectEqual(ResultTag.ok, is_boundary_res.tag);
+        try std.testing.expectEqual(true, is_boundary_res.value.ok);
+    }
+    // took four tries but we got there
+
+    // the problem:
+    // - this api is not set up to accept half codepoints
+    //   - if we pass in my_str[16..17], 16 :: it will panic
+    //   - if we replaceInvalidUtf8() first, it will "work" but return indices partway through a valid codepoint
+    //   - so it takes some effort to use correctly
 }
 
 test "cursor" {
