@@ -627,6 +627,8 @@ pub const EditorCore = struct {
         }
         return &self.cursor_positions.items[0];
     }
+    // change to sel_mode: DragSelectionMode, shift_held: bool?
+    // make this an EditorCommand?
     pub fn onClick(self: *EditorCore, pos: Position, click_count: usize, shift_held: bool) void {
         const cursor = self.getEnsureOneCursor(pos);
         const sel_mode: DragSelectionMode = switch (click_count) {
@@ -1155,4 +1157,22 @@ test EditorCore {
     try tester.expectContent("H|");
     tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
     try tester.expectContent("|");
+
+    //
+    // Grapheme cluster click
+    //
+    tester.executeCommand(.{ .insert_text = .{ .text = "e\u{301}" } });
+    try tester.expectContent("e\u{301}|");
+    tester.editor.onClick(tester.pos(1), 1, false);
+    try tester.expectContent("|e\u{301}");
+    tester.editor.onDrag(tester.pos(2));
+    try tester.expectContent("|e\u{301}");
+    tester.editor.onDrag(tester.pos(3));
+    try tester.expectContent("[e\u{301}|");
+    tester.editor.onDrag(tester.pos(2));
+    try tester.expectContent("|e\u{301}");
+    tester.editor.onDrag(tester.pos(1));
+    try tester.expectContent("|e\u{301}");
+    tester.editor.onDrag(tester.pos(0));
+    try tester.expectContent("|e\u{301}");
 }
