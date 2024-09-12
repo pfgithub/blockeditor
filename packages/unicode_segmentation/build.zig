@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) !void {
         .windows => switch (target.result.cpu.arch) {
             .aarch64 => "aarch64-windows-msvc/unicode_segmentation_bindings.lib",
             .x86_64 => switch (target.result.abi) {
-                .gnu => "aarch64-windows-gnu/libunicode_segmentation_bindings.a",
+                .gnu => "x86_64-windows-gnu/libunicode_segmentation_bindings.a",
                 .msvc => "x86_64-windows-msvc/unicode_segmentation_bindings.lib",
                 else => @panic(b.fmt("TODO target: {s}", .{try target.query.zigTriple(b.allocator)})),
             },
