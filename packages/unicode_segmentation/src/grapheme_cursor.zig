@@ -99,6 +99,7 @@ pub fn replaceInvalidUtf8(str_in: []u8) void {
             str = str[1..];
             continue;
         }
+        // is '0' a valid utf8 byte? utf8Decode seems to think it is, and so does utf8ValidateSlice
         _ = std.unicode.utf8Decode(str[0..seq_len]) catch {
             str[0] = replacement_char;
             str = str[1..];
@@ -131,6 +132,73 @@ test "sizes" {
 // - only require one call, pass in context & method to get str
 // - take care of codepoint boundaries at the edge of the context window
 // - replace invalid utf-8 with '?' before passing to rust
+
+pub const ManagedCursor = struct {
+    backing: GraphemeCursor,
+
+    pub fn init(document_len: usize) ManagedCursor {
+        return .{ .backing = .init(0, document_len, true) };
+    }
+};
+const GDirection = enum { left, right };
+const GenericDocument = struct {
+    data: *anyopaque,
+    len: usize,
+
+    /// pointer has to stay valid until next read() call
+    /// to read one byte at a time but not from a slice, [1]u8 could be put in the document and returned out
+    read: *const fn (self: GenericDocument, offset: usize, direction: GDirection) []const u8,
+
+    pub fn from(comptime T: type, val: *const T, len: usize) GenericDocument {
+        return .{ .data = @constCast(@ptrCast(val)), .len = len, .read = &T.read };
+    }
+    pub fn cast(self: GenericDocument, comptime T: type) *T {
+        return @ptrCast(@alignCast(self.data));
+    }
+    pub fn isBoundary(doc: GenericDocument, cursor_pos: usize) bool {
+        var cursor: GraphemeCursor = .init(cursor_pos, doc.len, true);
+        _ = &cursor;
+
+        // so what needs to happen?
+        // - rust can only be provided slices to whole codepoints
+        // - steps:
+        //     - call read() to the right of cursor_pos. is the first byte a valid codepoint start char?
+        //       - if it is not:
+        //         - call read() to the left of cursor_pos.
+        //         - go to the nearest valid codepoint start char to the left
+        //         - try parsing it. is it valid and does it include cursor_pos?
+        //           VALID => RETURN false
+        //           INVALID => RETURN true
+        //     - cursor_pos is at the start of a valid codepoint. initialize GraphemeCursor at cursorpos
+        //     - call isBoundary on GraphemeCursor
+        //       - pass in context to the right, ending before the first invalid codepoint
+        //       ...
+
+        @panic("TODO");
+    }
+};
+
+test "genericdocument flag test" {
+    const my_str = "🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴";
+    const my_doc = struct {
+        const my_doc = @This();
+        str: []const u8,
+        fn read(self_g: GenericDocument, offset: usize, direction: GDirection) []const u8 {
+            const self = self_g.cast(my_doc);
+            return switch (direction) {
+                .right => self.str[offset .. offset + 1],
+                .left => self.str[offset - 1 .. offset],
+            };
+        }
+    };
+    const docv = my_doc{ .str = my_str };
+    const doc = GenericDocument.from(my_doc, &docv, my_str.len);
+
+    for (0..16 + 1) |i| {
+        const expected = i % 8 == 0;
+        try std.testing.expectEqual(expected, doc.isBoundary(i));
+    }
+}
 
 test "flag test" {
     // apparently vscode doesn't even handle flags right. it selects all of them in a single cursor movement.
