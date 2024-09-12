@@ -81,6 +81,47 @@ extern fn unicode_segmentation__GraphemeCursor__is_boundary(self: *GraphemeCurso
 extern fn unicode_segmentation__GraphemeCursor__next_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(Result(usize, void), GraphemeIncomplete);
 extern fn unicode_segmentation__GraphemeCursor__prev_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(Result(usize, void), GraphemeIncomplete);
 
+/// replaces invalid utf-8 bytes with '?', to allow the creation of a rust string.
+/// be careful with string boundaries passed to rust - the string must not start or
+/// end halfway through a codepoint because it will mess with cursor movement.
+pub fn replaceInvalidUtf8(str_in: []u8) void {
+    const replacement_char = '?';
+    var str = str_in;
+    while (str.len > 0) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(str[0]) catch {
+            str[0] = replacement_char;
+            str = str[1..];
+            continue;
+        };
+        if (str.len < seq_len) {
+            str[0] = replacement_char;
+            str = str[1..];
+            continue;
+        }
+        _ = std.unicode.utf8Decode(str[0..seq_len]) catch {
+            str[0] = replacement_char;
+            str = str[1..];
+            continue;
+        };
+        str = str[seq_len..];
+    }
+}
+
+test replaceInvalidUtf8 {
+    const dest_str = "…?À?:/";
+    var mut_str = [_]u8{
+        0b11100010, 0b10000000, 0b10100110, // 3 byte long, valid
+        0b11110010, // 4 byte long, but invalid
+        0b11000011, 0b10000000, // 2 byte long
+        0b10010010, // extra non-start byte
+        ':',
+        '/',
+    };
+
+    replaceInvalidUtf8(&mut_str);
+    try std.testing.expectEqualStrings(dest_str, &mut_str);
+}
+
 test "sizes" {
     assertCorrect();
 }
