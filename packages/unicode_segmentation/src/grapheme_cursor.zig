@@ -40,6 +40,10 @@ pub const AndStr = extern struct {
     /// iterate over the slice and replace any invalid bytes with '?'
     pub fn from(str: []const u8) AndStr {
         std.debug.assert(std.unicode.utf8ValidateSlice(str));
+        return .fromUnchecked(str);
+    }
+    pub fn fromUnchecked(str: []const u8) AndStr {
+        std.debug.assert(std.unicode.utf8ValidateSlice(str)); // just in case
         return .{ .ptr = str.ptr, .len = str.len };
     }
 };
@@ -140,13 +144,32 @@ pub const ManagedCursor = struct {
         return .{ .backing = .init(0, document_len, true) };
     }
 };
+const RtlFbs = struct {
+    buf: []u8,
+    written: usize,
+    fn init(buf: []u8) RtlFbs {
+        return .{ .buf = buf, .written = 0 };
+    }
+    fn rem(self: *RtlFbs) []u8 {
+        return self.buf[0 .. self.buf.len - self.written];
+    }
+    fn res(self: *RtlFbs) []u8 {
+        return self.buf[self.buf.len - self.written ..];
+    }
+    fn write(self: *RtlFbs, msg_in: []const u8) void {
+        var msg = msg_in;
+        const remv = self.rem();
+        if (msg.len > remv.len) msg = msg[msg.len - remv.len ..];
+        @memcpy(remv[remv.len - msg.len ..], msg);
+        self.written += msg.len;
+    }
+};
 const GDirection = enum { left, right };
 const GenericDocument = struct {
     data: *anyopaque,
     len: usize,
 
-    /// pointer has to stay valid until next read() call
-    /// to read one byte at a time but not from a slice, [1]u8 could be put in the document and returned out
+    /// pointer has to stay valid even across multiple calls to read()
     read: *const fn (self: GenericDocument, offset: usize, direction: GDirection) []const u8,
 
     pub fn from(comptime T: type, val: *const T, len: usize) GenericDocument {
@@ -155,9 +178,107 @@ const GenericDocument = struct {
     pub fn cast(self: GenericDocument, comptime T: type) *T {
         return @ptrCast(@alignCast(self.data));
     }
+    fn readFullCodepointLeft(doc: GenericDocument, offset: usize, backup_buffer: *[4]u8) ?[]const u8 {
+        std.debug.assert(offset != 0 and offset != doc.len);
+
+        // how about we read at least four bytes, then walk right to left checking if it's a valid codepoint
+        // - utf8ByteSequenceLength err -> keep going left
+        // - utf8Decode err -> return '?'
+        var read_result = doc.read(doc, offset, .left);
+        if (read_result.len < 4) {
+            var buf_fbs = RtlFbs.init(backup_buffer);
+            buf_fbs.write(read_result);
+            while (buf_fbs.written < 4) {
+                if (offset - buf_fbs.written == 0) break;
+                const read_result_2 = doc.read(doc, offset - buf_fbs.written, .left);
+                buf_fbs.write(read_result_2);
+            }
+            read_result = buf_fbs.res();
+        }
+
+        var last = read_result.len;
+        const min_last = std.math.sub(usize, last, 4) catch 0;
+        while (last > min_last) {
+            last -= 1;
+            const last_len = std.unicode.utf8ByteSequenceLength(read_result[last]) catch {
+                continue;
+            };
+            const rrlast = read_result[last..];
+            if (last_len > rrlast.len) return null; // ie [3] [x] | [x] [x] : cursor in the middle of a codepoint
+            if (last_len != rrlast.len) return "?"; // went too far left
+            _ = std.unicode.utf8Decode(rrlast[0..last_len]) catch {
+                // utf8 decode error
+                return "?";
+            };
+            // success
+            return rrlast;
+        }
+        // went too far left
+        return "?";
+    }
+    fn readFullCodepointRight(doc: GenericDocument, offset: usize, backup_buffer: *[4]u8) ?[]const u8 {
+        std.debug.assert(offset != 0 and offset != doc.len);
+        const read_result = doc.read(doc, offset, .right);
+        std.debug.assert(read_result.len > 0);
+        const start_codepoint_len = std.unicode.utf8ByteSequenceLength(read_result[0]) catch {
+            // offset to readFullCodepoint should be aligned to a codepoint boundary
+            // caller chooses how to handle
+            return null;
+        };
+        if (read_result.len >= start_codepoint_len) {
+            _ = std.unicode.utf8Decode(read_result[0..start_codepoint_len]) catch {
+                // invalid unicode
+                return "?";
+            };
+            // TODO we can return read_result[0.. first codepoint that fails validation]
+            return read_result[0..start_codepoint_len];
+        }
+        var fbs = std.io.fixedBufferStream(backup_buffer[0..start_codepoint_len]);
+        _ = fbs.write(read_result) catch unreachable;
+        while (fbs.pos < start_codepoint_len) {
+            if (offset + fbs.pos >= doc.len) {
+                // codepoint is invalid because it goes off the edge of the document
+                return "?";
+            }
+            const right_read_result = doc.read(doc, offset + fbs.pos, .right);
+            _ = fbs.write(right_read_result) catch unreachable; // only errors if called a second time after returning < read_result.len the first time
+        }
+
+        _ = std.unicode.utf8Decode(fbs.buffer) catch {
+            // invalid unicode
+            return "?";
+        };
+        return fbs.buffer;
+    }
     pub fn isBoundary(doc: GenericDocument, cursor_pos: usize) bool {
+        if (cursor_pos == 0) return true;
+        if (cursor_pos == doc.len) return true;
+
+        var backup_buf: [4]u8 = undefined;
+        const right_text = doc.readFullCodepointRight(cursor_pos, &backup_buf) orelse {
+            // offset to readFullCodepoint is not aligned to a codepoint boundary
+            return false;
+        };
+
         var cursor: GraphemeCursor = .init(cursor_pos, doc.len, true);
-        _ = &cursor;
+        while (true) {
+            const res = cursor.isBoundary(.fromUnchecked(right_text), cursor_pos);
+            if (res.tag == .ok) return res.value.ok;
+            const err = res.value.err;
+            switch (err.tag) {
+                .pre_context => {
+                    var left_buf: [4]u8 = undefined;
+                    const left_text = doc.readFullCodepointLeft(err.pre_context_offset, &left_buf) orelse blk: {
+                        // offset to readCodepoint has a codepoint to the left that wants to read to the right
+                        break :blk "?";
+                    };
+                    cursor.provideContext(.fromUnchecked(left_text), err.pre_context_offset - left_text.len);
+                },
+                .prev_chunk => unreachable,
+                .next_chunk => unreachable,
+                .invalid_offset => unreachable,
+            }
+        }
 
         // so what needs to happen?
         // - rust can only be provided slices to whole codepoints
@@ -194,7 +315,7 @@ test "genericdocument flag test" {
     const docv = my_doc{ .str = my_str };
     const doc = GenericDocument.from(my_doc, &docv, my_str.len);
 
-    for (0..16 + 1) |i| {
+    for (0..my_str.len) |i| {
         const expected = i % 8 == 0;
         try std.testing.expectEqual(expected, doc.isBoundary(i));
     }
