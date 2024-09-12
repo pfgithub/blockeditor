@@ -95,10 +95,8 @@ fn hasStop_bytes(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?Betw
             return .both;
         },
         .codepoint => {
-            if (right_byte < 0x80 or ((right_byte & 0b11_000000) == 0b11_000000)) {
-                return .both;
-            }
-            return null;
+            _ = std.unicode.utf8ByteSequenceLength(right_byte) catch return null;
+            return .both;
         },
         .unicode_grapheme_cluster => {
             // maybe we should pass in the Position we're testing? not sure
