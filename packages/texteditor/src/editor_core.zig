@@ -213,6 +213,23 @@ pub const EditorConfig = struct {
     indent_with: IndentMode,
 };
 
+const DocumentDocument = struct {
+    text_doc: *bi.text_component.TextDocument,
+
+    pub fn read(self_g: seg_dep.GenericDocument, offset: usize, direction: seg_dep.GDirection) []const u8 {
+        const self = self_g.cast(DocumentDocument);
+
+        return switch (direction) {
+            .right => self.text_doc.read(self.text_doc.positionFromDocbyte(offset)),
+            .left => self.text_doc.read(self.text_doc.positionFromDocbyte(offset - 1))[0..1], // TODO text_doc.readLeft()
+        };
+    }
+
+    pub fn doc(self: *DocumentDocument) seg_dep.GenericDocument {
+        return .from(DocumentDocument, self, self.text_doc.length());
+    }
+};
+
 // we would like EditorCore to edit any TextDocument component
 // in order to apply operations to the document, we need to be able to wrap an operation
 // with whatever is needed to target the right document
@@ -321,6 +338,9 @@ pub const EditorCore = struct {
 
     fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop, mode: enum { left, right, select }, nomove: enum { must_move, may_move }) Position {
         const block = self.document.value;
+        var docdoc = DocumentDocument{ .text_doc = block };
+        const gendoc = docdoc.doc();
+
         const src_index = block.docbyteFromPosition(pos);
         var index: usize = src_index;
         const len = block.length();
@@ -338,9 +358,7 @@ pub const EditorCore = struct {
                 .right => index += 1,
             };
             if (index <= 0 or index >= len) continue; // readSlice will go out of range
-            var bytes: [2]u8 = undefined;
-            block.readSlice(block.positionFromDocbyte(index - 1), &bytes);
-            const marker = hasStop_bytes(bytes[0], bytes[1], stop) orelse continue;
+            const marker = hasStop(gendoc, index, stop) orelse continue;
             switch (mode) {
                 .left => switch (marker) {
                     .left_or_select, .both => break,
