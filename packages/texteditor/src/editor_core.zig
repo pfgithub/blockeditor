@@ -367,7 +367,7 @@ pub const EditorCore = struct {
                 .left => index -= 1,
                 .right => index += 1,
             };
-            if (index <= 0 or index >= len) continue; // readSlice will go out of range
+            if (index <= 0 or index >= len) break; // readSlice will go out of range
             const marker = hasStop(gendoc, index, stop) orelse continue;
             switch (mode) {
                 .left => switch (marker) {
