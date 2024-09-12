@@ -1028,6 +1028,16 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             var it = self.readIterator(start);
             return it.next() orelse "";
         }
+        pub fn readLeft(self: *const Doc, start: Position) []const u8 {
+            const start_docbyte = self.docbyteFromPosition(start);
+            if (start_docbyte == 0) return "";
+            const target_span = self.positionFromDocbyte(start_docbyte - 1);
+            const target_span_info = self._findEntrySpan(target_span);
+            const target_segbyte = target_span.segbyte + 1;
+            const target_span_cont = self.span_bbt.getNodeDataPtrConst(target_span_info.span_index).?;
+            const rlres = self.buffer.items[target_span_cont.bufbyte.?..][0 .. target_segbyte - target_span_cont.start_segbyte];
+            return rlres;
+        }
         pub fn readIterator(self: *const Doc, start: Position) ReadIterator {
             const start_posinfo = self._findEntrySpan(start);
             const it = self.span_bbt.iterator(.{ .leftmost_node = start_posinfo.span_index, .skip_most_empties = true });
