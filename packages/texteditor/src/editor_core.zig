@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const blocks_mod = @import("blocks");
+const seg_dep = @import("grapheme_cursor");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
@@ -70,7 +71,17 @@ fn asciiClassify(char: u8) AsciiClassification {
     if (char >= 0x80) return .unicode;
     return .symbols;
 }
-fn hasStop(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?BetweenCharsStop {
+fn hasStop(doc: seg_dep.GenericDocument, docbyte: usize, stop: CursorLeftRightStop) ?BetweenCharsStop {
+    if (docbyte == 0 or docbyte == doc.len) unreachable;
+    const docl = doc.read(doc, docbyte - 1, .right);
+    const left_byte = docl[0];
+    const right_byte = if (docl.len > 1) docl[1] else blk: {
+        const docl2 = doc.read(doc, docbyte, .right);
+        break :blk docl2[0];
+    };
+    return hasStop_bytes(left_byte, right_byte, stop);
+}
+fn hasStop_bytes(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?BetweenCharsStop {
     switch (stop) {
         .byte => {
             return .both;
@@ -329,7 +340,7 @@ pub const EditorCore = struct {
             if (index <= 0 or index >= len) continue; // readSlice will go out of range
             var bytes: [2]u8 = undefined;
             block.readSlice(block.positionFromDocbyte(index - 1), &bytes);
-            const marker = hasStop(bytes[0], bytes[1], stop) orelse continue;
+            const marker = hasStop_bytes(bytes[0], bytes[1], stop) orelse continue;
             switch (mode) {
                 .left => switch (marker) {
                     .left_or_select, .both => break,
@@ -820,12 +831,15 @@ fn testFindStops(expected: []const u8, stop_type: CursorLeftRightStop) !void {
             else => try test_src.append(char),
         }
     }
+    var test_src_doc_itm = seg_dep.SliceDocument{ .slice = test_src.items };
+    const test_src_doc = test_src_doc_itm.doc();
+
     var test_res = std.ArrayList(u8).init(std.testing.allocator);
     defer test_res.deinit();
     for (0..test_src.items.len + 1) |i| {
         const hs_res = blk: {
             if (i == 0 or i == test_src.items.len) break :blk .both;
-            break :blk hasStop(test_src.items[i - 1], test_src.items[i], stop_type);
+            break :blk hasStop(test_src_doc, i, stop_type);
         };
         if (hs_res) |hr| try test_res.append(switch (hr) {
             .left_or_select => '<',

@@ -11,6 +11,10 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    const seg_dep = b.dependency("unicode_segmentation", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     const blocks_mod = b.addModule("texteditor", .{
         .root_source_file = b.path("src/root.zig"),
@@ -18,6 +22,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     blocks_mod.addImport("blocks", blocks_dep.module("blocks"));
+    blocks_mod.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
 
     const block_test = b.addTest(.{
         .root_source_file = b.path("src/root.zig"),
@@ -25,6 +30,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     block_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
+    block_test.root_module.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
 
     b.installArtifact(block_test);
     const run_block_tests = b.addRunArtifact(block_test);

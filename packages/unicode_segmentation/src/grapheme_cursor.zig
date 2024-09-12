@@ -132,18 +132,6 @@ test "sizes" {
     assertCorrect();
 }
 
-// we would like to make isBoundary, prevBoundary, and nextBoundary:
-// - only require one call, pass in context & method to get str
-// - take care of codepoint boundaries at the edge of the context window
-// - replace invalid utf-8 with '?' before passing to rust
-
-pub const ManagedCursor = struct {
-    backing: GraphemeCursor,
-
-    pub fn init(document_len: usize) ManagedCursor {
-        return .{ .backing = .init(0, document_len, true) };
-    }
-};
 const RtlFbs = struct {
     buf: []u8,
     written: usize,
@@ -164,8 +152,8 @@ const RtlFbs = struct {
         self.written += msg.len;
     }
 };
-const GDirection = enum { left, right };
-const GenericDocument = struct {
+pub const GDirection = enum { left, right };
+pub const GenericDocument = struct {
     data: *anyopaque,
     len: usize,
 
@@ -296,6 +284,20 @@ const GenericDocument = struct {
         //       ...
 
         @panic("TODO");
+    }
+};
+pub const SliceDocument = struct {
+    slice: []const u8,
+    pub fn read(self_g: GenericDocument, offset: usize, direction: GDirection) []const u8 {
+        const self = self_g.cast(SliceDocument);
+        return switch (direction) {
+            .left => self.slice[0..offset],
+            .right => self.slice[offset..],
+        };
+    }
+
+    pub fn doc(self: *SliceDocument) GenericDocument {
+        return .from(SliceDocument, self, self.slice.len);
     }
 };
 
