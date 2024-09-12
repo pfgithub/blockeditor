@@ -4,7 +4,7 @@
             "type": "midas-rr",
             "request": "attach",
             "use-dap": true, // set to false if Midas stops working.
-            "name": "Minimum rr",
+            "name": "rr",
             "trace": "Off",
         }
     ]
