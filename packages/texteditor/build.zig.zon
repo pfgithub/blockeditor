@@ -2,12 +2,11 @@
     .name = "texteditor",
     .version = "0.0.0",
     .dependencies = .{
-        .zg = .{
-            .url = "git+https://codeberg.org/dude_the_builder/zg.git?ref=master#7ddce488e074c3f052949ba513a340446cea86e9",
-            .hash = "12205e2e7108385a1ec280b6365166e902a690d6a0e8fcc015fdea62d63cf79be8ec",
-        },
         .blocks = .{
             .path = "../blocks",
+        },
+        .unicode_segmentation = .{
+            .path = "../unicode_segmentation",
         },
     },
     .paths = .{

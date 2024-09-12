@@ -7,11 +7,6 @@ pub fn build(b: *std.Build) !void {
     const fmt_step = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
     b.getInstallStep().dependOn(&fmt_step.step);
 
-    const zg_dep = b.dependency("zg", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     const blocks_dep = b.dependency("blocks", .{
         .target = target,
         .optimize = optimize,
@@ -22,7 +17,6 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    blocks_mod.addImport("zg_grapheme", zg_dep.module("grapheme"));
     blocks_mod.addImport("blocks", blocks_dep.module("blocks"));
 
     const block_test = b.addTest(.{
@@ -30,7 +24,6 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    block_test.root_module.addImport("zg_grapheme", zg_dep.module("grapheme"));
     block_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
 
     b.installArtifact(block_test);
