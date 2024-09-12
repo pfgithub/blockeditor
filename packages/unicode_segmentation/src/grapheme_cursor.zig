@@ -66,6 +66,9 @@ const Layout = extern struct {
     alignment: usize,
 };
 
+export fn rust_eh_personality() noreturn {
+    @panic("rust_eh_personality");
+}
 export fn zig_panic(msg_ptr: [*]const u8, msg_len: usize) noreturn {
     @panic(msg_ptr[0..msg_len]);
 }
