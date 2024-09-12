@@ -73,6 +73,14 @@ fn asciiClassify(char: u8) AsciiClassification {
 }
 fn hasStop(doc: seg_dep.GenericDocument, docbyte: usize, stop: CursorLeftRightStop) ?BetweenCharsStop {
     if (docbyte == 0 or docbyte == doc.len) unreachable;
+
+    if (stop == .unicode_grapheme_cluster) {
+        return switch (doc.isBoundary(docbyte)) {
+            true => .both,
+            false => null,
+        };
+    }
+
     const docl = doc.read(doc, docbyte - 1, .right);
     const left_byte = docl[0];
     const right_byte = if (docl.len > 1) docl[1] else blk: {
@@ -879,12 +887,14 @@ test hasStop {
             },
             .codepoint => {
                 try testFindStops("|u|\xE2\x80\xA6|!|", v);
-                try testFindStops("|H|e|\u{301}|l|l|o|", .codepoint);
+                try testFindStops("|H|e|\u{301}|l|l|o|", v);
             },
             .unicode_grapheme_cluster => {
                 // TODO
-                // try testFindStops("|म|नी|ष|", v);
-                // try testFindStops("|H|e\u{301}|l|l|o|", v);
+                try testFindStops("|म|नी|ष|", v);
+                try testFindStops("|H|e\u{301}|l|l|o|", v);
+                try testFindStops("|🇷🇸|🇮🇴|🇷🇸|🇮🇴|🇷🇸|🇮🇴|🇷🇸|🇮🇴|", v);
+                try testFindStops("|\u{301}|", v);
             },
             .word => {
                 try testFindStops("|hello> <world|", v);
