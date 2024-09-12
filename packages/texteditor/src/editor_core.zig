@@ -55,6 +55,7 @@ pub const DragSelectionMode = struct {
 
 const BetweenCharsStop = enum {
     left_or_select,
+    // TODO left_delete_only, for backspacing part of a grapheme cluster
     right_or_select,
     right_only,
     both,
@@ -892,6 +893,7 @@ test hasStop {
                 try testFindStops("|H|e\u{301}|l|l|o|", v);
                 try testFindStops("|🇷🇸|🇮🇴|🇷🇸|🇮🇴|🇷🇸|🇮🇴|🇷🇸|🇮🇴|", v);
                 try testFindStops("|\u{301}|", v);
+                try testFindStops("|h|i|👨‍👩‍👧‍👧|b|y|e|", v);
             },
             .word => {
                 try testFindStops("|hello> <world|", v);
@@ -1105,4 +1107,49 @@ test EditorCore {
         \\    \\    }
         \\    \\|    @vertex fn vert(in: VertexIn)
     );
+
+    //
+    // Grapheme cluster movement
+    //
+    // tester.executeCommand(.select_all);
+    // tester.executeCommand(.{ .insert_text = .{ .text = "He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!\n." } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!\n.|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!\n|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष!|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनीष|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …मनी|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …म|"); // TODO: not sure if this is expected behaviour. firefox deletes these one codepoint at a time
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! …|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}! |");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}!|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("He\u{301}|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("H|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    // try tester.expectContent("|");
 }

@@ -296,10 +296,51 @@ pub const SliceDocument = struct {
         };
     }
 
-    pub fn doc(self: *SliceDocument) GenericDocument {
+    pub fn doc(self: *const SliceDocument) GenericDocument {
         return .from(SliceDocument, self, self.slice.len);
     }
 };
+
+test "genericdocument family test" {
+    const family_emoji = "A👨‍👩‍👧‍👧B";
+    const slice_doc = SliceDocument{ .slice = family_emoji };
+    const doc = slice_doc.doc();
+
+    for (0..family_emoji.len + 1) |i| {
+        const expected = switch (i) {
+            0 => true,
+            1 => true,
+            family_emoji.len - 1 => true,
+            family_emoji.len => true,
+            else => false,
+        };
+        const actual = doc.isBoundary(i);
+        try std.testing.expectEqual(expected, actual);
+    }
+}
+test "family test" {
+    const family_emoji: []const u8 = "A👨‍👩‍👧‍👧B";
+
+    var view = std.unicode.Utf8View.initUnchecked(family_emoji);
+    var vi = view.iterator();
+    while (vi.nextCodepointSlice()) |cs| {
+        const idx = cs.ptr - family_emoji.ptr;
+
+        var cursor: GraphemeCursor = .init(idx, family_emoji.len, true);
+        const ibres = cursor.isBoundary(.fromUnchecked(family_emoji), 0);
+
+        const expected = switch (idx) {
+            0 => true,
+            1 => true,
+            family_emoji.len - 1 => true,
+            family_emoji.len => true,
+            else => false,
+        };
+
+        try std.testing.expectEqual(ResultTag.ok, ibres.tag);
+        try std.testing.expectEqual(expected, ibres.value.ok);
+    }
+}
 
 test "genericdocument flag test" {
     const my_str = "🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴";
@@ -317,9 +358,10 @@ test "genericdocument flag test" {
     const docv = my_doc{ .str = my_str };
     const doc = GenericDocument.from(my_doc, &docv, my_str.len);
 
-    for (0..my_str.len) |i| {
+    for (0..my_str.len + 1) |i| {
         const expected = i % 8 == 0;
-        try std.testing.expectEqual(expected, doc.isBoundary(i));
+        const actual = doc.isBoundary(i);
+        try std.testing.expectEqual(expected, actual);
     }
 }
 
@@ -384,7 +426,8 @@ test "flag test" {
 }
 
 test "cursor" {
-    const my_str = "He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!";
+    const family_emoji = "👨‍👩‍👧‍👧";
+    const my_str = "He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!" ++ family_emoji;
 
     var cursor: GraphemeCursor = .init(0, my_str.len, true);
 
@@ -418,5 +461,13 @@ test "cursor" {
         try std.testing.expectEqual(ResultTag.ok, next_boundary_res.tag);
         try std.testing.expectEqual(ResultTag.ok, next_boundary_res.value.ok.tag);
         try std.testing.expectEqual(@as(usize, 4), next_boundary_res.value.ok.value.ok);
+    }
+
+    {
+        cursor.setCursor(my_str.len);
+        const prev_boundary_res = cursor.prevBoundary(.from(my_str), 0);
+        try std.testing.expectEqual(ResultTag.ok, prev_boundary_res.tag);
+        try std.testing.expectEqual(ResultTag.ok, prev_boundary_res.value.ok.tag);
+        try std.testing.expectEqual(my_str.len - family_emoji.len, prev_boundary_res.value.ok.value.ok);
     }
 }
