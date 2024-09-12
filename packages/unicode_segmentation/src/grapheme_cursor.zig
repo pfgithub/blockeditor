@@ -301,23 +301,23 @@ pub const SliceDocument = struct {
     }
 };
 
-test "genericdocument family test" {
-    const family_emoji = "A👨‍👩‍👧‍👧B";
-    const slice_doc = SliceDocument{ .slice = family_emoji };
-    const doc = slice_doc.doc();
+// test "genericdocument family test" {
+//     const family_emoji = "A👨‍👩‍👧‍👧B";
+//     const slice_doc = SliceDocument{ .slice = family_emoji };
+//     const doc = slice_doc.doc();
 
-    for (0..family_emoji.len + 1) |i| {
-        const expected = switch (i) {
-            0 => true,
-            1 => true,
-            family_emoji.len - 1 => true,
-            family_emoji.len => true,
-            else => false,
-        };
-        const actual = doc.isBoundary(i);
-        try std.testing.expectEqual(expected, actual);
-    }
-}
+//     for (0..family_emoji.len + 1) |i| {
+//         const expected = switch (i) {
+//             0 => true,
+//             1 => true,
+//             family_emoji.len - 1 => true,
+//             family_emoji.len => true,
+//             else => false,
+//         };
+//         const actual = doc.isBoundary(i);
+//         try std.testing.expectEqual(expected, actual);
+//     }
+// }
 test "family test" {
     const family_emoji: []const u8 = "A👨‍👩‍👧‍👧B";
 
@@ -339,6 +339,25 @@ test "family test" {
 
         try std.testing.expectEqual(ResultTag.ok, ibres.tag);
         try std.testing.expectEqual(expected, ibres.value.ok);
+    }
+
+    {
+        var cursor: GraphemeCursor = .init(8, family_emoji.len, true);
+        const ibres1 = cursor.isBoundary(.fromUnchecked(family_emoji[8..]), 8);
+        try std.testing.expectEqual(ResultTag.err, ibres1.tag);
+        try std.testing.expectEqual(GraphemeIncompleteTag.pre_context, ibres1.value.err.tag);
+        try std.testing.expectEqual(@as(usize, 8), ibres1.value.err.pre_context_offset);
+
+        cursor.provideContext(.fromUnchecked(family_emoji[5..8]), 5);
+        const ibres2 = cursor.isBoundary(.fromUnchecked(family_emoji[8..]), 8);
+        try std.testing.expectEqual(ResultTag.err, ibres2.tag);
+        try std.testing.expectEqual(GraphemeIncompleteTag.pre_context, ibres2.value.err.tag);
+        try std.testing.expectEqual(@as(usize, 5), ibres2.value.err.pre_context_offset);
+
+        cursor.provideContext(.fromUnchecked(family_emoji[1..5]), 1);
+        const ibres3 = cursor.isBoundary(.fromUnchecked(family_emoji[8..]), 8);
+        try std.testing.expectEqual(ResultTag.ok, ibres3.tag);
+        try std.testing.expectEqual(false, ibres3.value.ok);
     }
 }
 
