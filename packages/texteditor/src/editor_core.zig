@@ -228,6 +228,10 @@ const DocumentDocument = struct {
         return switch (direction) {
             .right => self.text_doc.read(self.text_doc.positionFromDocbyte(offset)),
             .left => self.text_doc.read(self.text_doc.positionFromDocbyte(offset - 1))[0..1],
+            // TODO: implement and switch to .readLeft()
+            // note that switching before seg_dep.segmentation_issue_139 is fixed will cause
+            // inconsistent behaviour moving the cursor left over an emoji with zwj that is split
+            // in half with a span vs one that is not
         };
     }
 
