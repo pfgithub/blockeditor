@@ -630,7 +630,7 @@ pub const EditorCore = struct {
     pub fn onClick(self: *EditorCore, pos: Position, click_count: usize, shift_held: bool) void {
         const cursor = self.getEnsureOneCursor(pos);
         const sel_mode: DragSelectionMode = switch (click_count) {
-            1 => .{ .stop = .byte, .select = false },
+            1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
             2 => .{ .stop = .word, .select = true },
             3 => .{ .stop = .line, .select = true },
             else => {

@@ -48,7 +48,7 @@ pub const EditorView = struct {
         //
         // ?$word ?$select (left | right) => move_cursor_lr [
         //     .direction = $3(.left, .right),
-        //     .stop = $1(.byte, .word),
+        //     .stop = $1(.unicode_grapheme_cluster, .word),
         //     .mode = $2(.move, .select),
         // ]
         // ?$select (home | end) => move_cursor_lr [
@@ -58,7 +58,7 @@ pub const EditorView = struct {
         // ]
         // ?$word (backspace | delete) => delete [
         //     .direction = $2(.left, .right),
-        //     .stop = $1(.byte, .word),
+        //     .stop = $1(.unicode_grapheme_cluster, .word),
         // ]
         // $word (down | up) => ts_select_node [
         //     .direction = $2(.down, .up),
@@ -83,7 +83,7 @@ pub const EditorView = struct {
                     .right => .right,
                 },
                 .stop = switch (hk.alt) {
-                    false => .byte,
+                    false => .unicode_grapheme_cluster,
                     true => .word,
                 },
                 .mode = switch (hk.shift) {
@@ -111,7 +111,7 @@ pub const EditorView = struct {
                     .delete => .right,
                 },
                 .stop = switch (hk.alt) {
-                    false => .byte,
+                    false => .unicode_grapheme_cluster,
                     true => .word,
                 },
             } });
