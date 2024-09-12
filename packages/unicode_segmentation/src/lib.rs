@@ -243,7 +243,10 @@ mod tests {
     #[test]
     fn passes() {
         let mut cursor = GraphemeCursor::new(8, family_emoji.len(), true);
-        assert_eq!(cursor.is_boundary(&family_emoji[8..], 8), Err(PreContext(8)));
+        assert_eq!(
+            cursor.is_boundary(&family_emoji[8..], 8),
+            Err(PreContext(8))
+        );
         cursor.provide_context(&family_emoji[1..8], 1);
         assert_eq!(cursor.is_boundary(&family_emoji[8..], 8), Ok(false));
     }
@@ -251,9 +254,15 @@ mod tests {
     #[test]
     fn fails() {
         let mut cursor = GraphemeCursor::new(8, family_emoji.len(), true);
-        assert_eq!(cursor.is_boundary(&family_emoji[8..], 8), Err(PreContext(8)));
+        assert_eq!(
+            cursor.is_boundary(&family_emoji[8..], 8),
+            Err(PreContext(8))
+        );
         cursor.provide_context(&family_emoji[5..8], 5);
-        assert_eq!(cursor.is_boundary(&family_emoji[8..], 8), Err(PreContext(5)));
+        assert_eq!(
+            cursor.is_boundary(&family_emoji[8..], 8),
+            Err(PreContext(5))
+        );
         cursor.provide_context(&family_emoji[1..5], 1);
         assert_eq!(cursor.is_boundary(&family_emoji[8..], 8), Ok(false));
     }
