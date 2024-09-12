@@ -301,23 +301,23 @@ pub const SliceDocument = struct {
     }
 };
 
-// test "genericdocument family test" {
-//     const family_emoji = "A👨‍👩‍👧‍👧B";
-//     const slice_doc = SliceDocument{ .slice = family_emoji };
-//     const doc = slice_doc.doc();
+test "genericdocument family test" {
+    const family_emoji = "A👨‍👩‍👧‍👧B";
+    const slice_doc = SliceDocument{ .slice = family_emoji };
+    const doc = slice_doc.doc();
 
-//     for (0..family_emoji.len + 1) |i| {
-//         const expected = switch (i) {
-//             0 => true,
-//             1 => true,
-//             family_emoji.len - 1 => true,
-//             family_emoji.len => true,
-//             else => false,
-//         };
-//         const actual = doc.isBoundary(i);
-//         try std.testing.expectEqual(expected, actual);
-//     }
-// }
+    for (0..family_emoji.len + 1) |i| {
+        const expected = switch (i) {
+            0 => true,
+            1 => true,
+            family_emoji.len - 1 => true,
+            family_emoji.len => true,
+            else => false,
+        };
+        const actual = doc.isBoundary(i);
+        try std.testing.expectEqual(expected, actual);
+    }
+}
 test "family test" {
     const family_emoji: []const u8 = "A👨‍👩‍👧‍👧B";
 
