@@ -99,8 +99,7 @@ fn hasStop_bytes(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?Betw
             return .both;
         },
         .unicode_grapheme_cluster => {
-            // maybe we should pass in the Position we're testing? not sure
-            @panic("function does not have enough information to determine grapheme stop");
+            @panic("handled in hasStop()");
         },
         .word => {
             const left = asciiClassify(left_byte);
