@@ -450,6 +450,46 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
     _ = gctx.present();
 }
 
+pub fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
+    if (counter_anyref.contents()) |counter_contents| {
+        const counter = counter_contents.client().cast(bi.CounterBlock);
+        const server_int = if (counter_contents.server()) |server_value| ( //
+            server_value.cast(bi.CounterBlock).value.count //
+        ) else null;
+        zgui.text("Count: {d} (server value: {?d})", .{ counter.value.count, server_int });
+        if (zgui.button("Increment!", .{})) {
+            var my_operation_al = bi.AlignedArrayList.init(arena);
+            defer my_operation_al.deinit();
+            const my_operation = bi.CounterBlock.Operation{
+                .add = 1,
+            };
+            my_operation.serialize(&my_operation_al);
+            var my_undo_operation_al = bi.AlignedArrayList.init(arena);
+            defer my_undo_operation_al.deinit();
+            counter_anyref.applyOperation("", my_operation_al.items, &my_undo_operation_al);
+        }
+        if (zgui.button("Zero!", .{})) {
+            var my_operation_al = bi.AlignedArrayList.init(arena);
+            defer my_operation_al.deinit();
+            const my_operation = bi.CounterBlock.Operation{
+                .set = 0,
+            };
+            my_operation.serialize(&my_operation_al);
+            var my_undo_operation_al = bi.AlignedArrayList.init(arena);
+            defer my_undo_operation_al.deinit();
+            counter_anyref.applyOperation("", my_operation_al.items, &my_undo_operation_al);
+        }
+        if (zgui.button("Undo!", .{})) {
+            @panic("TODO: someone needs to keep an undo list");
+        }
+        if (zgui.button("Redo!", .{})) {
+            @panic("TODO: someone needs to keep a redo list");
+        }
+    } else {
+        zgui.text("Counter loading...", .{});
+    }
+}
+
 fn zglfwKeyToBeuiKey(key: zglfw.Key) ?beui_mod.BeuiKey {
     const val: i32 = @intFromEnum(key);
     switch (val) {
@@ -670,7 +710,7 @@ pub fn main() !void {
         zgui.setNextWindowPos(.{ .x = 20.0, .y = 80.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
         if (zgui.begin("My counter (editor 1)", .{})) {
-            @import("entrypoint.zig").renderCounter(arena, my_counter);
+            renderCounter(arena, my_counter);
         }
         zgui.end();
 
