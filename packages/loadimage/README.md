@@ -38,6 +38,8 @@ image data is in RGBA order. use `std.mem.bytesAsSlice(u32, image.rgba)` to read
 - support all image formats wuffs supports
 - support extracting all frames from gif, rather than just the first
 - export a seperate module "loadimage_zig_only" and an artifact "loadimage_obj" for manually linking the object if wanted
+- remove dependency on libc
+- don't leak any symbols into parent compilation
 
 # building
 

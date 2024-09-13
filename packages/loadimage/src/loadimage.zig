@@ -11,6 +11,14 @@ const LoadedImage = struct {
         gpa.free(self.rgba);
     }
 };
+fn allocDecoder(
+    comptime decoder_fn: anytype,
+    comptime upcast_fn: anytype,
+) !struct { *anyopaque, *wuffs.wuffs_base__image_decoder } {
+    const decoder_raw = decoder_fn() orelse return error.OutOfMemory;
+    const upcasted = upcast_fn(decoder_raw).?;
+    return .{ decoder_raw, upcasted };
+}
 pub fn loadImage(gpa: std.mem.Allocator, file_cont: []const u8) !LoadedImage {
     // wuffs may be a single file c library with almost no dependencies
     // so it's easy to compile into a program
@@ -27,15 +35,21 @@ pub fn loadImage(gpa: std.mem.Allocator, file_cont: []const u8) !LoadedImage {
     if (g_fourcc < 0) return error.CouldNotGuessFileFormat;
 
     // can't stack allocate the decoder because it requires #define WUFFS_IMPLEMENTATION
-    // TODO: stack allocate the decoder anyway based on its known size and alignment, and assert that it's right
+    // note that if stack allocated, it must be fully zeroed. the c version uses calloc.
+    // TODO: heap allocate it with a zig allocator
     const decoder_raw, const g_image_decoder = switch (g_fourcc) {
-        wuffs.WUFFS_BASE__FOURCC__PNG => blk: {
-            const decoder_raw = wuffs.wuffs_png__decoder__alloc() orelse return error.OutOfMemory;
-            break :blk .{
-                decoder_raw,
-                wuffs.wuffs_png__decoder__upcast_as__wuffs_base__image_decoder(decoder_raw),
-            };
-        },
+        wuffs.WUFFS_BASE__FOURCC__BMP => try allocDecoder(
+            wuffs.wuffs_bmp__decoder__alloc,
+            wuffs.wuffs_bmp__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
+        wuffs.WUFFS_BASE__FOURCC__GIF => try allocDecoder(
+            wuffs.wuffs_gif__decoder__alloc,
+            wuffs.wuffs_gif__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
+        wuffs.WUFFS_BASE__FOURCC__PNG => try allocDecoder(
+            wuffs.wuffs_png__decoder__alloc,
+            wuffs.wuffs_png__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
         else => {
             return error.UnsupportedImageFormat;
         },
