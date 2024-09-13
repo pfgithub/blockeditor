@@ -12,6 +12,5 @@ Usage with rr:
 - for `packages/blocks`
 - 1: `zig build`
 - 2: `rr record ./zig-out/bin/test`
-- 3: `rr replay -s 50505 -k`
-- 4: run `rr` debug proflie in vscode
-- 5: use continue or `-exec rc` to jump to a breakpoint
+- 3: run `rr` debug proflie in vscode (requires midas extension)
+- 4: use continue or `-exec rc` to jump to a breakpoint
