@@ -13,7 +13,10 @@ pub fn build(b: *std.Build) !void {
     binary_target.os_version_min = .{ .none = undefined };
     binary_target.os_version_max = .{ .none = undefined };
     binary_target.glibc_version = null;
-    const zig_triple = try binary_target.zigTriple(b.allocator);
+    var zig_triple: []const u8 = try binary_target.zigTriple(b.allocator);
+    if(std.mem.endsWith(u8, zig_triple, "-none")) {
+        zig_triple = zig_triple[0..zig_triple.len - "-none".len];
+    }
     const afile = switch (target.result.abi == .msvc) {
         true => "unicode_segmentation_bindings.lib",
         false => "libunicode_segmentation_bindings.a",
