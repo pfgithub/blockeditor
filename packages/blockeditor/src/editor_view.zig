@@ -91,7 +91,8 @@ pub const EditorView = struct {
                     true => .select,
                 },
             } });
-        } else if (beui.hotkey(.{ .shift = .maybe }, &.{ .home, .end })) |hk| {
+        }
+        if (beui.hotkey(.{ .shift = .maybe }, &.{ .home, .end })) |hk| {
             // maybe should be .move_cursor_to_line_side
             self.core.executeCommand(.{ .move_cursor_left_right = .{
                 .direction = switch (hk.key) {
@@ -104,7 +105,8 @@ pub const EditorView = struct {
                     true => .select,
                 },
             } });
-        } else if (beui.hotkey(.{ .alt = .maybe }, &.{ .backspace, .delete })) |hk| {
+        }
+        if (beui.hotkey(.{ .alt = .maybe }, &.{ .backspace, .delete })) |hk| {
             self.core.executeCommand(.{ .delete = .{
                 .direction = switch (hk.key) {
                     .backspace => .left,
@@ -115,14 +117,16 @@ pub const EditorView = struct {
                     true => .word,
                 },
             } });
-        } else if (beui.hotkey(.{ .alt = .yes }, &.{ .down, .up })) |hk| {
+        }
+        if (beui.hotkey(.{ .alt = .yes }, &.{ .down, .up })) |hk| {
             self.core.executeCommand(.{ .ts_select_node = .{
                 .direction = switch (hk.key) {
                     .down => .child,
                     .up => .parent,
                 },
             } });
-        } else if (beui.hotkey(.{ .shift = .maybe }, &.{ .down, .up })) |hk| {
+        }
+        if (beui.hotkey(.{ .shift = .maybe }, &.{ .down, .up })) |hk| {
             self.core.executeCommand(.{ .move_cursor_up_down = .{
                 .direction = switch (hk.key) {
                     .down => .down,
@@ -134,23 +138,28 @@ pub const EditorView = struct {
                     true => .select,
                 },
             } });
-        } else if (beui.hotkey(.{}, &.{.enter})) |_| {
+        }
+        if (beui.hotkey(.{}, &.{.enter})) |_| {
             self.core.executeCommand(.newline);
-        } else if (beui.hotkey(.{ .shift = .maybe }, &.{.tab})) |hk| {
+        }
+        if (beui.hotkey(.{ .shift = .maybe }, &.{.tab})) |hk| {
             self.core.executeCommand(.{ .indent_selection = .{
                 .direction = switch (hk.shift) {
                     false => .right,
                     true => .left,
                 },
             } });
-        } else if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.a})) |_| {
+        }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.a})) |_| {
             self.core.executeCommand(.select_all);
-        } else if (beui.hotkey(.{ .ctrl_or_cmd = .yes, .shift = .maybe }, &.{.z})) |hk| {
+        }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes, .shift = .maybe }, &.{.z})) |hk| {
             self.core.executeCommand(switch (hk.shift) {
                 false => .undo,
                 true => .redo,
             });
-        } else if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.y})) |_| {
+        }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.y})) |_| {
             self.core.executeCommand(.redo);
         }
 
