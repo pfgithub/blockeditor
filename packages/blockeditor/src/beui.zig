@@ -840,7 +840,7 @@ const callbacks = struct {
 
     fn scrollCallback(window: *zglfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
         const beui = window.getUserPointer(Beui).?;
-        beui.frame.scroll += @floatCast(@Vector(2, f64){ xoffset, yoffset });
+        beui.frame.scroll += @floatCast(@Vector(2, f64){ xoffset, yoffset } * @Vector(2, f64){ 16, 16 });
     }
     fn cursorPosCallback(window: *zglfw.Window, xpos: f64, ypos: f64) callconv(.C) void {
         const beui = window.getUserPointer(Beui).?;
