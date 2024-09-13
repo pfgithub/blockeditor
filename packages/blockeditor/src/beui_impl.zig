@@ -563,6 +563,13 @@ const callbacks = struct {
     }
     fn cursorPosCallback(window: *zglfw.Window, xpos: f64, ypos: f64) callconv(.C) void {
         const beui = window.getUserPointer(beui_mod.Beui).?;
+        if (!beui.frame.frame_cfg.?.can_capture_mouse) {
+            // TODO: mouse_pos = null
+            // TODO: if can_capture_mouse becomes false but no new cursorPosCallback is
+            // received, set mouse_pos to the last known one from cursorPosCallback
+            beui.persistent.mouse_pos = .{ 0, 0 };
+            return;
+        }
         beui.persistent.mouse_pos = @floatCast(@Vector(2, f64){ xpos, ypos });
     }
     fn cursorEnterCallback(window: *zglfw.Window, entered: i32) callconv(.C) void {
@@ -575,6 +582,11 @@ const callbacks = struct {
     }
     fn mouseButtonCallback(window: *zglfw.Window, button: zglfw.MouseButton, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
         const beui = window.getUserPointer(beui_mod.Beui).?;
+
+        if (action != .release) {
+            if (!beui.frame.frame_cfg.?.can_capture_mouse) return;
+        }
+
         const beui_key = zglfwButtonToBeuiKey(button) orelse {
             std.log.warn("not supported glfw button: {}", .{button});
             return;
