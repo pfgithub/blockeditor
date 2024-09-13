@@ -136,7 +136,7 @@ pub const RenderList = struct {
         const tile_id: @Vector(2, f32) = .{ @floatFromInt(conv[0]), @floatFromInt(conv[1]) };
         const tile_pos: @Vector(2, f32) = tile_id * @Vector(2, f32){ 6, 10 } + @Vector(2, f32){ 1, 1 };
         const tile_size: @Vector(2, f32) = .{ 5, 9 };
-        const font_size: @Vector(2, f32) = .{ 255, 255 };
+        const font_size: @Vector(2, f32) = .{ 256, 256 };
         const tile_uv_pos = tile_pos / font_size;
         const tile_uv_size = tile_size / font_size;
         self.addRect(pos, tile_size, .{
