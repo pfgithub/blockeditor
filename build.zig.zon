@@ -1,0 +1,16 @@
+.{
+    .name = "blockeditor_packages",
+    .version = "0.1.0",
+    .paths = .{
+        "",
+    },
+    .dependencies = .{
+        .beui = .{ .path = "packages/beui" },
+        .blockeditor = .{ .path = "packages/blockeditor" },
+        .blocks = .{ .path = "packages/blocks" },
+        .blocks_net = .{ .path = "packages/blocks_net" },
+        .loadimage = .{ .path = "packages/loadimage" },
+        .texteditor = .{ .path = "packages/texteditor" },
+        .unicode_segmentation = .{ .path = "packages/unicode_segmentation" },
+    },
+}
