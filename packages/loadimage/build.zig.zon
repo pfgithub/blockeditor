@@ -6,8 +6,8 @@
     },
     .dependencies = .{
         .wuffs = .{
-            .url = "https://github.com/google/wuffs-mirror-release-c/archive/50869df0ea703b4f41b238bfe26aec6ec9c86889.tar.gz",
-            .hash = "1220e2af4eefb0b1ca43717669289c6ad543c500ed940ff0d284f3eecf879cae65f0",
+            .url = "https://github.com/google/wuffs-mirror-release-c/archive/90e4d81a6a8b7b601e8e568da32a105d7f7705e5.tar.gz",
+            .hash = "12203a69965929b7cd32fe834ace489fb083154ea7227bbf63a698233a78c65c96a7",
         },
     },
 }
