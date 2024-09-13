@@ -6,9 +6,6 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const treesitter_optimize: std.builtin.OptimizeMode = .ReleaseSafe;
 
-    const tool_target = b.resolveTargetQuery(.{});
-    const tool_optimize: std.builtin.OptimizeMode = .Debug;
-
     const enable_tracy = b.option(bool, "enable_tracy", "Enable tracy?") orelse false;
 
     const format_step = b.addFmt(.{
@@ -16,26 +13,11 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&format_step.step);
 
-    const loadimage_mod = b.dependency("loadimage", .{ .target = tool_target, .optimize = tool_optimize });
-    const genfont_tool = b.addExecutable(.{
-        .name = "genfont_tool",
-        .root_source_file = b.path("src/genfont.zig"),
-        .target = tool_target,
-        .optimize = tool_optimize,
-    });
-    genfont_tool.root_module.addImport("loadimage", loadimage_mod.module("loadimage"));
-    const genfont_run = b.addRunArtifact(genfont_tool);
-    genfont_run.addFileArg(b.path("src/base_texture.png"));
-    const font_rgba = genfont_run.addOutputFileArg("font.rgba");
-    const font_rgba_mod = b.createModule(.{
-        .root_source_file = font_rgba,
-    });
-
     const zig_gamedev_dep = b.dependency("zig_gamedev", .{});
 
     const blockeditor_exe = b.addExecutable(.{
         .name = "blockeditor",
-        .root_source_file = b.path("src/beui.zig"),
+        .root_source_file = b.path("src/beui_impl.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -51,6 +33,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     blockeditor_exe.root_module.addImport("texteditor", texteditor_dep.module("texteditor"));
+    const beui_dep = b.dependency("beui", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    blockeditor_exe.root_module.addImport("beui", beui_dep.module("beui"));
 
     // tree sitter stuff
     {
@@ -130,8 +117,6 @@ pub fn build(b: *std.Build) !void {
         blockeditor_exe.root_module.addImport("zstbi", zstbi.module("root"));
         blockeditor_exe.linkLibrary(zstbi.artifact("zstbi"));
     }
-
-    blockeditor_exe.root_module.addImport("font.rgba", font_rgba_mod);
 
     b.installArtifact(blockeditor_exe);
 

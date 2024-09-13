@@ -1,0 +1,12 @@
+.{
+    .name = "beui",
+    .version = "0.1.0",
+    .paths = .{
+        "",
+    },
+    .dependencies = .{
+        .loadimage = .{
+            .path = "../loadimage",
+        },
+    },
+}

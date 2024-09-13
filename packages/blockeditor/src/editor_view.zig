@@ -3,10 +3,10 @@ const blocks_mod = @import("blocks");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
-const draw_lists = @import("render_list.zig");
+const draw_lists = beui_mod.draw_lists;
 const zglfw = @import("zglfw");
 const zgui = @import("zgui"); // zgui doesn't have everything! we should use cimgui + translate-c like we used to
-const beui_mod = @import("beui.zig");
+const beui_mod = @import("beui");
 
 const editor_core = @import("texteditor").core;
 
