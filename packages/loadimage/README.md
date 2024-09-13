@@ -2,11 +2,6 @@
 
 simple, safe image loading using wuffs
 
-supported file formats:
-
-- png
-- TODO: jpeg, gif, qoi, webp, and the rest of the formats wuffs supports
-
 usage:
 
 ```
@@ -42,3 +37,9 @@ image data is in RGBA order. use `std.mem.bytesAsSlice(u32, image.rgba)` to read
 
 - support all image formats wuffs supports
 - export a seperate module "loadimage_zig_only" and an artifact "loadimage_obj" for manually linking the object if wanted
+
+# building
+
+```
+zig build test
+```
