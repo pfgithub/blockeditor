@@ -217,14 +217,14 @@ fn BalancedBinaryTree(comptime Data: type) type {
             const nodev = self._getNodePtrConst(target) orelse return 0;
             return nodev.height;
         }
-        fn _rebalance(self: *@This(), x_idx: NodeIndex) void {
+        fn _rebalanceInner(self: *@This(), x_idx: NodeIndex) ?NodeIndex {
             const y_idx = self._getParent(x_idx);
             const z_idx = self._getParent(y_idx);
-            if (x_idx == .root or y_idx == .root or z_idx == .root) return;
+            if (x_idx == .root or y_idx == .root or z_idx == .root) return null;
             const y_dir_to_x = self._getChildSide(y_idx, x_idx);
             const z_dir_to_y = self._getChildSide(z_idx, y_idx);
 
-            const z_ptr = self._getNodePtrConst(z_idx) orelse return;
+            const z_ptr = self._getNodePtrConst(z_idx) orelse return null;
             const lhs_height = self._height(z_ptr.lhs);
             const rhs_height = self._height(z_ptr.rhs);
             if (lhs_height > rhs_height + 1) {
@@ -260,7 +260,13 @@ fn BalancedBinaryTree(comptime Data: type) type {
             }
 
             // travel up
-            @call(.always_tail, _rebalance, .{ self, self._getParent(x_idx) });
+            return self._getParent(x_idx);
+        }
+        fn _rebalance(self: *@This(), x_id: NodeIndex) void {
+            var target: ?NodeIndex = x_id;
+            while (target) |t| {
+                target = self._rebalanceInner(t);
+            }
         }
         pub fn insertNodeBefore(self: *@This(), new_node_data: Data, anchor_node: NodeIndex) !NodeIndex {
             // the correct way to insert is to only insert as a leaf node
@@ -747,12 +753,12 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     .byte_count = 0,
                     .newline_count = 0,
                 };
-                const document: *const Doc = @fieldParentPtr("span_bbt", bbt);
+                const document: *const Doc = @alignCast(@fieldParentPtr("span_bbt", bbt));
                 var result = Count{
                     .byte_count = span.length,
                     .newline_count = 0,
                 };
-                for (document.buffer.items[span.bufbyte.?..][0..span.length]) |char| {
+                for (document.buffer.items[usi(span.bufbyte.?)..][0..usi(span.length)]) |char| {
                     if (char == '\n') result.newline_count += 1;
                 }
                 return result;
@@ -776,7 +782,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 }
 
                 const DocbyteQuery = struct {
-                    docbyte: usize,
+                    docbyte: u64,
                     fn compare(q: DocbyteQuery, a: Count, b: Count) std.math.Order {
                         if (q.docbyte < a.byte_count) return .lt;
                         if (q.docbyte >= b.byte_count) return .gt;
@@ -845,11 +851,11 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 if (node.id == .end) break;
                 if (node.bufbyte == null) continue;
 
-                writer.writeAll(self.buffer.items[node.bufbyte.?..][0..node.length]) catch @panic("oom");
+                writer.writeAll(self.buffer.items[usi(node.bufbyte.?)..][0..usi(node.length)]) catch @panic("oom");
             }
 
             // align
-            const aligned_length = std.mem.alignForward(u64, out.items.len, 16);
+            const aligned_length = std.mem.alignForward(usize, out.items.len, 16);
             const align_diff = aligned_length - out.items.len;
             for (0..align_diff) |_| writer.writeByte('\x00') catch @panic("oom");
 
@@ -894,8 +900,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
             const buffer_length = reader.readInt(u64, .little) catch return error.DeserializeError;
             if (buffer_length > fbs.buffer[fbs.pos..].len) return error.DeserializeError;
-            res.buffer.appendSlice(fbs.buffer[fbs.pos..][0..buffer_length]) catch @panic("oom");
-            fbs.pos += buffer_length;
+            res.buffer.appendSlice(fbs.buffer[fbs.pos..][0..usi(buffer_length)]) catch @panic("oom");
+            fbs.pos += usi(buffer_length);
             fbs.pos = std.mem.alignForward(usize, fbs.pos, 16);
             if (fbs.pos > fbs.buffer.len) return error.DeserializeError;
 
@@ -991,14 +997,14 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 .segbyte = span_data.start_segbyte + (target_docbyte - span_position.byte_count),
             };
         }
-        pub fn docbyteFromPosition(self: *const Doc, position: Position) usize {
+        pub fn docbyteFromPosition(self: *const Doc, position: Position) u64 {
             const res = self._findEntrySpan(position);
             return res.span_start_docbyte + res.spanbyte;
         }
         pub const EntryIndex = struct {
             span_index: BBT.NodeIndex,
-            span_start_docbyte: usize,
-            spanbyte: usize,
+            span_start_docbyte: u64,
+            spanbyte: u64,
         };
         fn _findEntrySpan(self: *const Doc, position: Position) EntryIndex {
             // this should be:
@@ -1035,7 +1041,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             const target_span_info = self._findEntrySpan(target_span);
             const target_segbyte = target_span.segbyte + 1;
             const target_span_cont = self.span_bbt.getNodeDataPtrConst(target_span_info.span_index).?;
-            const rlres = self.buffer.items[target_span_cont.bufbyte.?..][0 .. target_segbyte - target_span_cont.start_segbyte];
+            const rlres = self.buffer.items[usi(target_span_cont.bufbyte.?)..][0..usi(target_segbyte - target_span_cont.start_segbyte)];
             return rlres;
         }
         pub fn readIterator(self: *const Doc, start: Position) ReadIterator {
@@ -1059,7 +1065,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 const span = self.doc.span_bbt.getNodeDataPtrConst(span_index).?;
                 if (span.deleted()) return "";
                 if (span.id == .end) return null;
-                const span_text = self.doc.buffer.items[span.bufbyte.?..][0..span.length];
+                const span_text = self.doc.buffer.items[usi(span.bufbyte.?)..][0..usi(span.length)];
                 if (self.sliced) return span_text;
 
                 const span_count = self.doc.span_bbt.getCountForNode(span_index);
@@ -1068,7 +1074,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 if (self.start_docbyte >= span_count.byte_count) {
                     const diff = self.start_docbyte - span_count.byte_count;
                     std.debug.assert(diff <= span_text.len);
-                    const span_text_sub = span_text[diff..];
+                    const span_text_sub = span_text[usi(diff)..];
                     return span_text_sub;
                 } else {
                     return span_text;
@@ -1096,7 +1102,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             } else @panic("cannot remove if not found2");
             gpres.value_ptr.replaceRangeAssumeCapacity(insert_idx, 1, &.{});
         }
-        fn _ensureInIdMap(self: *Doc, seg: SegmentID, start: usize, idx: BBT.NodeIndex) void {
+        fn _ensureInIdMap(self: *Doc, seg: SegmentID, start: u64, idx: BBT.NodeIndex) void {
             const gpres = self.segment_id_map.getOrPut(seg) catch @panic("oom");
             if (!gpres.found_existing) gpres.value_ptr.* = .init(self.allocator);
             const insert_idx: usize = for (gpres.value_ptr.items, 0..) |itm, i| {
@@ -1393,13 +1399,13 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         const span_start_offset = op_clamped_start_segbyte - span_start_segbyte;
                         const op_start_offset = op_clamped_start_segbyte - replace_op.start.segbyte;
                         const clamped_length = op_clamped_end_segbyte - op_clamped_start_segbyte;
-                        const replace_contents = replace_op.text[op_start_offset..][0..clamped_length];
+                        const replace_contents = replace_op.text[usi(op_start_offset)..][0..usi(clamped_length)];
 
                         if (span_value.bufbyte) |bufbyte| {
                             // - not deleted and partial or full coverage:
                             // update buffer
-                            const full_range = self.buffer.items[bufbyte..][0..span_value.length];
-                            const update_range = full_range[span_start_offset..][0..clamped_length];
+                            const full_range = self.buffer.items[usi(bufbyte)..][0..usi(span_value.length)];
+                            const update_range = full_range[usi(span_start_offset)..][0..usi(clamped_length)];
                             @memcpy(update_range, replace_contents);
 
                             // update newline points
@@ -1900,11 +1906,10 @@ const BlockTester = struct {
     }
 };
 
+fn usi(a: u64) usize {
+    return @intCast(a);
+}
+
 // notes:
 // currently, typing will insert a lot of table entries
-// we can reduce this by:
-// - on insert
-// - if the target's client_id == our client_id
-//   and the target's pos + offset == the end of the array
-//   then, rather than creating a normal insert, create an extend
-//   operation
+// these will never go away

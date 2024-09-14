@@ -12,6 +12,8 @@ pub struct Layout {
 
 #[repr(C)]
 pub struct AndStr {
+    // TODO: remove AndStr
+    // zig and c convert it to a pointer or something, while rust passes it as two arguments
     ptr: *mut u8,
     len: usize,
 }

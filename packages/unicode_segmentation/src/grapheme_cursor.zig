@@ -157,18 +157,18 @@ const RtlFbs = struct {
 pub const GDirection = enum { left, right };
 pub const GenericDocument = struct {
     data: *anyopaque,
-    len: usize,
+    len: u64,
 
     /// pointer has to stay valid even across multiple calls to read()
-    read: *const fn (self: GenericDocument, offset: usize, direction: GDirection) []const u8,
+    read: *const fn (self: GenericDocument, offset: u64, direction: GDirection) []const u8,
 
-    pub fn from(comptime T: type, val: *const T, len: usize) GenericDocument {
+    pub fn from(comptime T: type, val: *const T, len: u64) GenericDocument {
         return .{ .data = @constCast(@ptrCast(val)), .len = len, .read = &T.read };
     }
     pub fn cast(self: GenericDocument, comptime T: type) *T {
         return @ptrCast(@alignCast(self.data));
     }
-    fn readFullCodepointLeft(doc: GenericDocument, offset: usize, backup_buffer: *[4]u8) ?[]const u8 {
+    fn readFullCodepointLeft(doc: GenericDocument, offset: u64, backup_buffer: *[4]u8) ?[]const u8 {
         std.debug.assert(offset != 0 and offset != doc.len);
 
         // how about we read at least four bytes, then walk right to left checking if it's a valid codepoint
@@ -206,7 +206,7 @@ pub const GenericDocument = struct {
         // went too far left
         return "?";
     }
-    fn readFullCodepointRight(doc: GenericDocument, offset: usize, backup_buffer: *[4]u8) ?[]const u8 {
+    fn readFullCodepointRight(doc: GenericDocument, offset: u64, backup_buffer: *[4]u8) ?[]const u8 {
         std.debug.assert(offset != 0 and offset != doc.len);
         const read_result = doc.read(doc, offset, .right);
         std.debug.assert(read_result.len > 0);
@@ -240,7 +240,7 @@ pub const GenericDocument = struct {
         };
         return fbs.buffer;
     }
-    pub fn isBoundary(doc: GenericDocument, cursor_pos: usize) bool {
+    pub fn isBoundary(doc: GenericDocument, cursor_pos: u64) bool {
         if (cursor_pos == 0) return true;
         if (cursor_pos == doc.len) return true;
 
@@ -250,9 +250,9 @@ pub const GenericDocument = struct {
             return false;
         };
 
-        var cursor: GraphemeCursor = .init(cursor_pos, doc.len, true);
+        var cursor: GraphemeCursor = .init(@intCast(cursor_pos), @intCast(doc.len), true);
         while (true) {
-            const res = cursor.isBoundary(.fromUnchecked(right_text), cursor_pos);
+            const res = cursor.isBoundary(.fromUnchecked(right_text), @intCast(cursor_pos));
             if (res.tag == .ok) return res.value.ok;
             const err = res.value.err;
             switch (err.tag) {
@@ -290,11 +290,11 @@ pub const GenericDocument = struct {
 };
 pub const SliceDocument = struct {
     slice: []const u8,
-    pub fn read(self_g: GenericDocument, offset: usize, direction: GDirection) []const u8 {
+    pub fn read(self_g: GenericDocument, offset: u64, direction: GDirection) []const u8 {
         const self = self_g.cast(SliceDocument);
         return switch (direction) {
-            .left => self.slice[0..offset],
-            .right => self.slice[offset..],
+            .left => self.slice[0..@intCast(offset)],
+            .right => self.slice[@intCast(offset)..],
         };
     }
 
@@ -370,7 +370,7 @@ test "genericdocument flag test" {
     const my_doc = struct {
         const my_doc = @This();
         str: []const u8,
-        fn read(self_g: GenericDocument, offset: usize, direction: GDirection) []const u8 {
+        fn read(self_g: GenericDocument, offset: u64, direction: GDirection) []const u8 {
             const self = self_g.cast(my_doc);
             return switch (direction) {
                 .right => self.str[offset .. offset + 1],

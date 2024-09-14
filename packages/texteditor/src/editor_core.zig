@@ -21,7 +21,7 @@ pub const Selection = struct {
 const PosLen = struct {
     pos: Position,
     right: Position,
-    len: usize,
+    len: u64,
 };
 pub const CursorPosition = struct {
     pos: Selection,
@@ -72,7 +72,7 @@ fn asciiClassify(char: u8) AsciiClassification {
     if (char >= 0x80) return .unicode;
     return .symbols;
 }
-fn hasStop(doc: seg_dep.GenericDocument, docbyte: usize, stop: CursorLeftRightStop) ?BetweenCharsStop {
+fn hasStop(doc: seg_dep.GenericDocument, docbyte: u64, stop: CursorLeftRightStop) ?BetweenCharsStop {
     if (docbyte == 0 or docbyte == doc.len) unreachable;
 
     if (stop == .unicode_grapheme_cluster) {
@@ -208,7 +208,7 @@ pub const IndentMode = union(enum) {
             .spaces => ' ',
         };
     }
-    fn count(self: IndentMode) usize {
+    fn count(self: IndentMode) u64 {
         return switch (self) {
             .tabs => 1,
             .spaces => |s| s,
@@ -222,7 +222,7 @@ pub const EditorConfig = struct {
 const DocumentDocument = struct {
     text_doc: *bi.text_component.TextDocument,
 
-    pub fn read(self_g: seg_dep.GenericDocument, offset: usize, direction: seg_dep.GDirection) []const u8 {
+    pub fn read(self_g: seg_dep.GenericDocument, offset: u64, direction: seg_dep.GDirection) []const u8 {
         const self = self_g.cast(DocumentDocument);
 
         return switch (direction) {
@@ -278,7 +278,7 @@ pub const EditorCore = struct {
 
     fn getLineStart(self: *EditorCore, pos: Position) Position {
         const block = self.document.value;
-        var index: usize = block.docbyteFromPosition(pos);
+        var index: u64 = block.docbyteFromPosition(pos);
         while (index > 0) : (index -= 1) {
             if (index <= 0) continue; // to keep readSlice in bounds
             var byte: [1]u8 = undefined;
@@ -308,7 +308,7 @@ pub const EditorCore = struct {
     }
     fn getNextLineStart(self: *EditorCore, prev_line_start: Position) Position {
         const block = self.document.value;
-        var index: usize = block.docbyteFromPosition(prev_line_start);
+        var index: u64 = block.docbyteFromPosition(prev_line_start);
         const len = block.length();
         while (index < len) {
             index += 1;
@@ -321,12 +321,12 @@ pub const EditorCore = struct {
         }
         return block.positionFromDocbyte(index);
     }
-    fn measureIndent(self: *EditorCore, line_start_pos: Position) struct { indents: usize, chars: usize } {
-        var indent_segments: usize = 0;
-        var chars: usize = 0;
+    fn measureIndent(self: *EditorCore, line_start_pos: Position) struct { indents: u64, chars: u64 } {
+        var indent_segments: u64 = 0;
+        var chars: u64 = 0;
 
         const block = self.document.value;
-        var index: usize = block.docbyteFromPosition(line_start_pos);
+        var index: u64 = block.docbyteFromPosition(line_start_pos);
         const len = block.length();
         while (index < len) : (index += 1) {
             if (index >= len) continue; // to keep readSlice in bounds
@@ -341,7 +341,7 @@ pub const EditorCore = struct {
         }
 
         return .{
-            .indents = std.math.divCeil(usize, indent_segments, self.config.indent_with.count()) catch unreachable,
+            .indents = std.math.divCeil(u64, indent_segments, self.config.indent_with.count()) catch unreachable,
             .chars = chars,
         };
     }
@@ -352,7 +352,7 @@ pub const EditorCore = struct {
         const gendoc = docdoc.doc();
 
         const src_index = block.docbyteFromPosition(pos);
-        var index: usize = src_index;
+        var index: u64 = src_index;
         const len = block.length();
         while (switch (direction) {
             .left => index > 0,
@@ -567,7 +567,7 @@ pub const EditorCore = struct {
                     temp_insert_slice.append('\n') catch @panic("oom");
 
                     const line_indent_count = self.measureIndent(line_start);
-                    temp_insert_slice.appendNTimes(self.config.indent_with.char(), self.config.indent_with.count() * line_indent_count.indents) catch @panic("oom");
+                    temp_insert_slice.appendNTimes(self.config.indent_with.char(), usi(self.config.indent_with.count() * line_indent_count.indents)) catch @panic("oom");
 
                     self.replaceRange(.{
                         .position = pos_len.pos,
@@ -586,14 +586,14 @@ pub const EditorCore = struct {
                         defer line_start = next_line_start;
                         const end = block.docbyteFromPosition(next_line_start) >= block.docbyteFromPosition(end_pos);
                         const line_indent_count = self.measureIndent(line_start);
-                        const new_indent_count: usize = switch (indent_cmd.direction) {
-                            .left => std.math.sub(usize, line_indent_count.indents, 1) catch 0,
+                        const new_indent_count: u64 = switch (indent_cmd.direction) {
+                            .left => std.math.sub(u64, line_indent_count.indents, 1) catch 0,
                             .right => line_indent_count.indents + 1,
                         };
 
                         var temp_insert_slice = std.ArrayList(u8).init(self.gpa);
                         defer temp_insert_slice.deinit();
-                        temp_insert_slice.appendNTimes(self.config.indent_with.char(), self.config.indent_with.count() * new_indent_count) catch @panic("oom");
+                        temp_insert_slice.appendNTimes(self.config.indent_with.char(), usi(self.config.indent_with.count() * new_indent_count)) catch @panic("oom");
 
                         self.replaceRange(.{
                             .position = line_start,
@@ -715,7 +715,7 @@ pub const EditorCore = struct {
 };
 
 const PositionItem = struct {
-    bufbyte: usize,
+    bufbyte: u64,
     mode: enum { start, end },
     kind: enum { anchor, focus },
 
@@ -739,7 +739,7 @@ pub const CursorPositions = struct {
     pub fn deinit(self: *CursorPositions) void {
         self.positions.deinit();
     }
-    fn add(self: *CursorPositions, anchor: usize, focus: usize) void {
+    fn add(self: *CursorPositions, anchor: u64, focus: u64) void {
         const left = @min(anchor, focus);
         const right = @max(anchor, focus);
         self.positions.append(.{ .mode = .start, .bufbyte = left, .kind = if (left == focus) .focus else .anchor }) catch @panic("oom");
@@ -749,7 +749,7 @@ pub const CursorPositions = struct {
         std.mem.sort(PositionItem, self.positions.items, {}, PositionItem.compareFn);
     }
 
-    pub fn advanceAndRead(self: *CursorPositions, bufbyte: usize) CursorPosRes {
+    pub fn advanceAndRead(self: *CursorPositions, bufbyte: u64) CursorPosRes {
         var left_cursor: CursorPosState = .none;
         while (true) : (self.idx += 1) {
             if (self.idx >= self.positions.items.len) break;
@@ -784,8 +784,8 @@ fn testEditorContent(expected: []const u8, editor: *EditorCore) !void {
     const gpa = std.testing.allocator;
     var rendered = std.ArrayList(u8).init(gpa);
     defer rendered.deinit();
-    try rendered.ensureUnusedCapacity(actual.value.length() + 1);
-    rendered.appendNTimesAssumeCapacity(undefined, actual.value.length());
+    try rendered.ensureUnusedCapacity(usi(actual.value.length() + 1));
+    rendered.appendNTimesAssumeCapacity(undefined, usi(actual.value.length()));
     actual.value.readSlice(actual.value.positionFromDocbyte(0), rendered.items);
     rendered.appendAssumeCapacity('\x00');
 
@@ -1175,4 +1175,8 @@ test EditorCore {
     try tester.expectContent("|e\u{301}");
     tester.editor.onDrag(tester.pos(0));
     try tester.expectContent("|e\u{301}");
+}
+
+fn usi(a: u64) usize {
+    return @intCast(a);
 }

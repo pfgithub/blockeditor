@@ -14,8 +14,11 @@ pub fn build(b: *std.Build) !void {
     binary_target.os_version_max = .{ .none = undefined };
     binary_target.glibc_version = null;
     var zig_triple: []const u8 = try binary_target.zigTriple(b.allocator);
-    if(std.mem.endsWith(u8, zig_triple, "-none")) {
-        zig_triple = zig_triple[0..zig_triple.len - "-none".len];
+    if (std.mem.endsWith(u8, zig_triple, "-none")) {
+        zig_triple = zig_triple[0 .. zig_triple.len - "-none".len];
+    }
+    if (std.mem.startsWith(u8, zig_triple, "wasm32-")) {
+        zig_triple = "wasm32-freestanding";
     }
     const afile = switch (target.result.abi == .msvc) {
         true => "unicode_segmentation_bindings.lib",
