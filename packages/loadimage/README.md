@@ -2,6 +2,14 @@
 
 simple, safe image loading using wuffs
 
+supported image formats:
+
+- tested: png
+- untested:
+  - bmp, jpeg, nie, qoi, tga, webp
+  - netpbm, wbmp (not sure what this is)
+  - gif (TODO support for extracting specific frames)
+
 usage:
 
 ```
@@ -35,7 +43,6 @@ image data is in RGBA order. use `std.mem.bytesAsSlice(u32, image.rgba)` to read
 
 # TODO
 
-- support all image formats wuffs supports
 - support extracting all frames from gif, rather than just the first
 - export a seperate module "loadimage_zig_only" and an artifact "loadimage_obj" for manually linking the object if wanted
 - remove dependency on libc

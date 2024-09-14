@@ -46,9 +46,37 @@ pub fn loadImage(gpa: std.mem.Allocator, file_cont: []const u8) !LoadedImage {
             wuffs.wuffs_gif__decoder__alloc,
             wuffs.wuffs_gif__decoder__upcast_as__wuffs_base__image_decoder,
         ),
+        wuffs.WUFFS_BASE__FOURCC__JPEG => try allocDecoder(
+            wuffs.wuffs_jpeg__decoder__alloc,
+            wuffs.wuffs_jpeg__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
+        wuffs.WUFFS_BASE__FOURCC__NPBM => try allocDecoder(
+            wuffs.wuffs_netpbm__decoder__alloc,
+            wuffs.wuffs_netpbm__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
+        wuffs.WUFFS_BASE__FOURCC__NIE => try allocDecoder(
+            wuffs.wuffs_nie__decoder__alloc,
+            wuffs.wuffs_nie__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
         wuffs.WUFFS_BASE__FOURCC__PNG => try allocDecoder(
             wuffs.wuffs_png__decoder__alloc,
             wuffs.wuffs_png__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
+        wuffs.WUFFS_BASE__FOURCC__QOI => try allocDecoder(
+            wuffs.wuffs_qoi__decoder__alloc,
+            wuffs.wuffs_qoi__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
+        wuffs.WUFFS_BASE__FOURCC__TGA => try allocDecoder(
+            wuffs.wuffs_tga__decoder__alloc,
+            wuffs.wuffs_tga__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
+        wuffs.WUFFS_BASE__FOURCC__WBMP => try allocDecoder(
+            wuffs.wuffs_wbmp__decoder__alloc,
+            wuffs.wuffs_wbmp__decoder__upcast_as__wuffs_base__image_decoder,
+        ),
+        wuffs.WUFFS_BASE__FOURCC__WEBP => try allocDecoder(
+            wuffs.wuffs_webp__decoder__alloc,
+            wuffs.wuffs_webp__decoder__upcast_as__wuffs_base__image_decoder,
         ),
         else => {
             return error.UnsupportedImageFormat;
