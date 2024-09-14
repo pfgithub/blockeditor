@@ -11,12 +11,22 @@ pub const LoadedImage = struct {
         gpa.free(self.rgba);
     }
 };
+const max_align = @alignOf(std.c.max_align_t);
 fn allocDecoder(
-    comptime decoder_fn: anytype,
-    comptime upcast_fn: anytype,
-) !struct { *anyopaque, *wuffs.wuffs_base__image_decoder } {
-    const decoder_raw = decoder_fn() orelse return error.OutOfMemory;
-    const upcasted = upcast_fn(decoder_raw).?;
+    gpa: std.mem.Allocator,
+    comptime name: []const u8,
+) !struct { []align(max_align) u8, *wuffs.wuffs_base__image_decoder } {
+    const size = @field(wuffs, "sizeof__wuffs_" ++ name ++ "__decoder")();
+    const init_fn = @field(wuffs, "wuffs_" ++ name ++ "__decoder__initialize");
+    const upcast_fn = @field(wuffs, "wuffs_" ++ name ++ "__decoder__upcast_as__wuffs_base__image_decoder");
+
+    const decoder_raw = try gpa.alignedAlloc(u8, max_align, size);
+    errdefer gpa.free(decoder_raw);
+    for (decoder_raw) |*byte| byte.* = 0;
+
+    try wrapErr(init_fn(@ptrCast(decoder_raw), size, wuffs.WUFFS_VERSION, wuffs.WUFFS_INITIALIZE__ALREADY_ZEROED));
+
+    const upcasted = upcast_fn(@ptrCast(decoder_raw)).?;
     return .{ decoder_raw, upcasted };
 }
 pub fn loadImage(gpa: std.mem.Allocator, file_cont: []const u8) !LoadedImage {
@@ -38,51 +48,21 @@ pub fn loadImage(gpa: std.mem.Allocator, file_cont: []const u8) !LoadedImage {
     // note that if stack allocated, it must be fully zeroed. the c version uses calloc.
     // TODO: heap allocate it with a zig allocator
     const decoder_raw, const g_image_decoder = switch (g_fourcc) {
-        wuffs.WUFFS_BASE__FOURCC__BMP => try allocDecoder(
-            wuffs.wuffs_bmp__decoder__alloc,
-            wuffs.wuffs_bmp__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
-        wuffs.WUFFS_BASE__FOURCC__GIF => try allocDecoder(
-            wuffs.wuffs_gif__decoder__alloc,
-            wuffs.wuffs_gif__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
-        wuffs.WUFFS_BASE__FOURCC__JPEG => try allocDecoder(
-            wuffs.wuffs_jpeg__decoder__alloc,
-            wuffs.wuffs_jpeg__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
-        wuffs.WUFFS_BASE__FOURCC__NPBM => try allocDecoder(
-            wuffs.wuffs_netpbm__decoder__alloc,
-            wuffs.wuffs_netpbm__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
-        wuffs.WUFFS_BASE__FOURCC__NIE => try allocDecoder(
-            wuffs.wuffs_nie__decoder__alloc,
-            wuffs.wuffs_nie__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
-        wuffs.WUFFS_BASE__FOURCC__PNG => try allocDecoder(
-            wuffs.wuffs_png__decoder__alloc,
-            wuffs.wuffs_png__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
-        wuffs.WUFFS_BASE__FOURCC__QOI => try allocDecoder(
-            wuffs.wuffs_qoi__decoder__alloc,
-            wuffs.wuffs_qoi__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
-        wuffs.WUFFS_BASE__FOURCC__TGA => try allocDecoder(
-            wuffs.wuffs_tga__decoder__alloc,
-            wuffs.wuffs_tga__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
-        wuffs.WUFFS_BASE__FOURCC__WBMP => try allocDecoder(
-            wuffs.wuffs_wbmp__decoder__alloc,
-            wuffs.wuffs_wbmp__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
-        wuffs.WUFFS_BASE__FOURCC__WEBP => try allocDecoder(
-            wuffs.wuffs_webp__decoder__alloc,
-            wuffs.wuffs_webp__decoder__upcast_as__wuffs_base__image_decoder,
-        ),
+        wuffs.WUFFS_BASE__FOURCC__BMP => try allocDecoder(gpa, "bmp"),
+        wuffs.WUFFS_BASE__FOURCC__GIF => try allocDecoder(gpa, "gif"),
+        wuffs.WUFFS_BASE__FOURCC__JPEG => try allocDecoder(gpa, "jpeg"),
+        wuffs.WUFFS_BASE__FOURCC__NPBM => try allocDecoder(gpa, "netpbm"),
+        wuffs.WUFFS_BASE__FOURCC__NIE => try allocDecoder(gpa, "nie"),
+        wuffs.WUFFS_BASE__FOURCC__PNG => try allocDecoder(gpa, "png"),
+        wuffs.WUFFS_BASE__FOURCC__QOI => try allocDecoder(gpa, "qoi"),
+        wuffs.WUFFS_BASE__FOURCC__TGA => try allocDecoder(gpa, "tga"),
+        wuffs.WUFFS_BASE__FOURCC__WBMP => try allocDecoder(gpa, "wbmp"),
+        wuffs.WUFFS_BASE__FOURCC__WEBP => try allocDecoder(gpa, "webp"),
         else => {
             return error.UnsupportedImageFormat;
         },
     };
-    defer wuffs.free(decoder_raw);
+    defer gpa.free(decoder_raw);
 
     var g_image_config = std.mem.zeroes(wuffs.wuffs_base__image_config);
     try wrapErr(wuffs.wuffs_base__image_decoder__decode_image_config(
