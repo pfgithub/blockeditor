@@ -33,33 +33,33 @@ test "font_experiment" {
     try ft_face.setPixelSizes(0, 16);
 
     var cursor_pos: @Vector(2, i32) = @splat(0);
-    for(
+    for (
         buf.getGlyphInfos(),
         buf.getGlyphPositions().?,
     ) |glyph_info, glyph_pos| {
         // for cursor positioning: if a character spans multiple bytes, divide it into segments
         const glyphid = glyph_info.codepoint; // 'codepoint' is misleading - this is an opaque integer specific to the target font
 
-        try ft_face.loadGlyph(glyphid, .{.render = true});
+        try ft_face.loadGlyph(glyphid, .{ .render = true });
         const bitmap = ft_face.glyph().bitmap();
 
         const writer_unb = std.io.getStdErr().writer();
         var writer_buffered_backing = std.io.bufferedWriter(writer_unb);
         const writer_buffered = writer_buffered_backing.writer();
-        try writer_buffered.print("\nbyte {d}: drawGlyph: {d} {d} {d}\n\n", .{glyph_info.cluster, glyphid, cursor_pos[0] + glyph_pos.x_offset, cursor_pos[0] + glyph_pos.y_offset});
-        for(0..bitmap.rows()) |y| {
+        try writer_buffered.print("\nbyte {d}: drawGlyph: {d} {d} {d}\n\n", .{ glyph_info.cluster, glyphid, cursor_pos[0] + glyph_pos.x_offset, cursor_pos[0] + glyph_pos.y_offset });
+        for (0..bitmap.rows()) |y| {
             const w = bitmap.width();
-            for(0..w) |x| {
+            for (0..w) |x| {
                 const value: u32 = bitmap.buffer().?[y * w + x];
                 const reschar = value * (charseq.len - 1) / std.math.maxInt(u8);
                 const char: u8 = charseq[charseq.len - reschar - 1];
-                try writer_buffered.writeAll(&.{char, char});
+                try writer_buffered.writeAll(&.{ char, char });
             }
             try writer_buffered.writeByte('\n');
         }
         try writer_buffered_backing.flush();
 
-        cursor_pos += .{glyph_pos.x_advance, glyph_pos.y_advance};
+        cursor_pos += .{ glyph_pos.x_advance, glyph_pos.y_advance };
     }
 }
 

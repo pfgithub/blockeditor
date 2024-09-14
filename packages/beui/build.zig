@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
     const tool_optimize: std.builtin.OptimizeMode = .Debug;
 
     const fmt = b.addFmt(.{
-        .paths = &.{ "src", "build.zig" },
+        .paths = &.{ "src", "build.zig", "build.zig.zon" },
     });
     b.getInstallStep().dependOn(&fmt.step);
 
