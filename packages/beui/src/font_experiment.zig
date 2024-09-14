@@ -7,6 +7,9 @@ test "font_experiment" {
     defer buf.deinit();
 
     // we're maybe supposed to split this up into two segments for the different scripts?
+    // https://host-oman.github.io/libraqm/raqm-Raqm.html#raqm-layout <- raqm does this
+    // https://harfbuzz.github.io/what-harfbuzz-doesnt-do.html <- icu or fribidi can also do this
+    // we are definitely supposed to split into lines. harfbuzz is for one infinite line.
     buf.addUTF8("hello… мир", 0, null);
 
     // buf.setDirection(.ltr);
