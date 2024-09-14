@@ -44,9 +44,6 @@ pub fn loadImage(gpa: std.mem.Allocator, file_cont: []const u8) !LoadedImage {
     );
     if (g_fourcc < 0) return error.CouldNotGuessFileFormat;
 
-    // can't stack allocate the decoder because it requires #define WUFFS_IMPLEMENTATION
-    // note that if stack allocated, it must be fully zeroed. the c version uses calloc.
-    // TODO: heap allocate it with a zig allocator
     const decoder_raw, const g_image_decoder = switch (g_fourcc) {
         wuffs.WUFFS_BASE__FOURCC__BMP => try allocDecoder(gpa, "bmp"),
         wuffs.WUFFS_BASE__FOURCC__GIF => try allocDecoder(gpa, "gif"),
