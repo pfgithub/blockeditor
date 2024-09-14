@@ -29,6 +29,7 @@ test "font_experiment" {
     defer ft_lib.deinit();
 
     const ft_face = try ft_lib.createFaceMemory(@embedFile("NotoSans[wght].ttf"), 0);
+    defer ft_face.deinit();
     // try ft_face.setCharSize(60 * 48, 0, 50, 0);
     try ft_face.setPixelSizes(0, 16);
 
