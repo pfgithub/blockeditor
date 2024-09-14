@@ -105,8 +105,8 @@ pub fn loadImage(gpa: std.mem.Allocator, file_cont: []const u8) !LoadedImage {
 
     const workbuf_len = wuffs.wuffs_base__image_decoder__workbuf_len(g_image_decoder).max_incl;
     const workbuf_data = try gpa.alloc(u8, workbuf_len);
-    for (workbuf_data) |*itm| itm.* = 0;
     defer gpa.free(workbuf_data);
+    for (workbuf_data) |*itm| itm.* = 0;
     const g_workbuf_slice = wuffs.wuffs_base__make_slice_u8(workbuf_data.ptr, workbuf_data.len);
 
     const num_pixels = @as(usize, g_width) * @as(usize, g_height);
