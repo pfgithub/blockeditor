@@ -50,6 +50,13 @@ pub fn build(b: *std.Build) !void {
     tests.root_module.addImport("wuffs", wuffs_mod);
     b.installArtifact(tests);
 
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = tests.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    b.getInstallStep().dependOn(&install_docs.step);
+
     const test_run = b.addRunArtifact(tests);
     test_run.step.dependOn(b.getInstallStep());
     const run_tests = b.step("test", "run tests");

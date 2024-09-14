@@ -2,7 +2,7 @@ const std = @import("std");
 const wuffs = @import("wuffs");
 const log = std.log.scoped(.loadimage);
 
-const LoadedImage = struct {
+pub const LoadedImage = struct {
     w: usize,
     h: usize,
     rgba: []align(@alignOf(u32)) const u8,
