@@ -8,5 +8,13 @@
         .loadimage = .{
             .path = "../loadimage",
         },
+        .mach_freetype = .{
+            .url = "https://github.com/pfgithub/mach-freetype/archive/fbbbed93e7c663a76bb6ff48584ef75621ba9f94.tar.gz",
+            .hash = "1220b867b8d7fd32cb5c0a165ddc0009a3d2291bb418140fd0cb15c02c868050143c",
+        },
+        .fonts = .{
+            .url = "https://github.com/pfgithub/fonts/archive/c4a43ca5f1249d71fe6e47eed0e3c42650aa1ccd.tar.gz",
+            .hash = "12207dca8a636bd67c2071115916f8bcfbc9cc16b59fe8528f569d9a36d09271da93",
+        },
     },
 }

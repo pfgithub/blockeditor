@@ -329,3 +329,8 @@ pub const BeuiKey = enum(u32) {
     _,
     pub const count = 400;
 };
+
+test {
+    _ = @import("font_experiment.zig");
+    _ = @import("render_list.zig");
+}
