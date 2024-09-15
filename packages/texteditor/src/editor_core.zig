@@ -1010,6 +1010,8 @@ test EditorCore {
     try tester.expectContent("|d!hello!");
     tester.executeCommand(.{ .insert_text = .{ .text = "……" } });
     try tester.expectContent("……|d!hello!");
+    // the bug here is that there are two cursors
+    // why are there two cursors? TODO debug this
     tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .codepoint } });
     try tester.expectContent("…|d!hello!");
     tester.executeCommand(.{ .delete = .{ .direction = .right, .stop = .line } });
