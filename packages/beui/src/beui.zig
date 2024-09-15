@@ -1,5 +1,6 @@
 pub const default_image = @embedFile("font.rgba"); // 97x161, 255 = white / 0 = black
 pub const draw_lists = @import("render_list.zig");
+pub const texpack = @import("texpack.zig");
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
@@ -133,6 +134,40 @@ pub const Beui = struct {
         self.persistent.left_mouse_dblclick_info.last_click_time = now;
         self.persistent.left_mouse_dblclick_info.last_click_pos = self.persistent.mouse_pos;
     }
+
+    pub fn nextID(self: *Beui) Beui.ID {
+        defer self.persistent.id += 1;
+        return @enumFromInt(self.persistent.id);
+    }
+
+    /// returns {needs_write, image_id, region} or null if the image cannot be drawn this frame
+    pub fn getOrPutImage(self: *Beui, target: texpack.Format, size: @Vector(2, u32), id: Beui.ID) ?struct{bool, draw_lists.RenderListImage, texpack.Region} {
+        // // getOrPutImage(nchannels, size, todo a unique id)
+        // const needs_write, const image_id, const region = beui.getOrPutImage( .r, .{25, 50}, beui.id() ) orelse return;
+        // if(needs_write) {
+        //     beui.putImageData(image_id, region, loadImage("somefile.png"));
+        // }
+        // beui.persistent.draw_list.addRect();
+
+        // if the region exists:
+        // - return .{true, image, region}
+        // if the region does not exist, reserve it:
+        // - return .{false, image, region}
+        // if a region cannot be reserved:
+        // - return null
+        //   - alternatively: start a new texture and add the image to it
+        // - at the start of next frame, either grow or clear the texture
+        //   - grow if most of the images in it were used last frame
+        //   - clear if not too many of the images in it were used last frame
+
+        _ = self;
+        _ = target;
+        _ = size;
+        _ = id;
+        return null;
+    }
+
+    pub const ID = enum(u64) {_};
 };
 pub fn EnumArray(comptime Enum: type, comptime Value: type) type {
     const count = blk: {
@@ -186,6 +221,7 @@ const BeuiPersistentEv = struct {
         last_click_time: i64 = 0,
         last_click_pos: @Vector(2, f32) = .{ 0.0, 0.0 },
     } = .{},
+    id: u64 = 0,
 };
 const BeuiFrameEv = struct {
     pressed_keys: EnumArray(BeuiKey, bool) = .init(false),
@@ -333,4 +369,5 @@ pub const BeuiKey = enum(u32) {
 test {
     _ = @import("font_experiment.zig");
     _ = @import("render_list.zig");
+    _ = @import("texpack");
 }
