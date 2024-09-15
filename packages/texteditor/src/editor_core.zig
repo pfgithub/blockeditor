@@ -27,7 +27,7 @@ pub const CursorPosition = struct {
     pos: Selection,
 
     /// for pressing the up/down arrow going from [aaaa|a] ↓ to [a|] to [aaaa|a]. resets on move.
-    vertical_move_start: ?u64 = null,
+    vertical_move_start: ?Position = null,
     /// when selecting up with tree-sitter to allow selecting back down. resets on move.
     node_select_start: ?Selection = null,
     /// select
@@ -156,6 +156,13 @@ pub const CursorLeftRightStop = enum {
     /// like line but includes soft wrapped start/ends
     visual_line,
 };
+pub const CursorHorizontalPositionMetric = enum {
+    byte,
+    codepoint,
+    unicode_grapheme_cluster,
+
+    screen, // view-dependant
+};
 pub const LRDirection = enum {
     left,
     right,
@@ -178,8 +185,8 @@ pub const EditorCommand = union(enum) {
     },
     move_cursor_up_down: struct {
         direction: enum { up, down },
-        mode: enum { move, select },
-        metric: enum { screen, raw },
+        mode: enum { move, select, duplicate },
+        metric: CursorHorizontalPositionMetric,
     },
     select_all: void,
     insert_text: struct {
@@ -408,19 +415,41 @@ pub const EditorCore = struct {
     }
     /// makes sure that cursors always go to the right of any insert.
     pub fn normalizeCursors(self: *EditorCore) void {
+        // TODO: merge selections and overlapping cursors
+        // var positions = self.getCursorPositions();
+        // defer positions.deinit();
+
         for (self.cursor_positions.items) |*cursor_position| {
             cursor_position.pos = .{
                 .focus = self.normalizePosition(cursor_position.pos.focus),
                 .anchor = self.normalizePosition(cursor_position.pos.anchor),
             };
         }
-        // TODO: merge any overlapping cursors
     }
     pub fn select(self: *EditorCore, selection: Selection) void {
         self.cursor_positions.clearRetainingCapacity();
         self.cursor_positions.append(.{
             .pos = selection,
         }) catch @panic("oom");
+    }
+    fn measureMetric(self: *EditorCore, pos: Position, metric: CursorHorizontalPositionMetric) u64 {
+        const block = self.document.value;
+        const this_line_start = self.getLineStart(pos);
+        return switch (metric) {
+            .byte => block.docbyteFromPosition(pos) - block.docbyteFromPosition(this_line_start),
+            else => @panic("TODO support metric"),
+        };
+    }
+    fn applyMetric(self: *EditorCore, new_line_start: Position, metric: CursorHorizontalPositionMetric, metric_value: u64) Position {
+        const block = self.document.value;
+
+        const new_line_start_pos = block.docbyteFromPosition(new_line_start);
+        const new_line_end_pos = block.docbyteFromPosition(self.getThisLineEnd(new_line_start));
+        const new_line_len = new_line_end_pos - new_line_start_pos;
+        return switch (metric) {
+            .byte => block.positionFromDocbyte(new_line_start_pos + @min(new_line_len, metric_value)),
+            else => @panic("TODO support metric"),
+        };
     }
     pub fn executeCommand(self: *EditorCore, command: EditorCommand) void {
         const block = self.document.value;
@@ -459,51 +488,43 @@ pub const EditorCore = struct {
                 }
             },
             .move_cursor_up_down => |ud_cmd| {
-                for (self.cursor_positions.items) |*cursor_position| {
-                    if (ud_cmd.metric == .screen) {
-                        // the view needs to provide us with some functions:
-                        // - measure x position given Pos
-                        // - find line start given Pos
-                        // - find line end given Pos
-                        // - given x position and line start, find character
-                        @panic("TODO impl screen move cursor");
+                const orig_len = self.cursor_positions.items.len;
+                for (0..orig_len) |i| {
+                    const cursor_position = &self.cursor_positions.items[i];
+                    switch (ud_cmd.metric) {
+                        .byte => {},
+                        else => @panic("TODO impl ud_cmd metric"),
                     }
                     const this_line_start = self.getLineStart(cursor_position.pos.focus);
-                    const distance = cursor_position.vertical_move_start orelse ( //
-                        block.docbyteFromPosition(cursor_position.pos.focus) - block.docbyteFromPosition(this_line_start) //
-                    );
+                    var target_pos: Position = cursor_position.vertical_move_start orelse cursor_position.pos.focus;
+                    _ = &target_pos; // works around a miscompilation where target_pos changes values after writing to cursor_position :/
+                    const target = self.measureMetric(target_pos, ud_cmd.metric);
 
                     const new_line_start = switch (ud_cmd.direction) {
                         .up => self.getPrevLineStart(this_line_start),
                         .down => self.getNextLineStart(this_line_start),
                     };
 
-                    const this_line_start_pos = block.docbyteFromPosition(this_line_start);
-                    const new_line_start_pos = block.docbyteFromPosition(new_line_start);
-                    const new_line_end_pos = block.docbyteFromPosition(self.getThisLineEnd(new_line_start));
-                    const new_line_len = new_line_end_pos - new_line_start_pos;
-
-                    const res_offset = @min(new_line_len, distance);
-                    var res_pos_idx = block.docbyteFromPosition(new_line_start) + res_offset;
-                    if (this_line_start_pos == new_line_start_pos) {
-                        if (new_line_start_pos == 0 and ud_cmd.direction == .up) {
-                            res_pos_idx = new_line_start_pos;
-                        } else if (new_line_end_pos == block.length() and ud_cmd.direction == .down) {
-                            res_pos_idx = new_line_end_pos;
-                        }
-                    }
-                    const res_pos = block.positionFromDocbyte(res_pos_idx);
-
-                    cursor_position.* = .{
-                        .pos = .{
-                            .anchor = switch (ud_cmd.mode) {
-                                .move => res_pos,
-                                .select => cursor_position.pos.anchor,
-                            },
-                            .focus = res_pos,
-                        },
-                        .vertical_move_start = distance,
+                    // special-case first and last lines
+                    const res_pos = if (ud_cmd.direction == .up and block.docbyteFromPosition(this_line_start) == 0) blk: {
+                        break :blk new_line_start;
+                    } else if (ud_cmd.direction == .down and block.docbyteFromPosition(self.getThisLineEnd(this_line_start)) == block.length()) blk: {
+                        break :blk self.getThisLineEnd(new_line_start);
+                    } else blk: {
+                        break :blk self.applyMetric(new_line_start, ud_cmd.metric, target);
                     };
+
+                    switch (ud_cmd.mode) {
+                        .move => {
+                            cursor_position.* = .{ .pos = .at(res_pos), .vertical_move_start = target_pos };
+                            cursor_position.vertical_move_start = target_pos;
+                        },
+                        .select => cursor_position.* = .{ .pos = .range(cursor_position.pos.anchor, res_pos), .vertical_move_start = target_pos },
+                        .duplicate => {
+                            self.cursor_positions.append(.{ .pos = .at(res_pos), .vertical_move_start = target_pos }) catch @panic("oom");
+                        },
+                    }
+                    // cursor_position pointer is invalidated
                 }
             },
             .move_cursor_left_right => |lr_cmd| {
@@ -986,17 +1007,17 @@ test EditorCore {
         \\hello
         \\to the world|!
     );
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
     try tester.expectContent(
         \\hello|
         \\to the world!
     );
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move } });
     try tester.expectContent(
         \\hello
         \\to the world|!
     );
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
     try tester.expectContent(
         \\hello|
         \\to the world!
@@ -1006,7 +1027,7 @@ test EditorCore {
         \\hello!|
         \\to the world!
     );
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move } });
     try tester.expectContent(
         \\hello!
         \\to the| world!
@@ -1019,24 +1040,24 @@ test EditorCore {
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
     try tester.expectContent("hel|lo");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .select } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .select } });
     try tester.expectContent("hel[lo|");
 
     tester.executeCommand(.select_all);
     tester.executeCommand(.{ .insert_text = .{ .text = "hela\n\ninput\n\n\nlo!" } });
     try tester.expectContent("hela\n\ninput\n\n\nlo!|");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
     try tester.expectContent("hela\n\ninput\n\n|\nlo!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
     try tester.expectContent("hela\n\ninput\n|\n\nlo!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
     try tester.expectContent("hela\n\ninp|ut\n\n\nlo!");
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
     try tester.expectContent("hela\n\ninput|\n\n\nlo!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
     try tester.expectContent("hela\n|\ninput\n\n\nlo!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
     try tester.expectContent("hela|\n\ninput\n\n\nlo!");
 
     tester.executeCommand(.select_all);
@@ -1079,9 +1100,9 @@ test EditorCore {
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
     try tester.expectContent("here are a few words to traverse!|");
 
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
     try tester.expectContent("|here are a few words to traverse!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .raw, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move } });
     try tester.expectContent("here are a few words to traverse!|");
 
     tester.editor.onClick(tester.pos(13), 1, false);
@@ -1175,6 +1196,13 @@ test EditorCore {
     try tester.expectContent("|e\u{301}");
     tester.editor.onDrag(tester.pos(0));
     try tester.expectContent("|e\u{301}");
+
+    //
+    // Grapheme cluster movement
+    //
+    tester.executeCommand(.select_all);
+    tester.executeCommand(.{ .insert_text = .{ .text = "line 1\nline 2\nline 3\nline 4" } });
+    try tester.expectContent("line 1\nline 2\nline 3\nline 4|");
 }
 
 fn usi(a: u64) usize {
