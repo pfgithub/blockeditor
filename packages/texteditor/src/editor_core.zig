@@ -425,10 +425,12 @@ pub const EditorCore = struct {
 
         var uncommitted_start: ?u64 = null;
 
+        const len_start = self.cursor_positions.items.len;
         self.cursor_positions.clearRetainingCapacity();
         for (positions.positions.items) |pos| {
             const prev_selected = positions.count > 0;
-            if (positions.idx > pos.bufbyte) continue;
+            if (positions.idx >= positions.positions.items.len) break;
+            if (positions.positions.items[positions.idx].bufbyte > pos.bufbyte) continue;
             const sel_info = positions.advanceAndRead(pos.bufbyte);
             const next_selected = sel_info.selected;
 
@@ -463,6 +465,8 @@ pub const EditorCore = struct {
             } else unreachable;
         }
         std.debug.assert(uncommitted_start == null);
+        const len_end = self.cursor_positions.items.len;
+        std.debug.assert(len_end <= len_start);
     }
     pub fn select(self: *EditorCore, selection: Selection) void {
         self.cursor_positions.clearRetainingCapacity();
