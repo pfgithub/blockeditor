@@ -1745,17 +1745,14 @@ test "sample block" {
 
 test "document" {
     // this is a fuzz test
-    // we can't really use std.testing.fuzzInput() for it unless we implement a parser or something
+    // we can't really use std.testing.fuzz() for it unless we implement a parser or something
     _ = try testDocument(std.testing.allocator, 1_000, null);
 }
 
 // fuzz test deserializing random blocks
-test "fuzz" {
-    // not particularily useful until https://github.com/ziglang/zig/issues/20804
-    // also waiting on https://github.com/ziglang/zig/issues/20986
-
+fn fuzzTest(input_misaligned: []const u8) anyerror!void {
     const gpa = std.testing.allocator;
-    const input_misaligned = std.testing.fuzzInput(.{});
+
     const input_aligned = try gpa.alignedAlloc(u8, 16, input_misaligned.len);
     defer gpa.free(input_aligned);
     @memcpy(input_aligned, input_misaligned);
@@ -1777,6 +1774,12 @@ test "fuzz" {
     } else |_| {
         // error is ok. as long as it doesn't panic.
     }
+}
+test "fuzz" {
+    // not particularily useful until https://github.com/ziglang/zig/issues/20804
+    // also waiting on https://github.com/ziglang/zig/issues/20986
+
+    try std.testing.fuzz(fuzzTest, .{});
 }
 
 const TestDocumentRetTy = struct {

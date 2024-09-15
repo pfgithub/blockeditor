@@ -1,6 +1,6 @@
 # Building
 
-Requires zig `0.14.0-dev.1417+242d268a0` with zls commit `ace6f6da90a4420cd6632363b30762e577e2b922`
+Requires zig `0.14.0-dev.1570+8ddce90e6` with zls commit `dd78968d4c8deefd33addc2b1cc14f60d89ec1a9`
 
 ## Zig setup:
 
