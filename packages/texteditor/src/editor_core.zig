@@ -415,16 +415,54 @@ pub const EditorCore = struct {
     }
     /// makes sure that cursors always go to the right of any insert.
     pub fn normalizeCursors(self: *EditorCore) void {
-        // TODO: merge selections and overlapping cursors
-        // var positions = self.getCursorPositions();
-        // defer positions.deinit();
+        const block = self.document.value;
 
-        for (self.cursor_positions.items) |*cursor_position| {
-            cursor_position.pos = .{
-                .focus = self.normalizePosition(cursor_position.pos.focus),
-                .anchor = self.normalizePosition(cursor_position.pos.anchor),
-            };
+        // TODO: merge selections and overlapping cursors
+        // uh oh we're supposed to keep around the extra data that the cursors have
+        // but this deletes it
+        var positions = self.getCursorPositions();
+        defer positions.deinit();
+
+        var uncommitted_start: ?u64 = null;
+
+        self.cursor_positions.clearRetainingCapacity();
+        for (positions.positions.items) |pos| {
+            const prev_selected = positions.count > 0;
+            if (positions.idx > pos.bufbyte) continue;
+            const sel_info = positions.advanceAndRead(pos.bufbyte);
+            const next_selected = sel_info.selected;
+
+            if (prev_selected and next_selected) {
+                // don't put a cursor
+                continue;
+            } else if (!prev_selected and next_selected) {
+                uncommitted_start = pos.bufbyte;
+            } else if (prev_selected and !next_selected) {
+                // commit
+                std.debug.assert(uncommitted_start != null);
+                var res_cursor = sel_info.left_cursor_extra.?;
+                if (sel_info.left_cursor == .focus) {
+                    res_cursor.pos = .range(
+                        block.positionFromDocbyte(uncommitted_start.?),
+                        block.positionFromDocbyte(pos.bufbyte),
+                    );
+                } else {
+                    res_cursor.pos = .range(
+                        block.positionFromDocbyte(pos.bufbyte),
+                        block.positionFromDocbyte(uncommitted_start.?),
+                    );
+                }
+                self.cursor_positions.appendAssumeCapacity(res_cursor);
+                uncommitted_start = null;
+            } else if (!prev_selected and !next_selected) {
+                // commit
+                std.debug.assert(uncommitted_start == null);
+                self.cursor_positions.appendAssumeCapacity(.at(
+                    block.positionFromDocbyte(pos.bufbyte),
+                ));
+            } else unreachable;
         }
+        std.debug.assert(uncommitted_start == null);
     }
     pub fn select(self: *EditorCore, selection: Selection) void {
         self.cursor_positions.clearRetainingCapacity();
@@ -727,7 +765,7 @@ pub const EditorCore = struct {
             const anchor = block.docbyteFromPosition(cursor.pos.anchor);
             const focus = block.docbyteFromPosition(cursor.pos.focus);
 
-            positions.add(anchor, focus);
+            positions.add(anchor, focus, cursor);
         }
         positions.sort();
 
@@ -740,6 +778,8 @@ const PositionItem = struct {
     mode: enum { start, end },
     kind: enum { anchor, focus },
 
+    extra: CursorPosition,
+
     fn compareFn(_: void, a: PositionItem, b: PositionItem) bool {
         return a.bufbyte < b.bufbyte;
     }
@@ -747,6 +787,7 @@ const PositionItem = struct {
 pub const CursorPosState = enum { none, start, focus, end };
 pub const CursorPosRes = struct {
     left_cursor: CursorPosState,
+    left_cursor_extra: ?CursorPosition,
     selected: bool,
 };
 pub const CursorPositions = struct {
@@ -760,11 +801,11 @@ pub const CursorPositions = struct {
     pub fn deinit(self: *CursorPositions) void {
         self.positions.deinit();
     }
-    fn add(self: *CursorPositions, anchor: u64, focus: u64) void {
+    fn add(self: *CursorPositions, anchor: u64, focus: u64, extra: CursorPosition) void {
         const left = @min(anchor, focus);
         const right = @max(anchor, focus);
-        self.positions.append(.{ .mode = .start, .bufbyte = left, .kind = if (left == focus) .focus else .anchor }) catch @panic("oom");
-        self.positions.append(.{ .mode = .end, .bufbyte = right, .kind = if (left == focus) .anchor else .focus }) catch @panic("oom");
+        self.positions.append(.{ .mode = .start, .bufbyte = left, .kind = if (left == focus) .focus else .anchor, .extra = extra }) catch @panic("oom");
+        self.positions.append(.{ .mode = .end, .bufbyte = right, .kind = if (left == focus) .anchor else .focus, .extra = extra }) catch @panic("oom");
     }
     fn sort(self: *CursorPositions) void {
         std.mem.sort(PositionItem, self.positions.items, {}, PositionItem.compareFn);
@@ -772,6 +813,7 @@ pub const CursorPositions = struct {
 
     pub fn advanceAndRead(self: *CursorPositions, bufbyte: u64) CursorPosRes {
         var left_cursor: CursorPosState = .none;
+        var left_cursor_extra: ?CursorPosition = null;
         while (true) : (self.idx += 1) {
             if (self.idx >= self.positions.items.len) break;
             const itm = self.positions.items[self.idx];
@@ -792,9 +834,11 @@ pub const CursorPositions = struct {
                     .start, .end, .focus => .focus,
                 };
             }
+            left_cursor_extra = itm.extra;
         }
         return .{
             .left_cursor = left_cursor,
+            .left_cursor_extra = left_cursor_extra,
             .selected = self.count != 0,
         };
     }
@@ -1203,6 +1247,16 @@ test EditorCore {
     tester.executeCommand(.select_all);
     tester.executeCommand(.{ .insert_text = .{ .text = "line 1\nline 2\nline 3\nline 4" } });
     try tester.expectContent("line 1\nline 2\nline 3\nline 4|");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .duplicate } });
+    try tester.expectContent("line 1\nline 2\nline 3|\nline 4|");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .duplicate } });
+    try tester.expectContent("line 1\nline 2|\nline 3|\nline 4|");
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .duplicate } });
+    try tester.expectContent("line 1|\nline 2|\nline 3|\nline 4|");
+    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
+    try tester.expectContent("line |\nline |\nline |\nline |");
+    tester.executeCommand(.{ .insert_text = .{ .text = "5" } });
+    try tester.expectContent("line 5|\nline 5|\nline 5|\nline 5|");
 }
 
 fn usi(a: u64) usize {
