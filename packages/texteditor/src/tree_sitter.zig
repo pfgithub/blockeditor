@@ -381,7 +381,7 @@ const ZigNodeHighlighter = struct {
         hl.last_node_cache = .{ .node = node, .cache = cache };
         return renderCache(hl, cache, byte_index);
     }
-    fn charAt(hl: *ZigNodeHighlighter, pos: u64) u8 {
+    pub fn charAt(hl: *ZigNodeHighlighter, pos: u64) u8 {
         if (pos >= hl.doc.?.length()) return '\x00';
         var char_arr: [1]u8 = undefined;
         hl.doc.?.readSlice(hl.doc.?.positionFromDocbyte(pos), &char_arr);

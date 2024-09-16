@@ -8,6 +8,8 @@ const zglfw = @import("zglfw");
 const zgui = @import("zgui"); // zgui doesn't have everything! we should use cimgui + translate-c like we used to
 const beui_mod = @import("beui");
 
+const ft = beui_mod.font_experiment.ft;
+
 const editor_core = @import("texteditor").core;
 
 pub const EditorView = struct {
@@ -36,6 +38,7 @@ pub const EditorView = struct {
 
     pub fn gui(self: *EditorView, beui: *beui_mod.Beui, content_region_size: @Vector(2, f32)) void {
         const arena = beui.arena();
+        _ = arena;
         const draw_list = beui.draw();
         const block = self.core.document.value;
 
@@ -172,12 +175,6 @@ pub const EditorView = struct {
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
         const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };
 
-        const buffer = arena.alloc(u8, block.length() + 1) catch @panic("oom");
-        defer arena.free(buffer);
-        block.readSlice(block.positionFromDocbyte(0), buffer[0..block.length()]);
-        // extra char to make handling events for and rendering the last cursor position easier
-        buffer[buffer.len - 1] = '\x00';
-
         var cursor_positions = self.core.getCursorPositions();
         defer cursor_positions.deinit();
 
@@ -187,9 +184,10 @@ pub const EditorView = struct {
         var pos: @Vector(2, f32) = .{ 0, @floatCast(self.scroll_position) };
         var prev_char_advance: f32 = 0;
         var click_target: ?usize = null;
-        for (buffer, 0..) |char, i| {
+        for (0..block.length() + 1) |i| {
             const cursor_info = cursor_positions.advanceAndRead(i);
             const syn_hl_info = syn_hl.advanceAndRead(i);
+            const char = syn_hl.znh.charAt(i);
 
             if (cursor_info.left_cursor == .focus) {
                 draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{

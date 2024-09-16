@@ -1,6 +1,7 @@
 pub const default_image = @embedFile("font.rgba"); // 97x161, 255 = white / 0 = black
 pub const draw_lists = @import("render_list.zig");
 pub const texpack = @import("texpack.zig");
+pub const font_experiment = @import("font_experiment.zig");
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
