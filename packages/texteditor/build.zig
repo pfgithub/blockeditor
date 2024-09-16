@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const treesitter_target: std.builtin.OptimizeMode = .ReleaseFast;
 
     const fmt_step = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
     b.getInstallStep().dependOn(&fmt_step.step);
@@ -16,26 +17,51 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const blocks_mod = b.addModule("texteditor", .{
+    const tree_sitter_dep = b.dependency("tree_sitter", .{ .target = target, .optimize = treesitter_target });
+    const tree_sitter_root = b.addTranslateC(std.Build.Step.TranslateC.Options{
+        .root_source_file = tree_sitter_dep.path("lib/include/tree_sitter/api.h"),
+        .target = target,
+        .optimize = treesitter_target,
+    });
+    const tree_sitter_module = b.createModule(.{
+        .root_source_file = tree_sitter_root.getOutput(),
+    });
+    tree_sitter_module.linkLibrary(tree_sitter_dep.artifact("tree-sitter"));
+
+    const tree_sitter_zig_dep = b.dependency("tree_sitter_zig", .{});
+    const tree_sitter_zig_obj = b.addStaticLibrary(.{
+        .name = "tree_sitter_zig",
+        .target = target,
+        .optimize = treesitter_target,
+    });
+    tree_sitter_zig_obj.linkLibC();
+    tree_sitter_zig_obj.addCSourceFile(.{ .file = tree_sitter_zig_dep.path("src/parser.c") });
+    tree_sitter_zig_obj.addIncludePath(tree_sitter_zig_dep.path("src"));
+
+    const texteditor_mod = b.addModule("texteditor", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
-    blocks_mod.addImport("blocks", blocks_dep.module("blocks"));
-    blocks_mod.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
+    texteditor_mod.addImport("blocks", blocks_dep.module("blocks"));
+    texteditor_mod.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
+    texteditor_mod.addImport("tree-sitter", tree_sitter_module);
+    texteditor_mod.linkLibrary(tree_sitter_zig_obj);
 
-    const block_test = b.addTest(.{
+    const texteditor_test = b.addTest(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
-    block_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
-    block_test.root_module.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
+    texteditor_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
+    texteditor_test.root_module.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
+    texteditor_test.root_module.addImport("tree-sitter", tree_sitter_module);
+    texteditor_test.root_module.linkLibrary(tree_sitter_zig_obj);
 
-    b.installArtifact(block_test);
-    const run_block_tests = b.addRunArtifact(block_test);
+    b.installArtifact(texteditor_test);
+    const run_texteditor_tests = b.addRunArtifact(texteditor_test);
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
-    test_step.dependOn(&run_block_tests.step);
+    test_step.dependOn(&run_texteditor_tests.step);
 }
