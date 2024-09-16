@@ -26,6 +26,7 @@ zig build run
 
 - install rr debugger
 - install [midas for vscode](https://marketplace.visualstudio.com/items?itemName=farrese.midas)
+  - [bug workaround](https://github.com/farre/midas/issues/197)
 - cd to package
 - build package: `zig build`
 - record application: `rr record ./zig-out/bin/test`
