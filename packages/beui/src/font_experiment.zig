@@ -90,6 +90,11 @@ const charseq = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;
 //   - SheenBIDI might do itemization
 // - doesn't support fallback fonts?
 
+// alternative:
+// - for now, skip bidi and shaping and render using freetype. it will work
+//   fine for english for now, and we can migrate to using shaping later.
+//   - https://learnopengl.com/In-Practice/Text-Rendering
+
 // future:
 // - for large font sizes, render with a multi channel signed distance field at a fixed size,
 //   then they can be rendered at any size
