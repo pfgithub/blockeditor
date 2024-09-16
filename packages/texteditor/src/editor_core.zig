@@ -434,6 +434,7 @@ pub const EditorCore = struct {
             const sel_info = positions.advanceAndRead(pos.bufbyte);
             const next_selected = sel_info.selected;
 
+            var res_cursor = sel_info.left_cursor_extra.?;
             if (prev_selected and next_selected) {
                 // don't put a cursor
                 continue;
@@ -442,7 +443,6 @@ pub const EditorCore = struct {
             } else if (prev_selected and !next_selected) {
                 // commit
                 std.debug.assert(uncommitted_start != null);
-                var res_cursor = sel_info.left_cursor_extra.?;
                 if (sel_info.left_cursor == .focus) {
                     res_cursor.pos = .range(
                         block.positionFromDocbyte(uncommitted_start.?),
@@ -459,9 +459,10 @@ pub const EditorCore = struct {
             } else if (!prev_selected and !next_selected) {
                 // commit
                 std.debug.assert(uncommitted_start == null);
-                self.cursor_positions.appendAssumeCapacity(.at(
+                res_cursor.pos = .at(
                     block.positionFromDocbyte(pos.bufbyte),
-                ));
+                );
+                self.cursor_positions.appendAssumeCapacity(res_cursor);
             } else unreachable;
         }
         std.debug.assert(uncommitted_start == null);
