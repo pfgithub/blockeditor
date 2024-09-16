@@ -860,7 +860,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             for (0..align_diff) |_| writer.writeByte('\x00') catch @panic("oom");
 
             // write spans (& merge adjacent)
-            // TODO: merge adjacent spans!
             iter = self.span_bbt.iterator(.{});
             var uncommitted_span: ?serialized_span = null;
             while (iter.next()) |node_idx| {
@@ -871,7 +870,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
                 if (uncommitted_span) |*uc| {
                     if (uc.length.deleted == node.deleted() and uc.id == node.id) {
-                        // the span can be mutated instead of written
+                        // the span can be merged instead of written
                         uc.*.length.len += @intCast(node.length);
                         continue;
                     }
