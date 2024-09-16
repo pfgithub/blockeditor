@@ -1268,3 +1268,61 @@ test EditorCore {
 fn usi(a: u64) usize {
     return @intCast(a);
 }
+
+
+pub const SynHlColorScope = enum {
+    //! sample containing all color scopes. syn hl colors are postfix in brackets
+    //! ```ts
+    //!     //<punctuation> The main function<comment>
+    //!     export<keyword> function<keyword_storage> main<variable_function>(<punctuation>
+    //!         argv<variable_parameter>:<punctuation_important> string<keyword_primitive_type>,<punctuation>
+    //!     ) {<punctuation>
+    //!         const<keyword_storage> res<variable_constant> =<keyword> argv<variable>.<punctuation>map<variable_function>(<punctuation>translate<variable>);<punctuation>
+    //!         return<keyword> res<variable>;<punctuation>
+    //!     }<punctuation>
+    //!
+    //!     let<keyword_storage> res<variable_mutable> =<keyword> main<variable_function>(["\<punctuation>\usr<literal_string>\<punctuation>"(MAIN)<literal_string>\<punctuation>x<keyword_storage>00<literal>"]);<punctuation>
+    //!     #<invalid>
+    //! ```
+
+    // notes:
+    // - punctuation_important has the same style as variable_mutable?
+    // - 'keyword_storage' is used in string escapes? '\x55' the 'x' is keyword_storage for some reason.
+
+    /// syntax error
+    invalid,
+
+    /// more important punctuation. also used for mutable variables? unclear
+    punctuation_important,
+    /// less important punctuation
+    punctuation,
+
+    /// variable defined as a function or called
+    variable_function,
+    /// variable defined as a paremeter
+    variable_parameter,
+    /// variable defined (or used?) as a constant
+    variable_constant,
+    /// variable defined (*maybe: or used?) as mutable
+    variable_mutable,
+    /// other variable
+    variable,
+
+    /// string literal (within the quotes only)
+    literal_string,
+    /// other types of literals (actual value portion only)
+    literal,
+
+    /// storage keywords, ie `var` / `const` / `function`
+    keyword_storage,
+    /// primitive type keywords, ie `void` / `string` / `i32`
+    keyword_primitive_type,
+    /// other keywords
+    keyword,
+
+    /// comment body text, excluding '//'
+    comment,
+
+    /// editor color - your syntax highlighter never needs to output this
+    invisible,
+};
