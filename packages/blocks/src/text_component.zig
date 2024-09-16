@@ -1171,6 +1171,10 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         fn _replaceRange(self: *Doc, index: BBT.NodeIndex, delete_count: usize, next_slice: []const Span) void {
             if (delete_count != 1) @panic("TODO replaceRange with non-1 deleteCount");
             if (next_slice.len < 1) @panic("TODO replaceRange with next_slice len lt 1");
+            // hack to prevent modifying final "\x00". simple operations should never be emitted covering the last byte.
+            if(next_slice[next_slice.len - 1].id == .end) {
+                return self._insertBefore(index, next_slice[0..next_slice.len - 1]);
+            }
             self._updateNode(index, next_slice[0]);
             self._insertAfter(index, next_slice[1..]);
         }
@@ -1826,7 +1830,8 @@ const TestDocumentRetTy = struct {
 };
 fn testDocument(alloc: std.mem.Allocator, count: usize, progress_node: ?std.Progress.Node) !TestDocumentRetTy {
     std.log.info("testDocument", .{});
-    var tester = BlockTester.init(alloc);
+    var tester: BlockTester = undefined;
+    tester.init(alloc);
     defer tester.deinit();
 
     try tester.testReplaceRange(0, 0, "Hello");
@@ -1870,29 +1875,39 @@ const BlockTester = struct {
     alloc: std.mem.Allocator,
     simple: std.ArrayList(u8),
     complex: TextDocument,
+    event_mirror: std.ArrayList(u8),
 
     timings: Timings,
 
     rendered_result: std.ArrayList(u8),
     opgen: std.ArrayList(TextDocument.Operation),
 
-    pub fn init(alloc: std.mem.Allocator) BlockTester {
-        return .{
+    pub fn init(self: *BlockTester, alloc: std.mem.Allocator) void {
+        self.* = .{
             .alloc = alloc,
             .simple = .init(alloc),
             .complex = .initEmpty(alloc),
+            .event_mirror = .init(alloc),
 
             .timings = .{},
 
             .rendered_result = .init(alloc),
             .opgen = .init(alloc),
         };
+        self.complex.readSlice(self.complex.positionFromDocbyte(0), self.event_mirror.addManyAsSlice(self.complex.length()) catch @panic("oom"));
+        self.complex.on_after_simple_operation.addListener(.from(self, onAfterSimpleOperation));
     }
-    pub fn deinit(self: *@This()) void {
+    pub fn deinit(self: *BlockTester) void {
+        self.complex.on_after_simple_operation.removeListener(.from(self, onAfterSimpleOperation));
         self.simple.deinit();
         self.complex.deinit();
+        self.event_mirror.deinit();
         self.rendered_result.deinit();
         self.opgen.deinit();
+    }
+
+    fn onAfterSimpleOperation(self: *BlockTester, op: TextDocument.EmitSimpleOperation) void {
+        self.event_mirror.replaceRange(op.position, op.delete_len, op.insert_text) catch @panic("oom");
     }
 
     pub fn testReplaceRange(self: *@This(), start: u64, delete_count: u64, insert_text: []const u8) !void {
@@ -1923,6 +1938,7 @@ const BlockTester = struct {
         self.timings.test_readSlice += timer.lap();
 
         try std.testing.expectEqualStrings(self.simple.items, rendered);
+        try std.testing.expectEqualStrings(self.simple.items, self.event_mirror.items);
         self.timings.test_eql += timer.lap();
 
         if (false) {
