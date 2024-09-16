@@ -623,8 +623,11 @@ pub fn main() !void {
     const my_text = interface.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
     defer my_text.unref();
 
+    const my_text_component = my_text.typedComponent(bi.TextDocumentBlock).?; // .? asserts it's loaded which isn't what we want. we want to wait to init until it's loaded.
+    defer my_text_component.unref();
+
     var my_text_editor: text_editor_view.EditorView = undefined;
-    my_text_editor.initFromDoc(gpa, my_text.typedComponent(bi.TextDocumentBlock).?); // .? asserts it's loaded which isn't what we want. we want to wait to init until it's loaded.
+    my_text_editor.initFromDoc(gpa, my_text_component);
     defer my_text_editor.deinit();
 
     my_text_editor.core.document.applySimpleOperation(.{
