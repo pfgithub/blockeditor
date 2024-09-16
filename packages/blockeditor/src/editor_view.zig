@@ -132,7 +132,7 @@ pub const EditorView = struct {
                     .down => .down,
                     .up => .up,
                 },
-                .metric = .raw,
+                .metric = .byte,
                 .mode = switch (hk.shift) {
                     false => .move,
                     true => .select,
