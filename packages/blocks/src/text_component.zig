@@ -1821,6 +1821,7 @@ test "fuzz" {
     // not particularily useful until https://github.com/ziglang/zig/issues/20804
     // also waiting on https://github.com/ziglang/zig/issues/20986
 
+    if (@hasDecl(std.testing, "fuzzInput")) return error.SkipZigTest;
     try std.testing.fuzz(fuzzTest, .{});
 }
 
