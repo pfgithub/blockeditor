@@ -46,6 +46,8 @@ pub fn build(b: *std.Build) !void {
 
     const tests = b.addTest(.{
         .root_source_file = b.path("src/loadimage.zig"),
+        .target = target,
+        .optimize = optimize,
     });
     tests.root_module.addImport("wuffs", wuffs_mod);
     b.installArtifact(tests);
