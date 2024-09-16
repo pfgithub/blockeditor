@@ -197,7 +197,7 @@ pub const TreeSitterSyntaxHighlighter = struct {
     }
 
     pub fn advanceAndRead(syn_hl: *TreeSitterSyntaxHighlighter, idx: usize) editor_core.SynHlColorScope {
-        if(idx >= syn_hl.znh.doc.?.length()) return .invalid;
+        if (idx >= syn_hl.znh.doc.?.length()) return .invalid;
 
         // TODO:
         // https://github.com/tree-sitter/tree-sitter/blob/8e8648afa9c30bf69a0020db9b130c4eb11b095e/lib/src/node.c#L328

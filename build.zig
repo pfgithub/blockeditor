@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const fmt_all = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" }, .check = b.option(bool, "ci", "") orelse false });
+    const fmt_all = b.addFmt(.{ .paths = &.{ "packages", "build.zig", "build.zig.zon" }, .check = b.option(bool, "ci", "") orelse false });
     b.getInstallStep().dependOn(&fmt_all.step);
 
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
