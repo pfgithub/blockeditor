@@ -181,11 +181,15 @@ pub const EditorView = struct {
         var cursor_positions = self.core.getCursorPositions();
         defer cursor_positions.deinit();
 
+        var syn_hl = self.core.syn_hl_ctx.highlight();
+        defer syn_hl.deinit();
+
         var pos: @Vector(2, f32) = .{ 0, @floatCast(self.scroll_position) };
         var prev_char_advance: f32 = 0;
         var click_target: ?usize = null;
         for (buffer, 0..) |char, i| {
             const cursor_info = cursor_positions.advanceAndRead(i);
+            const syn_hl_info = syn_hl.advanceAndRead(i);
 
             if (cursor_info.left_cursor == .focus) {
                 draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{
@@ -225,7 +229,7 @@ pub const EditorView = struct {
             if (is_invisible == null and pos[0] <= window_size[0] and pos[1] <= window_size[1] and pos[0] >= 0 and pos[1] >= 0) {
                 draw_list.addChar(char_or_invisible, window_pos + pos + char_offset, hexToFloat(DefaultTheme.synHlColor(switch (is_invisible != null) {
                     true => .invisible,
-                    false => .variable_mutable,
+                    false => syn_hl_info,
                 })));
             }
             if (cursor_info.selected) {

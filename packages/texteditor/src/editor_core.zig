@@ -6,6 +6,7 @@ const seg_dep = @import("grapheme_cursor");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
+const tree_sitter = @import("tree_sitter.zig");
 
 pub const Position = bi.text_component.Position;
 pub const Selection = struct {
@@ -253,6 +254,7 @@ const DocumentDocument = struct {
 pub const EditorCore = struct {
     gpa: std.mem.Allocator,
     document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
+    syn_hl_ctx: tree_sitter.Context,
 
     cursor_positions: std.ArrayList(CursorPosition),
 
@@ -265,13 +267,19 @@ pub const EditorCore = struct {
         self.* = .{
             .gpa = gpa,
             .document = document,
+            .syn_hl_ctx = undefined,
 
             .cursor_positions = .init(gpa),
         };
         document.ref();
         document.addUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit)); // to keep the language server up to date
+
+        self.syn_hl_ctx.init(self.document, gpa) catch {
+            @panic("TODO handle syn_hl_ctx init failure");
+        };
     }
     pub fn deinit(self: *EditorCore) void {
+        self.syn_hl_ctx.deinit();
         self.cursor_positions.deinit();
         self.document.removeUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit));
         self.document.unref();
