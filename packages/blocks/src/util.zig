@@ -168,7 +168,7 @@ pub fn CallbackList(comptime cb_type: type) type {
             } else return; // already removed
             _ = self.callbacks.swapRemove(i); // unordered should be okay
         }
-        pub fn call(self: *Self, arg: cb_type.Arg) void {
+        pub fn emit(self: *Self, arg: cb_type.Arg) void {
             if (cb_type.Ret != void) @compileLog(cb_type.Ret);
             for (self.callbacks.items) |cb| {
                 cb.call(arg);

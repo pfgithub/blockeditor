@@ -12,6 +12,7 @@
 //! TODO: audit code for uses of 'bufbyte' and correct them to 'docbyte' where needed
 
 const bi = @import("blockinterface2.zig");
+const util = @import("util.zig");
 
 fn BalancedBinaryTree(comptime Data: type) type {
     return struct {
@@ -641,6 +642,11 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             delete_len: u64,
             insert_text: []const T,
         };
+        pub const EmitSimpleOperation = struct {
+            position: u64,
+            delete_len: u64,
+            insert_text: []const T,
+        };
         pub const Operation = union(enum) {
             move: struct {
                 // To support using Document for lists, we need a 'move' operation. Otherwise, two people moving the same
@@ -802,6 +808,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         buffer: std.ArrayList(T),
         allocator: std.mem.Allocator,
 
+        on_before_simple_operation: util.CallbackList(util.Callback(EmitSimpleOperation, void)),
+        on_after_simple_operation: util.CallbackList(util.Callback(EmitSimpleOperation, void)),
+
         client_id: u16,
         /// must not be 0
         next_uuid: u48,
@@ -934,11 +943,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     },
                 };
                 const last = res._findEntrySpan(Position.end).span_index;
-                const last_value = res.span_bbt.getNodeDataPtrConst(last).?.*;
-                res._replaceRange(last, 1, &.{
-                    insert_span,
-                    last_value,
-                });
+                res._insertBefore(last, &.{insert_span});
             }
 
             if (bufbyte != buffer_length) return error.DeserializeError;
@@ -953,6 +958,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 .segment_id_map = .init(alloc),
                 .allocator = alloc,
 
+                .on_before_simple_operation = .init(alloc),
+                .on_after_simple_operation = .init(alloc),
+
                 .client_id = 0,
                 .next_uuid = 1,
             };
@@ -963,14 +971,15 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             // we call insertNodeBefore. It's okay if the pointer moves later.
             res.span_bbt = .init(alloc);
 
-            res._insertBefore(.root, &[_]Span{
-                .{
-                    .id = @enumFromInt(0),
-                    .start_segbyte = 0,
-                    .length = 1,
-                    .bufbyte = 0,
-                },
-            });
+            // manually init first span because there are no event handlers
+            const last_span: Span = .{
+                .id = @enumFromInt(0),
+                .start_segbyte = 0,
+                .length = 1,
+                .bufbyte = 0,
+            };
+            const node_idx = res.span_bbt.insertNodeBefore(last_span, .root) catch @panic("oom");
+            res._ensureInIdMap(last_span.id, last_span.start_segbyte, node_idx);
 
             return res;
         }
@@ -979,6 +988,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             while (sm_iter.next()) |entry| {
                 entry.value_ptr.deinit();
             }
+            self.on_after_simple_operation.deinit();
             self.segment_id_map.deinit();
             self.span_bbt.deinit();
             self.buffer.deinit();
@@ -1112,24 +1122,52 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             } else gpres.value_ptr.items.len;
             gpres.value_ptr.replaceRange(insert_idx, 0, &[_]BBT.NodeIndex{idx}) catch @panic("oom");
         }
+
+        fn _getSimpleOp(self: *Doc, position: BBT.NodeIndex, remove: ?*const Span, insert: *const Span) EmitSimpleOperation {
+            const posbyte = blk: {
+                const posinfo = self.span_bbt.getNodeDataPtrConst(position) orelse {
+                    break :blk self.length();
+                };
+                break :blk self.docbyteFromPosition(.{ .id = posinfo.id, .segbyte = posinfo.start_segbyte });
+            };
+
+            return .{
+                .position = posbyte,
+                .delete_len = if (remove) |rm| rm.count(&self.span_bbt).byte_count else 0,
+                .insert_text = if (insert.bufbyte) |bb| self.buffer.items[usi(bb)..][0..usi(insert.length)] else "",
+            };
+        }
+
+        /// insertBefore and updateNode are the only allowed ways to mutate the span bbt
         fn _updateNode(self: *Doc, index: BBT.NodeIndex, next_value: Span) void {
             const prev_value = self.span_bbt.getNodeDataPtrConst(index).?;
+
+            const simple_op = self._getSimpleOp(index, prev_value, &next_value);
+            self.on_before_simple_operation.emit(simple_op);
+
             self._removeFromIdMap(prev_value.id, index);
             self.span_bbt.updateNode(index, next_value);
             self._ensureInIdMap(next_value.id, next_value.start_segbyte, index);
+
+            self.on_after_simple_operation.emit(simple_op);
         }
+        /// insertBefore and updateNode are the only allowed ways to mutate the span bbt
         fn _insertBefore(self: *Doc, after_index: BBT.NodeIndex, values: []const Span) void {
             for (values) |value| {
+                const simple_op = self._getSimpleOp(after_index, null, &value);
+                self.on_before_simple_operation.emit(simple_op);
+
                 const node_idx = self.span_bbt.insertNodeBefore(value, after_index) catch @panic("oom");
                 self._ensureInIdMap(value.id, value.start_segbyte, node_idx);
+
+                self.on_after_simple_operation.emit(simple_op);
             }
         }
         fn _insertAfter(self: *Doc, before_index: BBT.NodeIndex, values: []const Span) void {
             var it = self.span_bbt.iterator(.{ .leftmost_node = before_index });
-            _ = it.next();
+            _ = it.next().?;
             self._insertBefore(it.node, values);
         }
-        // this is the only allowed way to update the entries array. (this or insertAter/updateNode)
         fn _replaceRange(self: *Doc, index: BBT.NodeIndex, delete_count: usize, next_slice: []const Span) void {
             if (delete_count != 1) @panic("TODO replaceRange with non-1 deleteCount");
             if (next_slice.len < 1) @panic("TODO replaceRange with next_slice len lt 1");
