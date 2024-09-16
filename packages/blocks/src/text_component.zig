@@ -988,6 +988,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             while (sm_iter.next()) |entry| {
                 entry.value_ptr.deinit();
             }
+            self.on_before_simple_operation.deinit();
             self.on_after_simple_operation.deinit();
             self.segment_id_map.deinit();
             self.span_bbt.deinit();
@@ -1172,8 +1173,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             if (delete_count != 1) @panic("TODO replaceRange with non-1 deleteCount");
             if (next_slice.len < 1) @panic("TODO replaceRange with next_slice len lt 1");
             // hack to prevent modifying final "\x00". simple operations should never be emitted covering the last byte.
-            if(next_slice[next_slice.len - 1].id == .end) {
-                return self._insertBefore(index, next_slice[0..next_slice.len - 1]);
+            if (next_slice[next_slice.len - 1].id == .end) {
+                return self._insertBefore(index, next_slice[0 .. next_slice.len - 1]);
             }
             self._updateNode(index, next_slice[0]);
             self._insertAfter(index, next_slice[1..]);

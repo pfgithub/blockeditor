@@ -10,9 +10,6 @@ const bi = blocks_mod.blockinterface2;
 
 extern fn tree_sitter_zig() ?*tree_sitter.TSLanguage;
 
-fn getPoint(src: []const u8) tree_sitter.TSPoint {
-    return addPoint(.{ .row = 0, .column = 0 }, src);
-}
 fn addPoint(start_point: tree_sitter.TSPoint, src: []const u8) tree_sitter.TSPoint {
     var result: tree_sitter.TSPoint = start_point;
     for (src) |char| {
@@ -55,6 +52,8 @@ pub const Context = struct {
     tree_needs_reparse: bool,
     znh: ZigNodeHighlighter,
 
+    old_slice: std.ArrayList(u8),
+
     /// refs document
     pub fn init(self: *Context, document: db_mod.TypedComponentRef(bi.text_component.TextDocument), alloc: std.mem.Allocator) !void {
         document.ref();
@@ -80,37 +79,52 @@ pub const Context = struct {
             .cached_tree = tree,
             .tree_needs_reparse = false,
             .znh = undefined,
+            .old_slice = undefined,
         };
         self.znh.init(alloc, lang);
         errdefer self.znh.deinit();
 
-        document.value.on_after_simple_operation.addListener(.from(self, beforeUpdateCallback));
-        errdefer document.value.on_after_simple_operation.removeListener(.from(self, beforeUpdateCallback));
+        self.old_slice = .init(alloc);
+        errdefer self.old_slice.deinit();
+
+        document.value.on_before_simple_operation.addListener(.from(self, beforeUpdateCallback));
+        errdefer document.value.on_before_simple_operation.removeListener(.from(self, beforeUpdateCallback));
     }
     pub fn deinit(self: *Context) void {
         self.znh.deinit();
+        self.old_slice.deinit();
         tree_sitter.ts_tree_delete(self.cached_tree);
         tree_sitter.ts_parser_delete(self.parser);
-        self.document.value.on_after_simple_operation.removeListener(.from(self, beforeUpdateCallback));
+        self.document.value.on_before_simple_operation.removeListener(.from(self, beforeUpdateCallback));
         self.document.unref();
     }
 
     fn beforeUpdateCallback(self: *Context, op: bi.text_component.TextDocument.EmitSimpleOperation) void {
-        if (true) @panic("TODO beforeUpdateCallback");
         self.tree_needs_reparse = true;
         self.znh.clear();
-        // we need old slice
-        // also .buffer.items makes no sense here, we need to call a calc fn
-        const start_point = getPoint(self.document.value.buffer.items[0..op.position]);
-        const old_end_point = addPoint(start_point, op.prev_slice);
-        const new_end_point = addPoint(start_point, op.next_slice);
+
+        const block = self.document.value;
+
+        std.debug.assert(self.old_slice.items.len == 0);
+        const res_slice = self.old_slice.addManyAsSlice(op.delete_len) catch @panic("oom");
+        defer self.old_slice.clearRetainingCapacity();
+        block.readSlice(block.positionFromDocbyte(op.position), res_slice);
+
+        // TODO: calculate start_point row using computed values in text_component
+        // no need to render the whole document up to this point
+        const tmp_buf = self.alloc.alloc(u8, op.position) catch @panic("oom");
+        defer self.alloc.free(tmp_buf);
+        block.readSlice(block.positionFromDocbyte(0), tmp_buf);
+
+        const start_point = addPoint(.{ .row = 0, .column = 0 }, tmp_buf);
+
         tree_sitter.ts_tree_edit(self.cached_tree, &.{
             .start_byte = @intCast(op.position),
             .old_end_byte = @intCast(op.position + op.delete_len),
             .new_end_byte = @intCast(op.position + op.insert_text.len),
             .start_point = start_point,
-            .old_end_point = old_end_point,
-            .new_end_point = new_end_point,
+            .old_end_point = addPoint(start_point, res_slice),
+            .new_end_point = addPoint(start_point, op.insert_text),
         });
     }
 
@@ -348,7 +362,7 @@ const ZigNodeHighlighter = struct {
         self.doc = doc;
     }
     pub fn clear(self: *ZigNodeHighlighter) void {
-        self.buffer = null;
+        self.doc = null;
         self.last_node_cache = null;
     }
 
@@ -581,6 +595,14 @@ test Context {
     defer ctx.deinit();
 
     try testHighlight(&ctx, "<keyword_storage>const <variable_constant>std <keyword>= @import<punctuation>(\"<literal_string>std<punctuation>\");");
+
+    src_component.applySimpleOperation(.{
+        .position = src_component.value.positionFromDocbyte(0),
+        .delete_len = src_component.value.length(),
+        .insert_text = "const mystr = \"x_esc: \\x5A, n_esc: \\n, bks_esc: \\\\, str_esc: \\\", u_esc: \\u{ABC123}\";",
+    }, null);
+
+    try testHighlight(&ctx, "<keyword_storage>const <variable_constant>mystr <keyword>= <punctuation>\"<literal_string>x_esc: <punctuation>\\<keyword_storage>x<literal>5A<literal_string>, n_esc: <punctuation>\\<literal>n<literal_string>, bks_esc: <punctuation>\\<literal_string>\\, str_esc: <punctuation>\\<literal_string>\", u_esc: <punctuation>\\<keyword_storage>u<punctuation>{<literal>ABC123<punctuation>}\";");
 
     // we can fuzz: document plus random insert should equal document plus random insert
     // but one before initializing ctx and one after
