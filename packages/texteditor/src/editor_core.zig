@@ -413,13 +413,13 @@ pub const EditorCore = struct {
         const block = self.document.value;
         return block.positionFromDocbyte(block.docbyteFromPosition(pos));
     }
-    /// makes sure that cursors always go to the right of any insert.
+    /// makes sure cursors are:
+    /// - on live spans, not deleted ones `hello ` `5|` `world` -> `hello `5` `|world`
+    /// - not overlapping `he[llo[ wor|ld|` -> `he[llo world|`
+    /// - in left-to-right order ``
     pub fn normalizeCursors(self: *EditorCore) void {
         const block = self.document.value;
 
-        // TODO: merge selections and overlapping cursors
-        // uh oh we're supposed to keep around the extra data that the cursors have
-        // but this deletes it
         var positions = self.getCursorPositions();
         defer positions.deinit();
 
