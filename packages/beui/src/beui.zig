@@ -141,7 +141,7 @@ pub const Beui = struct {
     }
 
     /// returns {needs_write, image_id, region} or null if the image cannot be drawn this frame
-    pub fn getOrPutImage(self: *Beui, target: texpack.Format, size: @Vector(2, u32), id: Beui.ID) ?struct{bool, draw_lists.RenderListImage, texpack.Region} {
+    pub fn getOrPutImage(self: *Beui, target: texpack.Format, size: @Vector(2, u32), id: Beui.ID) ?struct { bool, draw_lists.RenderListImage, texpack.Region } {
         // // getOrPutImage(nchannels, size, todo a unique id)
         // const needs_write, const image_id, const region = beui.getOrPutImage( .r, .{25, 50}, beui.id() ) orelse return;
         // if(needs_write) {
@@ -167,7 +167,7 @@ pub const Beui = struct {
         return null;
     }
 
-    pub const ID = enum(u64) {_};
+    pub const ID = enum(u64) { _ };
 };
 pub fn EnumArray(comptime Enum: type, comptime Value: type) type {
     const count = blk: {
