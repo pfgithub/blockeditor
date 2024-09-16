@@ -54,12 +54,10 @@ test "font_experiment" {
         for (0..bitmap.rows()) |y| {
             const w = bitmap.width();
             for (0..w) |x| {
-                const value: u32 = bitmap.buffer().?[y * w + x];
-                const reschar = value * (charseq.len - 1) / std.math.maxInt(u8);
-                const char: u8 = charseq[charseq.len - reschar - 1];
-                try writer_buffered.writeAll(&.{ char, char });
+                const value: u8 = bitmap.buffer().?[y * w + x];
+                try writer_buffered.print("\x1b[48;2;{d};{d};{d}m  ", .{ value, value, value });
             }
-            try writer_buffered.writeByte('\n');
+            try writer_buffered.writeAll("\x1b[0m\n");
         }
         try writer_buffered_backing.flush();
 
