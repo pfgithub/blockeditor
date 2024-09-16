@@ -369,5 +369,5 @@ pub const BeuiKey = enum(u32) {
 test {
     _ = @import("font_experiment.zig");
     _ = @import("render_list.zig");
-    _ = @import("texpack");
+    _ = @import("texpack.zig");
 }
