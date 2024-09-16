@@ -586,7 +586,7 @@ pub const EditorCore = struct {
                             .left => .at(current_pos.pos),
                             .right => .at(current_pos.right),
                         };
-                        return;
+                        continue;
                     }
 
                     const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {

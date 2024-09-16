@@ -66,10 +66,10 @@ pub const EditorView = struct {
         // $word (down | up) => ts_select_node [
         //     .direction = $2(.down, .up),
         // ]
-        // ?$select (down | up) => move_cursor_ud [
-        //     .direction = $2(.down, .up),
+        // ?(alt $hotkey) ?$select (down | up) => move_cursor_ud [
+        //     .direction = $3(.down, .up),
         //     .metric = .raw,
-        //     .mode = $1(.move, .select),
+        //     .mode = $1(.duplicate, $2(.move, .select)),
         // ]
         // enter => newline
         // ?$reverse tab => indent_selection [
@@ -140,6 +140,16 @@ pub const EditorView = struct {
                     false => .move,
                     true => .select,
                 },
+            } });
+        }
+        if (beui.hotkey(.{ .alt = .yes, .ctrl_or_cmd = .yes }, &.{ .down, .up })) |hk| {
+            self.core.executeCommand(.{ .move_cursor_up_down = .{
+                .direction = switch (hk.key) {
+                    .down => .down,
+                    .up => .up,
+                },
+                .metric = .byte,
+                .mode = .duplicate,
             } });
         }
         if (beui.hotkey(.{}, &.{.enter})) |_| {
