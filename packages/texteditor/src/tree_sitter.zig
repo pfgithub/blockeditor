@@ -118,29 +118,14 @@ pub const Context = struct {
     pub fn getTree(self: *Context) *tree_sitter.TSTree {
         if (self.tree_needs_reparse) {
             self.tree_needs_reparse = false;
-            const source_code = self.block_ref.getDataAssumeLoadedConst().buffer.items;
-            // const input: tree_sitter.TSInput = .{
-            //     //   void *payload;
-            //     //   const char *(*read)(
-            //     //     void *payload,
-            //     //     uint32_t byte_offset,
-            //     //     TSPoint position,
-            //     //     uint32_t *bytes_read
-            //     //   );
-            //     //   TSInputEncoding encoding;
-            // };
-            // TSTree *ts_parser_parse(
-            //     TSParser *self,
-            //     const TSTree *old_tree,
-            //     TSInput input
-            // );
-            self.cached_tree = tree_sitter.ts_parser_parse_string(self.parser, self.cached_tree, source_code.ptr, @as(u32, @intCast(source_code.len))).?;
+
+            self.cached_tree = tree_sitter.ts_parser_parse(self.parser, self.cached_tree, textComponentToTsInput(self.document.value)).?;
         }
         return self.cached_tree;
     }
 
     pub fn highlight(self: *Context) TreeSitterSyntaxHighlighter {
-        self.znh.beginFrame(self.block_ref.getDataAssumeLoadedConst().buffer.items);
+        self.znh.beginFrame(self.document.value);
         return TreeSitterSyntaxHighlighter.init(&self.znh, tree_sitter.ts_tree_root_node(self.getTree()));
     }
     pub fn endHighlight(self: *Context) void {
@@ -198,7 +183,7 @@ pub const TreeSitterSyntaxHighlighter = struct {
     }
 
     pub fn advanceAndRead(syn_hl: *TreeSitterSyntaxHighlighter, idx: usize) editor_core.SynHlColorScope {
-        std.debug.assert(idx < syn_hl.znh.buffer.?.len);
+        std.debug.assert(idx < syn_hl.znh.doc.?.length());
 
         // TODO:
         // https://github.com/tree-sitter/tree-sitter/blob/8e8648afa9c30bf69a0020db9b130c4eb11b095e/lib/src/node.c#L328
@@ -326,7 +311,7 @@ const LastNodeCache = struct {
 
 const ZigNodeHighlighter = struct {
     // why does this thing hold .buffer in it? probably not the right place for that
-    buffer: ?[]const u8,
+    doc: ?*bi.text_component.TextDocument,
     node_id_to_enum_id_map: []const NodeInfo,
     fn_call_id: tree_sitter.TSFieldId,
     alloc: std.mem.Allocator,
@@ -350,7 +335,7 @@ const ZigNodeHighlighter = struct {
         }
         const fn_call_name: []const u8 = "function_call";
         self.* = .{
-            .buffer = null,
+            .doc = null,
             .node_id_to_enum_id_map = node_id_to_enum_id_map,
             .fn_call_id = tree_sitter.ts_language_field_id_for_name(language, fn_call_name.ptr, @intCast(fn_call_name.len)),
             .alloc = alloc,
@@ -359,8 +344,8 @@ const ZigNodeHighlighter = struct {
     pub fn deinit(self: *ZigNodeHighlighter) void {
         self.alloc.free(self.node_id_to_enum_id_map);
     }
-    pub fn beginFrame(self: *ZigNodeHighlighter, buffer: []const u8) void {
-        self.buffer = buffer;
+    pub fn beginFrame(self: *ZigNodeHighlighter, doc: *bi.text_component.TextDocument) void {
+        self.doc = doc;
     }
     pub fn clear(self: *ZigNodeHighlighter) void {
         self.buffer = null;
@@ -382,6 +367,12 @@ const ZigNodeHighlighter = struct {
         hl.last_node_cache = .{ .node = node, .cache = cache };
         return renderCache(hl, cache, byte_index);
     }
+    fn charAt(hl: *ZigNodeHighlighter, pos: u64) u8 {
+        if (pos >= hl.doc.?.length()) return '\x00';
+        var char_arr: [1]u8 = undefined;
+        hl.doc.?.readSlice(hl.doc.?.positionFromDocbyte(pos), &char_arr);
+        return char_arr[0];
+    }
 };
 
 fn cs(v: editor_core.SynHlColorScope) NodeCacheInfo {
@@ -392,7 +383,7 @@ fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize)
         .color_scope => |scope| scope,
         .special => |special| blk: {
             const offset: i32 = @as(i32, @intCast(byte_index)) - @as(i32, @intCast(special.start_byte));
-            const char = hl.buffer.?[byte_index];
+            const char = hl.charAt(byte_index);
             break :blk switch (special.kind) {
                 .dot => switch (offset) {
                     0 => .punctuation_important,
@@ -466,7 +457,7 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode) NodeCacheI
             },
             .INTEGER, .FLOAT => {
                 const start_byte = tree_sitter.ts_node_start_byte(node);
-                const c1 = if (start_byte + 1 < hl.buffer.?.len) hl.buffer.?[start_byte + 1] else '\x00';
+                const c1 = hl.charAt(start_byte);
                 return switch (c1) {
                     'x', 'o', 'b' => .{ .special = .{
                         .start_byte = start_byte,
@@ -540,6 +531,35 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode) NodeCacheI
 //     }
 // }
 
+fn testHighlight(context: *Context, expected_value: []const u8) !void {
+    var hl = context.highlight();
+    defer hl.deinit();
+
+    var actual = std.ArrayList(u8).init(std.testing.allocator);
+    defer actual.deinit();
+
+    var prev_color_scope: editor_core.SynHlColorScope = .invalid;
+    for (0..context.document.value.length()) |i| {
+        const read_res = hl.advanceAndRead(i);
+        const char = hl.znh.charAt(i);
+
+        switch (char) {
+            ' ', '\n', '\r', '\t' => {
+                // whitespace, skip writing scopes
+            },
+            else => {
+                if (read_res != prev_color_scope) {
+                    try actual.writer().print("<{s}>", .{@tagName(read_res)});
+                }
+                prev_color_scope = read_res;
+            },
+        }
+        try actual.append(char);
+    }
+
+    try std.testing.expectEqualStrings(expected_value, actual.items);
+}
+
 test Context {
     const gpa = std.testing.allocator;
 
@@ -550,7 +570,18 @@ test Context {
     const src_component = src_block.typedComponent(bi.TextDocumentBlock) orelse unreachable;
     defer src_component.unref();
 
+    src_component.applySimpleOperation(.{
+        .position = src_component.value.positionFromDocbyte(0),
+        .delete_len = 0,
+        .insert_text = "const std = @import(\"std\");",
+    }, null);
+
     var ctx: Context = undefined;
     try ctx.init(src_component, gpa);
     defer ctx.deinit();
+
+    try testHighlight(&ctx, "<keyword_storage>const <variable_constant>std <keyword>= @import<punctuation>(\"<literal_string>std<punctuation>\");");
+
+    // we can fuzz: document plus random insert should equal document plus random insert
+    // but one before initializing ctx and one after
 }
