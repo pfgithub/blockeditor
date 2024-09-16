@@ -91,3 +91,7 @@ const charseq = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;
 // - supports bidi and script itemization, which we would have to implement ourselves
 //   - SheenBIDI might do itemization
 // - doesn't support fallback fonts?
+
+// future:
+// - for large font sizes, render with a multi channel signed distance field at a fixed size,
+//   then they can be rendered at any size
