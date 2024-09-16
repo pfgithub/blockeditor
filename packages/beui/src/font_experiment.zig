@@ -68,3 +68,26 @@ test "font_experiment" {
 }
 
 const charseq = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ";
+
+// for text editor we will:
+// - split by lines
+// - split lines into runs using FriBiDi or SheenBidi
+// - run harfbuzz on each run (bad for very long runs)
+//   - cache the result
+// - draw the harfbuzz result to the screen
+//   - wrap if any part of a glyph goes over the edge of the screen
+//
+// if harfbuzz returns a '0' glyph id:
+// - select the portion of the text that was '0'
+// - run harfbuzz again with the fallback font
+// - not sure if that's right
+//
+// eventually:
+// - use a zig algorithm to determine good text break points for wrapping
+//
+// alternatively:
+// - use libraqm. shouldn't be too hard to build, just depends on a bidi algo
+// - https://github.com/HOST-Oman/libraqm
+// - supports bidi and script itemization, which we would have to implement ourselves
+//   - SheenBIDI might do itemization
+// - doesn't support fallback fonts?
