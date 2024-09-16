@@ -458,6 +458,7 @@ pub const BlockRef = struct {
 
     pub fn typedComponent(self: *BlockRef, comptime BlockT: type) ?TypedComponentRef(BlockT.Child) {
         if (self.contents()) |c| {
+            self.ref();
             return .{
                 .block_ref = self,
                 .prefix = "",

@@ -903,6 +903,7 @@ const EditorTester = struct {
     pub fn deinit(self: *EditorTester) void {
         self.editor.deinit();
         self.src_block.unref();
+        self.src_component.unref();
         self.my_db.deinit();
     }
 
@@ -1268,7 +1269,6 @@ test EditorCore {
 fn usi(a: u64) usize {
     return @intCast(a);
 }
-
 
 pub const SynHlColorScope = enum {
     //! sample containing all color scopes. syn hl colors are postfix in brackets

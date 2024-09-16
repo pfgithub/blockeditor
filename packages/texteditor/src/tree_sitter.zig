@@ -47,7 +47,6 @@ fn textComponentToTsInput(block_val: *const bi.text_component.TextDocument) tree
     };
 }
 
-
 pub const Context = struct {
     alloc: std.mem.Allocator,
     parser: *tree_sitter.TSParser,
@@ -97,7 +96,7 @@ pub const Context = struct {
     }
 
     fn beforeUpdateCallback(self: *Context, op: bi.text_component.TextDocument.EmitSimpleOperation) void {
-        if(true) @panic("TODO beforeUpdateCallback");
+        if (true) @panic("TODO beforeUpdateCallback");
         self.tree_needs_reparse = true;
         self.znh.clear();
         // we need old slice
@@ -223,7 +222,6 @@ pub const TreeSitterSyntaxHighlighter = struct {
         return syn_hl.znh.highlightNode(hl_node, idx);
     }
 };
-
 
 const w = std.zig.Tokenizer;
 
@@ -549,11 +547,10 @@ test Context {
     defer my_db.deinit();
     const src_block = my_db.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
     defer src_block.unref();
-    // triggers segfault; todo debug
-    // const src_component = src_block.typedComponent(bi.TextDocumentBlock) orelse unreachable;
-    // defer src_component.unref();
+    const src_component = src_block.typedComponent(bi.TextDocumentBlock) orelse unreachable;
+    defer src_component.unref();
 
-    // var ctx: Context = undefined;
-    // try ctx.init(src_component, gpa);
-    // defer ctx.deinit();
+    var ctx: Context = undefined;
+    try ctx.init(src_component, gpa);
+    defer ctx.deinit();
 }
