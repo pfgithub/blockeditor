@@ -78,14 +78,15 @@ pub const EditorView = struct {
         // $hotkey a => select_all
         // $hotkey ?$reverse z => $2(undo, redo)
         // $hotkey y => redo
+        // $hotkey shift d => duplicate_line [ .direction = .down ]
 
-        if (beui.hotkey(.{ .alt = .maybe, .shift = .maybe }, &.{ .left, .right })) |hk| {
+        if (beui.hotkey(.{ .alt = .maybe, .ctrl_or_cmd = .maybe, .shift = .maybe }, &.{ .left, .right })) |hk| {
             self.core.executeCommand(.{ .move_cursor_left_right = .{
                 .direction = switch (hk.key) {
                     .left => .left,
                     .right => .right,
                 },
-                .stop = switch (hk.alt) {
+                .stop = switch (hk.alt or hk.ctrl_or_cmd) {
                     false => .unicode_grapheme_cluster,
                     true => .word,
                 },
@@ -109,13 +110,13 @@ pub const EditorView = struct {
                 },
             } });
         }
-        if (beui.hotkey(.{ .alt = .maybe }, &.{ .backspace, .delete })) |hk| {
+        if (beui.hotkey(.{ .alt = .maybe, .ctrl_or_cmd = .maybe }, &.{ .backspace, .delete })) |hk| {
             self.core.executeCommand(.{ .delete = .{
                 .direction = switch (hk.key) {
                     .backspace => .left,
                     .delete => .right,
                 },
-                .stop = switch (hk.alt) {
+                .stop = switch (hk.alt or hk.ctrl_or_cmd) {
                     false => .unicode_grapheme_cluster,
                     true => .word,
                 },
@@ -174,6 +175,9 @@ pub const EditorView = struct {
         }
         if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.y})) |_| {
             self.core.executeCommand(.redo);
+        }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes, .shift = .yes }, &.{.d})) |_| {
+            self.core.executeCommand(.{ .duplicate_line = .{ .direction = .down } });
         }
 
         if (beui.textInput()) |text| {

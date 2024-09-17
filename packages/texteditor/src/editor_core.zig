@@ -205,6 +205,9 @@ pub const EditorCommand = union(enum) {
     set_cursor_pos: struct {
         position: Position,
     },
+    duplicate_line: struct {
+        direction: enum { up, down },
+    },
 };
 
 pub const IndentMode = union(enum) {
@@ -673,6 +676,54 @@ pub const EditorCore = struct {
                             .insert_text = temp_insert_slice.items,
                         });
                         if (end) break;
+                    }
+                }
+            },
+            .duplicate_line => |dupe_cmd| {
+                for (self.cursor_positions.items) |*cursor_position| {
+                    const pos_len = self.selectionToPosLen(cursor_position.pos);
+
+                    const start_line = self.getLineStart(pos_len.pos);
+                    const end_line = self.getThisLineEnd(pos_len.right);
+
+                    const start_byte = block.docbyteFromPosition(start_line);
+                    const end_byte = block.docbyteFromPosition(end_line);
+
+                    var dupe_al: std.ArrayList(u8) = .init(self.gpa);
+                    defer dupe_al.deinit();
+                    block.readSlice(start_line, dupe_al.addManyAsSlice(end_byte - start_byte) catch @panic("oom"));
+                    switch (dupe_cmd.direction) {
+                        .down => {
+                            if (dupe_al.items.len == 0 or dupe_al.items[dupe_al.items.len - 1] != '\n') {
+                                dupe_al.append('\n') catch @panic("oom");
+                            }
+                        },
+                        .up => {
+                            if (dupe_al.items.len != 0 and dupe_al.items[dupe_al.items.len - 1] == '\n') {
+                                _ = dupe_al.pop();
+                            }
+                            dupe_al.insertSlice(0, &.{'\n'}) catch @panic("oom");
+                        },
+                    }
+
+                    self.replaceRange(.{
+                        .position = switch (dupe_cmd.direction) {
+                            .down => start_line,
+                            .up => end_line,
+                        },
+                        .delete_len = 0,
+                        .insert_text = dupe_al.items,
+                    });
+
+                    // handle case where cursor is at the end of the line when duplicating up
+                    if (dupe_cmd.direction == .up) {
+                        const target = block.docbyteFromPosition(end_line);
+                        for (&[_]*Position{ &cursor_position.pos.anchor, &cursor_position.pos.focus }) |pos| {
+                            const pos_int = block.docbyteFromPosition(pos.*);
+                            if (pos_int == target) {
+                                pos.* = block.positionFromDocbyte(pos_int - dupe_al.items.len);
+                            }
+                        }
                     }
                 }
             },
@@ -1272,6 +1323,20 @@ test EditorCore {
     try tester.expectContent("line |\nline |\nline |\nline |");
     tester.executeCommand(.{ .insert_text = .{ .text = "5" } });
     try tester.expectContent("line 5|\nline 5|\nline 5|\nline 5|");
+
+    //
+    // Duplicate line
+    //
+    tester.executeCommand(.select_all);
+    tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .stop = .word, .mode = .move } });
+    try tester.expectContent("line 5\nline 5\nline 5\nline 5|");
+    tester.executeCommand(.{ .duplicate_line = .{ .direction = .up } });
+    try tester.expectContent("line 5\nline 5\nline 5\nline 5|\nline 5");
+    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
+    tester.executeCommand(.{ .insert_text = .{ .text = "9" } });
+    try tester.expectContent("line 5\nline 5\nline 5\nline 9|\nline 5");
+    tester.executeCommand(.{ .duplicate_line = .{ .direction = .down } });
+    try tester.expectContent("line 5\nline 5\nline 5\nline 9\nline 9|\nline 5");
 }
 
 fn usi(a: u64) usize {
