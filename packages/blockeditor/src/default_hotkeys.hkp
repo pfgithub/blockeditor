@@ -1,0 +1,40 @@
+$word = (alt | ctrl)
+$select = shift
+$reverse = shift
+$hotkey = (ctrl | cmd)
+
+?$word ?$select (left | right) => move_cursor_lr [
+    .direction = $3(.left, .right),
+    .stop = $1(.unicode_grapheme_cluster, .word),
+    .mode = $2(.move, .select),
+]
+?$select (home | end) => move_cursor_lr [
+    .direction = $2(.left, .right),
+    .stop = .line,
+    .mode = $1(.move, .select),
+]
+?$word (backspace | delete) => delete [
+    .direction = $2(.left, .right),
+    .stop = $1(.unicode_grapheme_cluster, .word),
+]
+$word (down | up) => ts_select_node [
+    .direction = $2(.down, .up),
+]
+?$select (down | up) => move_cursor_ud [
+    .direction = $2(.down, .up),
+    .metric = .byte,
+    .mode = $1(.move, .select),
+]
+alt $hotkey (down | up) => move_cursor_ud [
+    .direction = $2(.down, .up),
+    .metric = .byte,
+    .mode = .duplicate,
+]
+enter => newline
+?$reverse tab => indent_selection [
+    .direction = $1(.right, .left),
+]
+$hotkey a => select_all
+$hotkey ?$reverse z => $2(undo, redo)
+$hotkey y => redo
+$hotkey shift d => duplicate_line [ .direction = .down ]

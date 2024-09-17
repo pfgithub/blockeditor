@@ -42,44 +42,6 @@ pub const EditorView = struct {
         const draw_list = beui.draw();
         const block = self.core.document.value;
 
-        // # hotkey dsl?
-        //
-        // $word = (alt | ctrl)
-        // $select = shift
-        // $reverse = shift
-        // $hotkey = (ctrl | cmd)
-        //
-        // ?$word ?$select (left | right) => move_cursor_lr [
-        //     .direction = $3(.left, .right),
-        //     .stop = $1(.unicode_grapheme_cluster, .word),
-        //     .mode = $2(.move, .select),
-        // ]
-        // ?$select (home | end) => move_cursor_lr [
-        //     .direction = $2(.left, .right),
-        //     .stop = .line,
-        //     .mode = $1(.move, .select),
-        // ]
-        // ?$word (backspace | delete) => delete [
-        //     .direction = $2(.left, .right),
-        //     .stop = $1(.unicode_grapheme_cluster, .word),
-        // ]
-        // $word (down | up) => ts_select_node [
-        //     .direction = $2(.down, .up),
-        // ]
-        // ?(alt $hotkey) ?$select (down | up) => move_cursor_ud [
-        //     .direction = $3(.down, .up),
-        //     .metric = .raw,
-        //     .mode = $1(.duplicate, $2(.move, .select)),
-        // ]
-        // enter => newline
-        // ?$reverse tab => indent_selection [
-        //     .direction = $1(.right, .left),
-        // ]
-        // $hotkey a => select_all
-        // $hotkey ?$reverse z => $2(undo, redo)
-        // $hotkey y => redo
-        // $hotkey shift d => duplicate_line [ .direction = .down ]
-
         if (beui.hotkey(.{ .alt = .maybe, .ctrl_or_cmd = .maybe, .shift = .maybe }, &.{ .left, .right })) |hk| {
             self.core.executeCommand(.{ .move_cursor_left_right = .{
                 .direction = switch (hk.key) {
