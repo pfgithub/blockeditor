@@ -234,7 +234,7 @@ pub const EditorView = struct {
 
             const char_offset = @Vector(2, f32){ (invisible_advance - char_advance) / 2.0, 0.0 };
 
-            if (is_invisible == null and pos[0] <= window_size[0] and pos[1] <= window_size[1] and pos[0] >= 0 and pos[1] >= 0) {
+            if ((show_invisibles or is_invisible == null) and pos[0] <= window_size[0] and pos[1] <= window_size[1] and pos[0] >= 0 and pos[1] >= 0) {
                 draw_list.addChar(char_or_invisible, window_pos + pos + char_offset, hexToFloat(DefaultTheme.synHlColor(switch (is_invisible != null) {
                     true => .invisible,
                     false => syn_hl_info,
