@@ -208,6 +208,9 @@ pub const BlockDB = struct {
         self.recv_queue.deinit();
 
         // blockrefs have a reference to the block interface so they better be gone
+        for (self.path_to_blockref_map.values()) |ref| {
+            std.log.err("leaked block: {}", .{ref.id});
+        }
         std.debug.assert(self.path_to_blockref_map.values().len == 0);
         self.path_to_blockref_map.deinit();
     }
