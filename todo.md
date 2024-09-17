@@ -5,6 +5,14 @@ TODO
 - [ ] Try renderdoc https://renderdoc.org/ (linux or windows)
 - [x] Use rr next time there's a bug
 
+Tasks:
+
+- [ ] implement server & try collaborative
+  - [ ] later: presence
+- [ ] freetype font rendering
+  - [ ] later: harfbuzz layout
+- [ ] increase scroll speed
+
 future blocks:
 
 - [ ] spreadsheet (ideally that can be put on a whiteboard, like numbers)
