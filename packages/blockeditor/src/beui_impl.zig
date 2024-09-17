@@ -559,7 +559,7 @@ const callbacks = struct {
 
     fn scrollCallback(window: *zglfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
         const beui = window.getUserPointer(beui_mod.Beui).?;
-        beui.frame.scroll += @floatCast(@Vector(2, f64){ xoffset, yoffset } * @Vector(2, f64){ 16, 16 });
+        beui.frame.scroll_px += @floatCast(@Vector(2, f64){ xoffset, yoffset } * @Vector(2, f64){ 48, 48 });
     }
     fn cursorPosCallback(window: *zglfw.Window, xpos: f64, ypos: f64) callconv(.C) void {
         const beui = window.getUserPointer(beui_mod.Beui).?;

@@ -184,7 +184,7 @@ pub const EditorView = struct {
             self.core.executeCommand(.{ .insert_text = .{ .text = text } });
         }
 
-        self.scroll_position += @floatCast(beui.frame.scroll[1]);
+        self.scroll_position += @floatCast(beui.frame.scroll_px[1]);
 
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
         const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };

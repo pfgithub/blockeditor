@@ -230,7 +230,7 @@ const BeuiFrameEv = struct {
     released_keys: EnumArray(BeuiKey, bool) = .init(false),
     text_input: []const u8 = "",
     frame_cfg: ?BeuiFrameCfg = null,
-    scroll: @Vector(2, f32) = .{ 0, 0 },
+    scroll_px: @Vector(2, f32) = .{ 0, 0 },
 };
 pub const BeuiKey = enum(u32) {
     mouse_left = 1,
