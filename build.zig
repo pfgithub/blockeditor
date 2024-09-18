@@ -33,6 +33,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);
 
+    b.installArtifact(blockeditor_dep.artifact("blockeditor"));
     const run_blockeditor = b.addRunArtifact(blockeditor_dep.artifact("blockeditor"));
     if (b.args) |args| run_blockeditor.addArgs(args);
     const run_blockeditor_step = b.step("run", "Run blockeditor");
