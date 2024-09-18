@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "blocks_net",
+        .name = "server",
         .root_source_file = b.path("src/server.zig"),
         .target = target,
         .optimize = optimize,
