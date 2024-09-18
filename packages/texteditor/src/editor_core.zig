@@ -21,8 +21,11 @@ pub const Selection = struct {
 };
 const PosLen = struct {
     pos: Position,
+    left_docbyte: u64,
     right: Position,
+    right_docbyte: u64,
     len: u64,
+    is_right: bool,
 };
 pub const CursorPosition = struct {
     pos: Selection,
@@ -416,8 +419,11 @@ pub const EditorCore = struct {
 
         return .{
             .pos = block.positionFromDocbyte(min),
+            .left_docbyte = min,
             .right = block.positionFromDocbyte(max),
+            .right_docbyte = max,
             .len = max - min,
+            .is_right = min == bufbyte_1,
         };
     }
     pub fn normalizePosition(self: *EditorCore, pos: Position) Position {
@@ -727,8 +733,76 @@ pub const EditorCore = struct {
                     }
                 }
             },
-            .ts_select_node => {
-                @panic("TODO tree-sitter");
+            .ts_select_node => |ts_sel| {
+                for (self.cursor_positions.items) |*cursor_position| {
+                    var sel_start = cursor_position.node_select_start orelse cursor_position.pos;
+                    _ = &sel_start; // work around zig bug. sel_start should be 'const' but it mutates if it is
+                    const start_pos_len = self.selectionToPosLen(sel_start);
+                    const sel_curr = cursor_position.pos;
+                    const curr_pos_len = self.selectionToPosLen(sel_curr);
+
+                    const tree = self.syn_hl_ctx.getTree();
+                    const min_node = tree_sitter.tree_sitter.ts_node_descendant_for_byte_range(
+                        tree_sitter.tree_sitter.ts_tree_root_node(tree),
+                        @intCast(start_pos_len.left_docbyte),
+                        @intCast(start_pos_len.right_docbyte),
+                    );
+
+                    var curr_node = min_node;
+                    var prev_node: tree_sitter.tree_sitter.TSNode = .{};
+
+                    while (!tree_sitter.tree_sitter.ts_node_is_null(curr_node)) {
+                        const node_start = tree_sitter.tree_sitter.ts_node_start_byte(curr_node);
+                        const node_end = tree_sitter.tree_sitter.ts_node_end_byte(curr_node);
+
+                        //  za[bc]de
+                        //  za[bc]de
+                        const db = node_start <= curr_pos_len.left_docbyte and node_end >= curr_pos_len.right_docbyte;
+                        if (ts_sel.direction == .child and db) {
+                            // on down: select previous node
+                            break;
+                        }
+                        if (ts_sel.direction == .parent and db and (node_start < curr_pos_len.left_docbyte or node_end > curr_pos_len.right_docbyte)) {
+                            // on up: select this node
+                            break;
+                        }
+
+                        prev_node = curr_node;
+                        curr_node = tree_sitter.tree_sitter.ts_node_parent(curr_node);
+                    }
+
+                    const target_node = switch (ts_sel.direction) {
+                        .parent => curr_node,
+                        .child => prev_node,
+                    };
+
+                    if (tree_sitter.tree_sitter.ts_node_is_null(target_node)) switch (ts_sel.direction) {
+                        .parent => {
+                            // select all
+                            cursor_position.* = .{
+                                .pos = .range(block.positionFromDocbyte(0), .end),
+                                .node_select_start = sel_start,
+                            };
+                            continue;
+                        },
+                        .child => {
+                            // select min
+                            cursor_position.* = .{
+                                .pos = sel_start,
+                                .node_select_start = sel_start,
+                            };
+                            continue;
+                        },
+                    };
+
+                    const target_start = tree_sitter.tree_sitter.ts_node_start_byte(target_node);
+                    const target_end = tree_sitter.tree_sitter.ts_node_end_byte(target_node);
+
+                    cursor_position.* = .{
+                        .pos = .range(block.positionFromDocbyte(target_start), block.positionFromDocbyte(target_end)),
+                        .node_select_start = sel_start,
+                    };
+                }
             },
             .undo => {
                 // const undo_op = self.undo_list.popOrNull() orelse return;
@@ -752,7 +826,7 @@ pub const EditorCore = struct {
     }
     // change to sel_mode: DragSelectionMode, shift_held: bool?
     // make this an EditorCommand?
-    pub fn onClick(self: *EditorCore, pos: Position, click_count: usize, shift_held: bool) void {
+    pub fn onClick(self: *EditorCore, pos: Position, click_count: usize, shift_held: bool, ctrl_or_alt_held: bool) void {
         const cursor = self.getEnsureOneCursor(pos);
         const sel_mode: DragSelectionMode = switch (click_count) {
             1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
@@ -779,15 +853,47 @@ pub const EditorCore = struct {
                 .sel_mode = sel_mode,
             };
         }
-        self.onDrag(pos);
+        self.onDrag(pos, ctrl_or_alt_held);
     }
-    pub fn onDrag(self: *EditorCore, pos: Position) void {
+    pub fn onDrag(self: *EditorCore, pos: Position, ctrl_or_alt_held: bool) void {
+        const block = self.document.value;
+
+        // TODO: support tree_sitter selection when holding ctrl|alt:
+        // - given (drag_start, drag_end):
+        //   - find node for range (start, end)
+        //   - select from node left to node right
+        // should allow for easy selection within brackets: ctrl+drag a little bit and you're done
         const cursor = self.getEnsureOneCursor(pos);
         if (cursor.drag_info == null) return;
 
         const drag_info = cursor.drag_info.?;
         const stop = drag_info.sel_mode.stop;
         const anchor_pos = drag_info.start_pos;
+        if (ctrl_or_alt_held) {
+            const sel_start: Selection = .range(anchor_pos, pos);
+            const pos_len = self.selectionToPosLen(sel_start);
+
+            const tree = self.syn_hl_ctx.getTree();
+            const min_node = tree_sitter.tree_sitter.ts_node_descendant_for_byte_range(
+                tree_sitter.tree_sitter.ts_tree_root_node(tree),
+                @intCast(pos_len.left_docbyte),
+                @intCast(pos_len.right_docbyte),
+            );
+
+            const is_null = tree_sitter.tree_sitter.ts_node_is_null(min_node);
+            const target_start = if (is_null) 0 else tree_sitter.tree_sitter.ts_node_start_byte(min_node);
+            const target_end = if (is_null) block.length() else tree_sitter.tree_sitter.ts_node_end_byte(min_node);
+
+            cursor.* = .{
+                .pos = switch (pos_len.is_right) {
+                    false => .range(block.positionFromDocbyte(target_end), block.positionFromDocbyte(target_start)),
+                    true => .range(block.positionFromDocbyte(target_start), block.positionFromDocbyte(target_end)),
+                },
+                .node_select_start = sel_start,
+                .drag_info = drag_info,
+            };
+            return;
+        }
         const anchor_l = self.toWordBoundary(anchor_pos, .left, stop, .select, .may_move);
         const focus_l = self.toWordBoundary(pos, .left, stop, .select, .may_move);
         if (drag_info.sel_mode.select) {
@@ -797,23 +903,32 @@ pub const EditorCore = struct {
             // now:
             // we select from @min(all) to @max(all) and put the cursor on (focus_l < anchor_l ? left : right)
 
-            const anchor_l_docbyte = self.document.value.docbyteFromPosition(anchor_l);
-            const anchor_r_docbyte = self.document.value.docbyteFromPosition(anchor_r);
-            const focus_l_docbyte = self.document.value.docbyteFromPosition(focus_l);
-            const focus_r_docbyte = self.document.value.docbyteFromPosition(focus_r);
+            const anchor_l_docbyte = block.docbyteFromPosition(anchor_l);
+            const anchor_r_docbyte = block.docbyteFromPosition(anchor_r);
+            const focus_l_docbyte = block.docbyteFromPosition(focus_l);
+            const focus_r_docbyte = block.docbyteFromPosition(focus_r);
 
             const min_docbyte = @min(@min(anchor_l_docbyte, anchor_r_docbyte), @min(focus_l_docbyte, focus_r_docbyte));
             const max_docbyte = @max(@max(anchor_l_docbyte, anchor_r_docbyte), @max(focus_l_docbyte, focus_r_docbyte));
-            const min_pos = self.document.value.positionFromDocbyte(min_docbyte);
-            const max_pos = self.document.value.positionFromDocbyte(max_docbyte);
+            const min_pos = block.positionFromDocbyte(min_docbyte);
+            const max_pos = block.positionFromDocbyte(max_docbyte);
 
             if (focus_l_docbyte < anchor_l_docbyte) {
-                cursor.pos = .range(max_pos, min_pos);
+                cursor.* = .{
+                    .pos = .range(max_pos, min_pos),
+                    .drag_info = drag_info,
+                };
             } else {
-                cursor.pos = .range(min_pos, max_pos);
+                cursor.* = .{
+                    .pos = .range(min_pos, max_pos),
+                    .drag_info = drag_info,
+                };
             }
         } else {
-            cursor.pos = .range(anchor_l, focus_l);
+            cursor.* = .{
+                .pos = .range(anchor_l, focus_l),
+                .drag_info = drag_info,
+            };
         }
     }
 
@@ -1215,17 +1330,17 @@ test EditorCore {
     tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move } });
     try tester.expectContent("here are a few words to traverse!|");
 
-    tester.editor.onClick(tester.pos(13), 1, false);
+    tester.editor.onClick(tester.pos(13), 1, false, false);
     try tester.expectContent("here are a fe|w words to traverse!");
-    tester.editor.onClick(tester.pos(17), 1, true);
+    tester.editor.onClick(tester.pos(17), 1, true, false);
     try tester.expectContent("here are a fe[w wo|rds to traverse!");
-    tester.editor.onClick(tester.pos(6), 1, false);
+    tester.editor.onClick(tester.pos(6), 1, false, false);
     try tester.expectContent("here a|re a few words to traverse!");
-    tester.editor.onClick(tester.pos(6), 2, false);
+    tester.editor.onClick(tester.pos(6), 2, false, false);
     try tester.expectContent("here [are| a few words to traverse!");
-    tester.editor.onDrag(tester.pos(13));
+    tester.editor.onDrag(tester.pos(13), false);
     try tester.expectContent("here [are a few| words to traverse!");
-    tester.editor.onDrag(tester.pos(1));
+    tester.editor.onDrag(tester.pos(1), false);
     try tester.expectContent("|here are] a few words to traverse!");
 
     tester.executeCommand(.select_all);
@@ -1294,17 +1409,17 @@ test EditorCore {
     //
     tester.executeCommand(.{ .insert_text = .{ .text = "e\u{301}" } });
     try tester.expectContent("e\u{301}|");
-    tester.editor.onClick(tester.pos(1), 1, false);
+    tester.editor.onClick(tester.pos(1), 1, false, false);
     try tester.expectContent("|e\u{301}");
-    tester.editor.onDrag(tester.pos(2));
+    tester.editor.onDrag(tester.pos(2), false);
     try tester.expectContent("|e\u{301}");
-    tester.editor.onDrag(tester.pos(3));
+    tester.editor.onDrag(tester.pos(3), false);
     try tester.expectContent("[e\u{301}|");
-    tester.editor.onDrag(tester.pos(2));
+    tester.editor.onDrag(tester.pos(2), false);
     try tester.expectContent("|e\u{301}");
-    tester.editor.onDrag(tester.pos(1));
+    tester.editor.onDrag(tester.pos(1), false);
     try tester.expectContent("|e\u{301}");
-    tester.editor.onDrag(tester.pos(0));
+    tester.editor.onDrag(tester.pos(0), false);
     try tester.expectContent("|e\u{301}");
 
     //
@@ -1337,6 +1452,53 @@ test EditorCore {
     try tester.expectContent("line 5\nline 5\nline 5\nline 9|\nline 5");
     tester.executeCommand(.{ .duplicate_line = .{ .direction = .down } });
     try tester.expectContent("line 5\nline 5\nline 5\nline 9\nline 9|\nline 5");
+
+    //
+    // Tree sitter node functions
+    //
+    tester.executeCommand(.select_all);
+    tester.executeCommand(.{ .insert_text = .{ .text = "pub fn demo() !u8 {\n    return 5;\n}\n" } });
+    tester.editor.onClick(tester.pos(29), 1, false, false);
+    try tester.expectContent("pub fn demo() !u8 {\n    retur|n 5;\n}\n");
+    tester.editor.onDrag(tester.pos(29), true);
+    try tester.expectContent("pub fn demo() !u8 {\n    [return| 5;\n}\n");
+    tester.editor.onDrag(tester.pos(27), true);
+    try tester.expectContent("pub fn demo() !u8 {\n    |return] 5;\n}\n");
+    tester.editor.onDrag(tester.pos(23), true);
+    try tester.expectContent("pub fn demo() !u8 |{\n    return 5;\n}]\n");
+    tester.editor.onDrag(tester.pos(8), true);
+    try tester.expectContent("pub |fn demo() !u8 {\n    return 5;\n}]\n");
+    tester.editor.onDrag(tester.pos(29), false);
+    try tester.expectContent("pub fn demo() !u8 {\n    retur|n 5;\n}\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .parent } });
+    try tester.expectContent("pub fn demo() !u8 {\n    [return| 5;\n}\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .parent } });
+    try tester.expectContent("pub fn demo() !u8 {\n    [return 5|;\n}\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .parent } });
+    try tester.expectContent("pub fn demo() !u8 {\n    [return 5;|\n}\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .parent } });
+    try tester.expectContent("pub fn demo() !u8 [{\n    return 5;\n}|\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .parent } });
+    try tester.expectContent("pub [fn demo() !u8 {\n    return 5;\n}|\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .parent } });
+    try tester.expectContent("[pub fn demo() !u8 {\n    return 5;\n}\n|");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .parent } });
+    try tester.expectContent("[pub fn demo() !u8 {\n    return 5;\n}\n|");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
+    try tester.expectContent("pub [fn demo() !u8 {\n    return 5;\n}|\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
+    try tester.expectContent("pub fn demo() !u8 [{\n    return 5;\n}|\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
+    try tester.expectContent("pub fn demo() !u8 {\n    [return 5;|\n}\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
+    try tester.expectContent("pub fn demo() !u8 {\n    [return 5|;\n}\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
+    try tester.expectContent("pub fn demo() !u8 {\n    [return| 5;\n}\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
+    try tester.expectContent("pub fn demo() !u8 {\n    retur|n 5;\n}\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
+    try tester.expectContent("pub fn demo() !u8 {\n    retur|n 5;\n}\n");
+    tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
 }
 
 fn usi(a: u64) usize {

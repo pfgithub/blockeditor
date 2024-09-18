@@ -1,5 +1,5 @@
 const std = @import("std");
-const tree_sitter = @import("tree-sitter");
+pub const tree_sitter = @import("tree-sitter");
 const editor_core = @import("editor_core.zig");
 const blocks_mod = @import("blocks");
 const db_mod = blocks_mod.blockdb;

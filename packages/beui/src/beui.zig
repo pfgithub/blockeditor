@@ -87,7 +87,7 @@ pub const Beui = struct {
         const cmd_down = self.persistent.held_keys.get(.left_super) or self.persistent.held_keys.get(.right_super);
         const shift_down = self.persistent.held_keys.get(.left_shift) or self.persistent.held_keys.get(.right_shift);
         const alt_down = self.persistent.held_keys.get(.left_alt) or self.persistent.held_keys.get(.right_alt);
-        const mods_eql = mods.shift.eql(shift_down) and mods.ctrl_or_cmd.eql(ctrl_down or cmd_down) and mods.alt.eql(alt_down);
+        const mods_eql = mods.shift.eql(shift_down) and mods.ctrl_or_cmd.eql(ctrl_down != cmd_down) and mods.alt.eql(alt_down);
 
         if (!mods_eql) return null;
         const key = for (key_opts) |key| {

@@ -220,12 +220,14 @@ pub const EditorView = struct {
 
         if (click_target) |clicked_bufbyte| {
             const clicked_pos = block.positionFromDocbyte(clicked_bufbyte);
+            const shift_held = beui.isKeyHeld(.left_shift) or beui.isKeyHeld(.right_shift);
+            const alt_held = (beui.isKeyHeld(.left_alt) or beui.isKeyHeld(.right_alt)) != (beui.isKeyHeld(.left_control) or beui.isKeyHeld(.right_control));
 
             if (beui.isKeyPressed(.mouse_left)) {
-                self.core.onClick(clicked_pos, beui.leftMouseClickedCount(), beui.isKeyHeld(.left_shift));
+                self.core.onClick(clicked_pos, beui.leftMouseClickedCount(), shift_held, alt_held);
                 self.selecting = true;
             } else if (self.selecting and beui.isKeyHeld(.mouse_left)) {
-                self.core.onDrag(clicked_pos);
+                self.core.onDrag(clicked_pos, alt_held);
             }
         }
         if (!beui.isKeyHeld(.mouse_left)) {
