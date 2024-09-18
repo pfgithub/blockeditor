@@ -12,5 +12,6 @@
         .loadimage = .{ .path = "packages/loadimage" },
         .texteditor = .{ .path = "packages/texteditor" },
         .unicode_segmentation = .{ .path = "packages/unicode_segmentation" },
+        .usockets = .{ .path = "packages/usockets" },
     },
 }

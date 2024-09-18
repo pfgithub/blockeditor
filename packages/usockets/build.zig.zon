@@ -1,0 +1,24 @@
+.{
+    .name = "usockets",
+    .version = "0.0.0",
+    .dependencies = .{
+        .usockets = .{
+            .url = "git+https://github.com/uNetworking/uSockets?ref=master#89db1704ddb1ece2aa447f550c863ba5524e0e4d",
+            .hash = "122071a2d3cd746ba5302ba8b63092d7889ba3e339fa4eb4b777a90b022d08f43853",
+        },
+        // hashes from usockets git submodules
+        .boringssl = .{
+            .url = "git+https://github.com/google/boringssl?ref=master#1ccef4908ce04adc6d246262846f3cd8a111fa44",
+            .hash = "12203e32443442f1a6e3874cbf726f42883ff927422b19e97f735250c1628f5b328f",
+        },
+        .lsquic = .{
+            .url = "git+https://github.com/litespeedtech/lsquic?ref=master#108c4e7629a8c10b9a73e3d95be0a1652e620fb9",
+            .hash = "12202ea07289feac11f44e1786e81d3b60dcdddd4784adc5092087b67646abffe0fa",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
