@@ -24,15 +24,12 @@ pub fn build(b: *std.Build) void {
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
 
-    b.installArtifact(blocks_dep.artifact("server"));
     b.installArtifact(blockeditor_dep.artifact("blockeditor"));
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
     test_step.dependOn(&b.addRunArtifact(beui_dep.artifact("test")).step);
-    const blocks_run_test = &b.addRunArtifact(blocks_dep.artifact("test")).step;
-    blocks_run_test.dependOn(b.getInstallStep());
-    test_step.dependOn(blocks_run_test);
+    test_step.dependOn(&b.addRunArtifact(blocks_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(loadimage_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);

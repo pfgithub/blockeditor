@@ -23,14 +23,6 @@ pub fn build(b: *std.Build) !void {
     const run_block_tests = b.addRunArtifact(block_test);
     run_block_tests.step.dependOn(b.getInstallStep());
 
-    const server_exe = b.addExecutable(.{
-        .name = "server",
-        .root_source_file = b.path("src/server.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(server_exe);
-
     const test_step = b.step("test", "Test");
     test_step.dependOn(&run_block_tests.step);
 }
