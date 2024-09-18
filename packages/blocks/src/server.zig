@@ -139,6 +139,7 @@ pub fn main() !void {
     var server = try listen_addr.listen(.{});
     defer server.deinit();
 
+    try std.io.getStdOut().writeAll("Started.\n");
     std.log.info("Server listening on port {d}", .{listen_addr.getPort()});
 
     // one thread per client for now
@@ -162,7 +163,9 @@ pub fn main() !void {
             state.global_lock.lock();
             defer state.global_lock.unlock();
 
-            try state.client_id_to_connection_map.put(client_id, .{ .conn = conn });
+            const gpres = try state.client_id_to_connection_map.getOrPut(client_id);
+            if (gpres.found_existing) return error.DuplicateID;
+            gpres.value_ptr.* = .{ .conn = conn };
         }
 
         const thread = try std.Thread.spawn(.{}, clientRecieveThread, .{ &state, client_id });

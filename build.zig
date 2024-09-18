@@ -20,20 +20,23 @@ pub fn build(b: *std.Build) void {
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
     const blockeditor_dep = b.dependency("blockeditor", .{ .target = target, .optimize = optimize });
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
-    const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
     const loadimage_dep = b.dependency("loadimage", .{ .target = target, .optimize = optimize });
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
 
+    b.installArtifact(blocks_dep.artifact("server"));
+    b.installArtifact(blockeditor_dep.artifact("blockeditor"));
+
     const test_step = b.step("test", "Test");
+    test_step.dependOn(b.getInstallStep());
     test_step.dependOn(&b.addRunArtifact(beui_dep.artifact("test")).step);
-    test_step.dependOn(&b.addRunArtifact(blocks_dep.artifact("test")).step);
-    test_step.dependOn(&b.addRunArtifact(blocks_net_dep.artifact("test")).step);
+    const blocks_run_test = &b.addRunArtifact(blocks_dep.artifact("test")).step;
+    blocks_run_test.dependOn(b.getInstallStep());
+    test_step.dependOn(blocks_run_test);
     test_step.dependOn(&b.addRunArtifact(loadimage_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);
 
-    b.installArtifact(blockeditor_dep.artifact("blockeditor"));
     const run_blockeditor = b.addRunArtifact(blockeditor_dep.artifact("blockeditor"));
     if (b.args) |args| run_blockeditor.addArgs(args);
     const run_blockeditor_step = b.step("run", "Run blockeditor");
