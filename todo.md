@@ -11,9 +11,13 @@ Tasks:
   - [ ] later: presence
 - [ ] freetype font rendering
   - [ ] later: harfbuzz layout
-- [ ] increase scroll speed
+- [x] increase scroll speed
 - [ ] text editor: ctrl or alt + up / ctrl or alt + down to move lines
   - Document 'move' is not implemented yet so we'll have to copy/paste for now
+- [ ] text editor: hard tab emulation (grapheme_cluster boundary treats INDENT_WIDTH spaces as a single character)
+  - seek left to find where spaces start. if char before spaces is '\n' then it's an indent and use the logic
+  - seek right to see how many spaces are remaining. if it is less than INDENT_WIDTH, treat each space individually
+  - return a boundary only if the space index % INDENT_WIDTH == 0
 
 future blocks:
 
