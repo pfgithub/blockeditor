@@ -7,7 +7,7 @@ const SSL: c_int = 1;
 
 /// Our socket extension
 const EchoSocket = struct {
-    backpressure: std.ArrayList(u8),
+    backpressure: std.fifo.LinearFifo(u8, .Dynamic),
 
     fn init(gpa: std.mem.Allocator) EchoSocket {
         return .{ .backpressure = .init(gpa) };
@@ -40,8 +40,8 @@ fn onEchoSocketWritable(s: ?*us.struct_us_socket_t) callconv(.C) ?*us.struct_us_
     const es: *EchoSocket = @ptrCast(@alignCast(us.us_socket_ext(SSL, s)));
 
     // Continue writing out our backpressure
-    const written: c_int = us.us_socket_write(SSL, s, es.backpressure.items.ptr, @intCast(es.backpressure.items.len), 0);
-    es.backpressure.replaceRange(0, @intCast(written), &.{}) catch @panic("oom");
+    const written: c_int = us.us_socket_write(SSL, s, es.backpressure.buf.ptr, @intCast(es.backpressure.buf.len), 0);
+    es.backpressure.discard(@intCast(written));
 
     // Client is not boring
     us.us_socket_timeout(SSL, s, 30);
@@ -75,7 +75,7 @@ fn onEchoSocketData(s: ?*us.struct_us_socket_t, data: [*c]u8, length: c_int) cal
     // Send it back or buffer it up
     const written: c_int = us.us_socket_write(SSL, s, data, length, 0);
     if (written != length) {
-        es.backpressure.appendSlice(data[0..@intCast(length)]) catch @panic("oom");
+        es.backpressure.write(data[0..@intCast(length)]) catch @panic("oom");
     }
 
     // Client is not boring
