@@ -1,0 +1,16 @@
+.{
+    .name = "blocks_net",
+    .version = "0.0.0",
+
+    .dependencies = .{
+        .websocket_zig = .{
+            .url = "git+https://github.com/karlseguin/websocket.zig?ref=master#1574d49cccc1dd7e58b4291df892ae12bd1ef989",
+            .hash = "1220e280beded5db2cc7d85be962a5f4749fb8692dcadc19387883f26dc19c0e1ce9",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
