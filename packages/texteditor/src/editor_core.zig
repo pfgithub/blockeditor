@@ -176,9 +176,9 @@ pub const LRDirection = enum {
 };
 pub const EditorCommand = union(enum) {
     move_cursor_left_right: struct {
+        mode: enum { move, select },
         direction: LRDirection,
         stop: CursorLeftRightStop,
-        mode: enum { move, select },
     },
     delete: struct {
         direction: LRDirection,
