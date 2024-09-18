@@ -29,7 +29,7 @@ pub const CursorPosition = struct {
 
     /// for pressing the up/down arrow going from [aaaa|a] ↓ to [a|] to [aaaa|a]. resets on move.
     vertical_move_start: ?Position = null,
-    /// when selecting up with tree-sitter to allow selecting back down. resets on move.
+    /// for tree_sitter, the selection at the time of the first select_up command
     node_select_start: ?Selection = null,
     /// select
     drag_info: ?DragInfo = null,
