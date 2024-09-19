@@ -197,6 +197,9 @@ pub const EditorCommand = union(enum) {
         text: []const u8,
     },
     newline: void,
+    insert_line: struct {
+        direction: enum { up, down },
+    },
     indent_selection: struct {
         direction: LRDirection,
     },
@@ -645,16 +648,32 @@ pub const EditorCore = struct {
                     var temp_insert_slice = std.ArrayList(u8).init(self.gpa);
                     defer temp_insert_slice.deinit();
 
-                    temp_insert_slice.append('\n') catch @panic("oom");
-
                     const line_indent_count = self.measureIndent(line_start);
+                    const dist = pos_len.left_docbyte - block.docbyteFromPosition(line_start);
+                    const order = line_indent_count.chars <= dist;
+
+                    if (order) temp_insert_slice.append('\n') catch @panic("oom");
                     temp_insert_slice.appendNTimes(self.config.indent_with.char(), usi(self.config.indent_with.count() * line_indent_count.indents)) catch @panic("oom");
+                    if (!order) temp_insert_slice.append('\n') catch @panic("oom");
 
                     self.replaceRange(.{
                         .position = pos_len.pos,
                         .delete_len = pos_len.len,
                         .insert_text = temp_insert_slice.items,
                     });
+                }
+            },
+            .insert_line => |cmd| {
+                switch (cmd.direction) {
+                    .up => {
+                        self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .line, .direction = .left } });
+                        self.executeCommand(.newline);
+                        self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .unicode_grapheme_cluster, .direction = .left } });
+                    },
+                    .down => {
+                        self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .line, .direction = .right } });
+                        self.executeCommand(.newline);
+                    },
                 }
             },
             .indent_selection => |indent_cmd| {
@@ -1499,6 +1518,17 @@ test EditorCore {
     tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
     try tester.expectContent("pub fn demo() !u8 {\n    retur|n 5;\n}\n");
     tester.executeCommand(.{ .ts_select_node = .{ .direction = .child } });
+
+    //
+    // Insert line
+    //
+    tester.executeCommand(.{ .insert_line = .{ .direction = .down } });
+    try tester.expectContent("pub fn demo() !u8 {\n    return 5;\n    |\n}\n");
+    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .line } });
+    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+    try tester.expectContent("pub fn demo() !u8 {\n    return 5;|\n}\n");
+    tester.executeCommand(.{ .insert_line = .{ .direction = .up } });
+    try tester.expectContent("pub fn demo() !u8 {\n    |\n    return 5;\n}\n");
 }
 
 fn usi(a: u64) usize {

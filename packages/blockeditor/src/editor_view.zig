@@ -118,6 +118,14 @@ pub const EditorView = struct {
         if (beui.hotkey(.{}, &.{.enter})) |_| {
             self.core.executeCommand(.newline);
         }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes, .shift = .maybe }, &.{.enter})) |hk| {
+            self.core.executeCommand(.{ .insert_line = .{
+                .direction = switch (hk.shift) {
+                    false => .down,
+                    true => .up,
+                },
+            } });
+        }
         if (beui.hotkey(.{ .shift = .maybe }, &.{.tab})) |hk| {
             self.core.executeCommand(.{ .indent_selection = .{
                 .direction = switch (hk.shift) {

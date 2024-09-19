@@ -31,6 +31,9 @@ alt $hotkey (down | up) => move_cursor_ud [
     .mode = .duplicate,
 ]
 enter => newline
+$hotkey ?$reverse enter => insert_line [
+    .direction = $2(.up, .down),
+]
 ?$reverse tab => indent_selection [
     .direction = $1(.right, .left),
 ]

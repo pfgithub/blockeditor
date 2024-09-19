@@ -18,7 +18,7 @@ Tasks:
   - seek left to find where spaces start. if char before spaces is '\n' then it's an indent and use the logic
   - seek right to see how many spaces are remaining. if it is less than INDENT_WIDTH, treat each space individually
   - return a boundary only if the space index % INDENT_WIDTH == 0
-- [ ] text editor: ctrl+enter = insert new line at end of current line
+- [x] text editor: ctrl+enter = insert new line at end of current line
 - [ ] replace all uses of 'std.log' with 'log' + ban unscoped 'std.log'
 
 future blocks:
