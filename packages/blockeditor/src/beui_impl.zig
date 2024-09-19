@@ -5,6 +5,7 @@ const bi = blocks_mod.blockinterface2;
 const db = blocks_mod.blockdb;
 const text_editor_view = @import("editor_view.zig");
 const beui_mod = @import("beui");
+const blocks_net = @import("blocks_net");
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
@@ -614,8 +615,10 @@ pub fn main() !void {
 
     var interface = db.BlockDB.init(gpa);
     defer interface.deinit();
-    // var interface_thread = db.TcpSync.create(gpa, &interface);
-    // defer interface_thread.destroy();
+
+    var interface_thread: blocks_net.TcpSync = undefined;
+    interface_thread.init(gpa, &interface);
+    defer interface_thread.deinit();
 
     const my_counter = interface.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
     defer my_counter.unref();

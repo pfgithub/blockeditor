@@ -53,7 +53,6 @@ pub const BlockDB = struct {
     const ToApplyInstruction = union(enum) {
         load_block: struct { block: bi.BlockID, value_owned: bi.AlignedByteSlice },
         apply_operation: struct { block: bi.BlockID, operation_owned: bi.AlignedByteSlice },
-        deinit_instruction: ThreadInstruction,
 
         fn deinit(self: ToApplyInstruction, dbi: *BlockDB) void {
             switch (self) {
@@ -63,28 +62,22 @@ pub const BlockDB = struct {
                 .apply_operation => |op| {
                     dbi.gpa.free(op.operation_owned);
                 },
-                .deinit_instruction => |instr| {
-                    instr.deinit(dbi);
-                },
             }
         }
     };
     const ThreadInstruction = union(enum) {
-        fetch: *BlockRef,
-        create_block: struct { block: *BlockRef, initial_value_owned: bi.AlignedByteSlice },
-        apply_operation: struct { block: *BlockRef, operation_owned: bi.AlignedByteSlice },
+        fetch: bi.BlockID,
+        create_block: struct { block_id: bi.BlockID, initial_value_owned: bi.AlignedByteSlice },
+        apply_operation: struct { block_id: bi.BlockID, operation_owned: bi.AlignedByteSlice },
 
-        fn deinit(self: ThreadInstruction, dbi: *BlockDB) void {
+        /// may be called from any thread
+        pub fn deinit(self: ThreadInstruction, dbi: *BlockDB) void {
             switch (self) {
-                .fetch => |ref| {
-                    ref.unref();
-                },
+                .fetch => {},
                 .create_block => |bl| {
-                    bl.block.unref();
                     dbi.gpa.free(bl.initial_value_owned);
                 },
                 .apply_operation => |op| {
-                    op.block.unref();
                     dbi.gpa.free(op.operation_owned);
                 },
             }
@@ -122,11 +115,10 @@ pub const BlockDB = struct {
         self.path_to_blockref_map.deinit();
     }
     pub fn tick(self: *BlockDB) void {
-        // pply any waiting changes on the main thread
+        // apply any waiting changes on the main thread
         while (self.recv_queue.tryRead()) |item| {
             defer item.deinit(self);
             switch (item) {
-                .deinit_instruction => {},
                 .apply_operation => |op| {
                     if (self.path_to_blockref_map.get(op.block)) |block_ref| {
                         if (block_ref.contents()) |contents| if (contents.server()) |server| {
@@ -207,10 +199,9 @@ pub const BlockDB = struct {
 
         initial_value.vtable.serialize(initial_value, &initial_value_owned_al);
 
-        new_blockref.ref();
         self.send_queue.write(.{
             .create_block = .{
-                .block = new_blockref,
+                .block_id = new_blockref.id,
                 .initial_value_owned = initial_value_owned_al.toOwnedSlice() catch @panic("oom"),
             },
         });
@@ -233,8 +224,7 @@ pub const BlockDB = struct {
 
         self.path_to_blockref_map.put(id, new_blockref) catch @panic("oom");
 
-        new_blockref.ref();
-        self.send_queue.write(.{ .fetch = new_blockref });
+        self.send_queue.write(.{ .fetch = new_blockref.id });
 
         return new_blockref;
     }
@@ -244,8 +234,7 @@ pub const BlockDB = struct {
         const op_owned = self.gpa.alignedAlloc(u8, 16, op_unowned.len) catch @panic("oom");
         @memcpy(op_owned, op_unowned);
 
-        block.ref();
-        self.send_queue.write(.{ .apply_operation = .{ .block = block, .operation_owned = op_owned } });
+        self.send_queue.write(.{ .apply_operation = .{ .block_id = block.id, .operation_owned = op_owned } });
     }
     fn destroyBlock(self: *BlockDB, block: *BlockRef) void {
         std.debug.assert(block.ref_count == 0);

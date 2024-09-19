@@ -12,6 +12,9 @@
         .blocks = .{
             .path = "../blocks",
         },
+        .blocks_net = .{
+            .path = "../blocks_net",
+        },
         .texteditor = .{
             .path = "../texteditor",
         },

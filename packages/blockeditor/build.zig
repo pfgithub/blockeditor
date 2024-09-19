@@ -28,11 +28,19 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     blockeditor_exe.root_module.addImport("blocks", blocks_dep.module("blocks"));
+
+    const blocks_net_dep = b.dependency("blocks_net", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    blockeditor_exe.root_module.addImport("blocks_net", blocks_net_dep.module("client"));
+
     const texteditor_dep = b.dependency("texteditor", .{
         .target = target,
         .optimize = optimize,
     });
     blockeditor_exe.root_module.addImport("texteditor", texteditor_dep.module("texteditor"));
+
     const beui_dep = b.dependency("beui", .{
         .target = target,
         .optimize = optimize,
