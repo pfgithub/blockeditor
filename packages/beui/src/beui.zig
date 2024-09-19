@@ -125,6 +125,8 @@ pub const Beui = struct {
 
     pub fn setClipboard(self: *Beui, text_utf8: [:0]const u8) void {
         const cfg = &self.frame.frame_cfg.?;
+        std.debug.assert(std.unicode.utf8ValidateSlice(text_utf8));
+        std.debug.assert(std.mem.indexOfScalar(u8, text_utf8, '\x00') == null);
         cfg.vtable.set_clipboard(cfg, text_utf8);
     }
     pub fn getClipboard(self: *Beui, value: *std.ArrayList(u8)) void {
