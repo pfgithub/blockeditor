@@ -600,6 +600,23 @@ const callbacks = struct {
     }
 };
 
+const BeuiVtable = struct {
+    window: *zglfw.Window,
+    fn setClipboard(cfg: *const beui_mod.BeuiFrameCfg, text_utf8: [:0]const u8) void {
+        const self = cfg.castUserData(BeuiVtable);
+        self.window.setClipboardString(text_utf8);
+    }
+    fn getClipboard(cfg: *const beui_mod.BeuiFrameCfg, clipboard_contents: *std.ArrayList(u8)) void {
+        const self = cfg.castUserData(BeuiVtable);
+        clipboard_contents.appendSlice(self.window.getClipboardString() orelse "") catch @panic("oom");
+    }
+    pub const vtable: *const beui_mod.BeuiFrameCfgVtable = &.{
+        .type_id = @typeName(BeuiVtable),
+        .set_clipboard = &setClipboard,
+        .get_clipboard = &getClipboard,
+    };
+};
+
 pub fn main() !void {
     var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa_state.deinit();
@@ -701,13 +718,18 @@ pub fn main() !void {
         var draw_list = draw_lists.RenderList.init(gpa);
         defer draw_list.deinit();
 
+        var beui_vtable: BeuiVtable = .{ .window = window };
         beui.newFrame(.{
             .can_capture_keyboard = !zgui.io.getWantCaptureKeyboard(),
             .can_capture_mouse = !zgui.io.getWantCaptureMouse(),
             .draw_list = &draw_list,
             .arena = arena,
             .now_ms = std.time.milliTimestamp(),
+            .user_data = @ptrCast(@alignCast(&beui_vtable)),
+            .vtable = BeuiVtable.vtable,
         });
+        defer beui.endFrame();
+
         zglfw.pollEvents();
 
         update(demo);

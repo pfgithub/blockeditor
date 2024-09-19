@@ -41,3 +41,5 @@ $hotkey a => select_all
 $hotkey ?$reverse z => $2(undo, redo)
 $hotkey y => redo
 $hotkey shift d => duplicate_line [ .direction = .down ]
+$hotkey (x | c) => $2(cut, copy)
+$hotkey v => paste

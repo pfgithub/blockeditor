@@ -855,19 +855,31 @@ pub const EditorCore = struct {
             },
         }
     }
-    /// caller owns the returned string and must copy it to the clipboard
-    pub fn copy(self: *EditorCore, alloc: std.mem.Allocator, mode: enum { copy, cut }) []const u8 {
+    pub const CopyMode = enum { copy, cut };
+    /// returned string is utf-8 encoded. caller owns the returned string and must copy it to the clipboard
+    pub fn copyAllocUtf8(self: *EditorCore, alloc: std.mem.Allocator, mode: CopyMode) []const u8 {
+        var result_str = std.ArrayList(u8).init(alloc);
+        defer result_str.deinit();
+
+        self.copyArrayListUtf8(&result_str, mode);
+
+        return result_str.toOwnedSlice() catch @panic("oom");
+    }
+    /// written string is utf-8 encoded and does not include any null bytes
+    pub fn copyArrayListUtf8(self: *EditorCore, result_str: *std.ArrayList(u8), mode: CopyMode) void {
         self.normalizeCursors();
         defer self.normalizeCursors();
 
-        var result_str = std.ArrayList(u8).init(alloc);
-        defer result_str.deinit();
         const stored_buf = self.gpa.alloc([]const u8, self.cursor_positions.items.len) catch @panic("oom");
         var paste_in_new_line = true;
-        for (self.cursor_positions.items, stored_buf, 0..) |*cursor, *stored, i| {
+        var this_needs_newline = false;
+        for (self.cursor_positions.items, stored_buf) |*cursor, *stored| {
             var pos_range = self.selectionToPosLen(cursor.pos);
+            var next_needs_newline = true;
+            defer this_needs_newline = next_needs_newline;
             if (pos_range.len == 0) {
-                pos_range = self.selectionToPosLen(.range(self.getLineStart(pos_range.pos), self.getNextLineStart(pos_range.pos)));
+                pos_range = self.selectionToPosLen(.range(self.getLineStart(pos_range.pos), self.getNextLineStartMaybeInsertNewline(pos_range.pos)));
+                next_needs_newline = false;
             } else {
                 paste_in_new_line = false;
             }
@@ -875,7 +887,7 @@ pub const EditorCore = struct {
             self.document.value.readSlice(pos_range.pos, slice);
             stored.* = slice;
 
-            if (i != 0) result_str.appendSlice("\n") catch @panic("oom");
+            if (this_needs_newline) result_str.appendSlice("\n") catch @panic("oom");
             result_str.appendSlice(slice) catch @panic("oom");
 
             if (mode == .cut) {
@@ -889,8 +901,6 @@ pub const EditorCore = struct {
         };
 
         seg_dep.replaceInvalidUtf8(result_str.items);
-
-        return result_str.toOwnedSlice() catch @panic("oom");
     }
     pub fn paste(self: *EditorCore, clipboard_contents: []const u8) void {
         self.normalizeCursors();
@@ -934,9 +944,6 @@ pub const EditorCore = struct {
             .delete_len = pos_range.len,
             .insert_text = text,
         });
-        if (add_newline) {
-            self.replaceRange(.{ .position = pos_range.pos, .delete_len = 0, .insert_text = "\n" });
-        }
     }
     fn getEnsureOneCursor(self: *EditorCore, default_pos: Position) *CursorPosition {
         if (self.cursor_positions.items.len == 0) {
@@ -1639,13 +1646,42 @@ test EditorCore {
     var copy_arena_backing = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer copy_arena_backing.deinit();
     const copy_arena = copy_arena_backing.allocator();
+    var copied: []const u8 = undefined;
 
     tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .mode = .duplicate, .metric = .byte } });
     try tester.expectContent("pub fn demo() !u8 {\n    |\n    |return 5;\n}\n");
-    const copied_0 = tester.editor.copy(copy_arena, .cut);
-    try tester.expectContent("pub fn demo() !u8 {\n}\n");
-    tester.editor.paste(copied_0);
-    try tester.expectContent("pub fn demo() !u8 {\n    \n    return 5;|\n}\n");
+    copied = tester.editor.copyAllocUtf8(copy_arena, .cut);
+    try tester.expectContent("pub fn demo() !u8 {\n|}\n");
+    tester.editor.paste(copied);
+    try tester.expectContent("pub fn demo() !u8 {\n    \n    return 5;\n|}\n");
+
+    tester.editor.onClick(tester.pos(4), 1, false, false);
+    try tester.expectContent("pub |fn demo() !u8 {\n    \n    return 5;\n}\n");
+    copied = tester.editor.copyAllocUtf8(copy_arena, .cut);
+    try tester.expectContent("|    \n    return 5;\n}\n");
+    tester.editor.onClick(tester.pos(10), 1, false, false);
+    try tester.expectContent("    \n    r|eturn 5;\n}\n");
+    tester.editor.paste(copied);
+    try tester.expectContent("    \npub fn demo() !u8 {\n    r|eturn 5;\n}\n");
+    tester.editor.onClick(tester.pos(6), 1, false, false);
+    try tester.expectContent("    \np|ub fn demo() !u8 {\n    return 5;\n}\n");
+    tester.editor.onClick(tester.pos(6), 2, false, false);
+    try tester.expectContent("    \n[pub| fn demo() !u8 {\n    return 5;\n}\n");
+    copied = tester.editor.copyAllocUtf8(copy_arena, .cut);
+    try tester.expectContent("    \n| fn demo() !u8 {\n    return 5;\n}\n");
+    tester.editor.onClick(tester.pos(14), 1, false, false);
+    try tester.expectContent("    \n fn demo(|) !u8 {\n    return 5;\n}\n");
+    tester.editor.paste(copied);
+    try tester.expectContent("    \n fn demo(pub|) !u8 {\n    return 5;\n}\n");
+    tester.editor.paste(", const");
+    try tester.expectContent("    \n fn demo(pub, const|) !u8 {\n    return 5;\n}\n");
+
+    copied = tester.editor.copyAllocUtf8(copy_arena, .cut);
+    try tester.expectContent("    \n|    return 5;\n}\n");
+    tester.editor.paste("abc");
+    try tester.expectContent("    \nabc|    return 5;\n}\n");
+    tester.editor.paste(copied);
+    try tester.expectContent("    \nabc fn demo(pub, const) !u8 {\n|    return 5;\n}\n");
 }
 
 fn usi(a: u64) usize {

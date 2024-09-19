@@ -95,6 +95,12 @@ pub fn replaceInvalidUtf8(str_in: []u8) void {
     const replacement_char = '?';
     var str = str_in;
     while (str.len > 0) {
+        // disallow null byte
+        if (str[0] == '\x00') {
+            str[0] = replacement_char;
+            str = str[1..];
+            continue;
+        }
         const seq_len = std.unicode.utf8ByteSequenceLength(str[0]) catch {
             str[0] = replacement_char;
             str = str[1..];

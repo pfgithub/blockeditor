@@ -75,6 +75,9 @@ pub const Beui = struct {
     pub fn newFrame(self: *Beui, cfg: BeuiFrameCfg) void {
         self.frame = .{ .frame_cfg = cfg };
     }
+    pub fn endFrame(self: *Beui) void {
+        self.frame.frame_cfg = null;
+    }
 
     pub fn textInput(self: *Beui) ?[]const u8 {
         const res = self.frame.text_input;
@@ -118,6 +121,15 @@ pub const Beui = struct {
     }
     pub fn draw(self: *Beui) *draw_lists.RenderList {
         return self.frame.frame_cfg.?.draw_list;
+    }
+
+    pub fn setClipboard(self: *Beui, text_utf8: [:0]const u8) void {
+        const cfg = &self.frame.frame_cfg.?;
+        cfg.vtable.set_clipboard(cfg, text_utf8);
+    }
+    pub fn getClipboard(self: *Beui, value: *std.ArrayList(u8)) void {
+        const cfg = &self.frame.frame_cfg.?;
+        cfg.vtable.get_clipboard(cfg, value);
     }
 
     fn _maybeResetLeftClick(self: *Beui, now: i64) void {
@@ -203,12 +215,25 @@ pub fn EnumArray(comptime Enum: type, comptime Value: type) type {
         }
     };
 }
-const BeuiFrameCfg = struct {
+pub const BeuiFrameCfg = struct {
     can_capture_keyboard: bool,
     can_capture_mouse: bool,
     arena: std.mem.Allocator,
     draw_list: *draw_lists.RenderList,
     now_ms: i64,
+
+    user_data: *const anyopaque,
+    vtable: *const BeuiFrameCfgVtable,
+
+    pub fn castUserData(self: *const BeuiFrameCfg, comptime T: type) *T {
+        std.debug.assert(@typeName(T) == self.vtable.type_id);
+        return @ptrCast(@alignCast(@constCast(self.vtable)));
+    }
+};
+pub const BeuiFrameCfgVtable = struct {
+    type_id: [*:0]const u8,
+    set_clipboard: *const fn (frame_cfg: *const BeuiFrameCfg, text_utf8: [:0]const u8) void,
+    get_clipboard: *const fn (frame_cfg: *const BeuiFrameCfg, clipboard_contents: *std.ArrayList(u8)) void,
 };
 const BeuiPersistentEv = struct {
     config: struct {

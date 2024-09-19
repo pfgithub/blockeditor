@@ -149,6 +149,22 @@ pub const EditorView = struct {
         if (beui.hotkey(.{ .ctrl_or_cmd = .yes, .shift = .yes }, &.{.d})) |_| {
             self.core.executeCommand(.{ .duplicate_line = .{ .direction = .down } });
         }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{ .x, .c })) |hk| {
+            var copy_txt = std.ArrayList(u8).init(self.gpa);
+            defer copy_txt.deinit();
+            self.core.copyArrayListUtf8(&copy_txt, switch (hk.key) {
+                .x => .cut,
+                .c => .copy,
+            });
+            copy_txt.append('\x00') catch @panic("oom");
+            beui.setClipboard(copy_txt.items[0 .. copy_txt.items.len - 1 :0]);
+        }
+        if (beui.hotkey(.{ .ctrl_or_cmd = .yes }, &.{.v})) |_| {
+            var paste_txt = std.ArrayList(u8).init(self.gpa);
+            defer paste_txt.deinit();
+            beui.getClipboard(&paste_txt);
+            self.core.paste(paste_txt.items);
+        }
 
         if (beui.textInput()) |text| {
             self.core.executeCommand(.{ .insert_text = .{ .text = text } });
