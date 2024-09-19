@@ -17,6 +17,7 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(blockeditor_dep.artifact("blockeditor"));
     b.installArtifact(blocks_net_dep.artifact("server"));
+    b.installArtifact(texteditor_dep.artifact("zls"));
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());

@@ -8,6 +8,12 @@ pub fn build(b: *std.Build) !void {
     const fmt_step = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
     b.getInstallStep().dependOn(&fmt_step.step);
 
+    const zls_dep = b.dependency("zls", .{
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    b.installArtifact(zls_dep.artifact("zls"));
+
     const blocks_dep = b.dependency("blocks", .{
         .target = target,
         .optimize = optimize,

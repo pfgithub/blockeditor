@@ -17,6 +17,10 @@
             .url = "https://github.com/maxxnino/tree-sitter-zig/archive/0d08703e4c3f426ec61695d7617415fff97029bd.tar.gz",
             .hash = "1220dd9604971e00571f9484632e98529e2464025939850765b9fe9c8b4852352873",
         },
+        .zls = .{
+            .url = "git+https://github.com/zigtools/zls?ref=master#cf9b49a67b15693d62926ea11d17f53efc60be50",
+            .hash = "1220f06f9020224a411bdac4a2f527fd367eeec3f918f1b99a8e3964dc09ad499329",
+        },
     },
     .paths = .{
         "build.zig",
