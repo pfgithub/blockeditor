@@ -291,3 +291,11 @@ const DefaultTheme = struct {
         };
     }
 };
+
+// CLIPBOARD:
+// https://github.com/microsoft/vscode/blob/faf7a5c748720c4f7962f462de058da4c12b54f5/src/vs/editor/browser/controller/editContext/native/nativeEditContext.ts#L370
+// - vscode stores clipboard metadata and writes text to the clipboard
+// - vscode copies as an array of lines
+// - we could copy a block with text fallback, or we could copy text and store a lines array somewhere and only use it if the hash matches.
+// - we'll want to copy blocks eventually but it doesn't have to be now.
+// copy with glfw_window.clipboard something
