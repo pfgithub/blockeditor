@@ -417,6 +417,9 @@ fn BalancedBinaryTree(comptime Data: type) type {
             }
         };
 
+        pub fn format(value: *const BBT, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            try previewTreeRecursive(value, writer, value.root_node, .zero);
+        }
         fn previewTreeRecursive(tree: *const BBT, out: std.io.AnyWriter, current_node: NodeIndex, current_offset: Count) !void {
             const node_ptr = tree._getNodePtrConst(current_node) orelse {
                 try out.print("ø", .{});
@@ -497,8 +500,7 @@ fn testPrintTree(tree: *BalancedBinaryTree(SampleData), expected_value: []const 
     try std.testing.expectEqual(expected_value.len, tree.getCountForNode(.root).length);
 }
 fn previewTree(tree: *const BalancedBinaryTree(SampleData)) !void {
-    try tree.previewTreeRecursive(std.io.getStdErr().writer().any(), tree.root_node, SampleData.Count.zero);
-    try std.io.getStdErr().writer().any().print("\n", .{});
+    try std.io.getStdErr().writer().any().print("{}\n", .{tree});
 }
 test "bbt" {
     const Tree = BalancedBinaryTree(SampleData);
@@ -747,7 +749,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
 
             pub fn format(value: Span, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-                if (value.disabled_by_id != .none) {
+                if (value.deleted()) {
                     try writer.print("-{d}", .{value.length});
                 } else {
                     try writer.print("{}\"{d}\"", .{ value.id, value.length });
