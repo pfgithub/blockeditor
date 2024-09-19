@@ -20,7 +20,6 @@ Tasks:
   - return a boundary only if the space index % INDENT_WIDTH == 0
 - [ ] text editor: ctrl+enter = insert new line at end of current line
 - [ ] replace all uses of 'std.log' with 'log' + ban unscoped 'std.log'
-  - this can be done via search/replace or by removing `std.log.default_log_scope`
 
 future blocks:
 
