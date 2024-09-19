@@ -1011,12 +1011,13 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
         pub fn docbyteFromPosition(self: *const Doc, position: Position) u64 {
             const res = self._findEntrySpan(position);
-            return res.span_start_docbyte + res.spanbyte;
+            return res.position_docbyte;
         }
         pub const EntryIndex = struct {
             span_index: BBT.NodeIndex,
             span_start_docbyte: u64,
-            spanbyte: u64,
+            position_docbyte: u64,
+            spanbyte_incl_deleted: u64,
         };
         fn _findEntrySpan(self: *const Doc, position: Position) EntryIndex {
             // this should be:
@@ -1039,7 +1040,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             return .{
                 .span_index = span,
                 .span_start_docbyte = span_count.byte_count,
-                .spanbyte = position.segbyte - span_data.start_segbyte,
+                .position_docbyte = span_count.byte_count + (if (span_data.deleted()) (0) else (position.segbyte) - span_data.start_segbyte),
+                .spanbyte_incl_deleted = position.segbyte - span_data.start_segbyte,
             };
         }
         pub fn read(self: *const Doc, start: Position) []const u8 {
@@ -1062,7 +1064,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             return .{
                 .doc = self,
                 .span_it = it,
-                .start_docbyte = start_posinfo.span_start_docbyte + start_posinfo.spanbyte,
+                .start_docbyte = start_posinfo.position_docbyte,
                 .sliced = false,
             };
         }
@@ -1491,7 +1493,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             //       per segment id
             if (delete_count != 0) {
                 const span_position = self._findEntrySpan(pos);
-                const doc_start_docbyte = span_position.span_start_docbyte + span_position.spanbyte;
+                const doc_start_docbyte = span_position.position_docbyte;
                 const doc_end_docbyte = doc_start_docbyte + delete_count;
                 // std.log.info("pos: {}, start byte: {d}, end byte: {d} / {d}", .{pos, doc_start_docbyte, doc_end_docbyte, self.length});
                 std.debug.assert(doc_end_docbyte <= self.length());
@@ -1530,10 +1532,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             blk: {
                 // generate an 'extend' operation if applicable
                 const span_position = self._findEntrySpan(pos);
-                if (span_position.spanbyte != 0) break :blk;
-                const span_position_docbyte = self.span_bbt.getCountForNode(span_position.span_index);
-                if (span_position_docbyte.byte_count == 0) break :blk;
-                const prev_position = self.positionFromDocbyte(span_position_docbyte.byte_count - 1);
+                if (span_position.spanbyte_incl_deleted != 0) break :blk;
+                if (span_position.position_docbyte == 0) break :blk;
+                const prev_position = self.positionFromDocbyte(span_position.position_docbyte - 1);
                 const prev_v = self._findEntrySpan(prev_position);
                 const prev_data = self.span_bbt.getNodeDataPtrConst(prev_v.span_index).?;
 
