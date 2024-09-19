@@ -163,7 +163,7 @@ pub const EditorView = struct {
             var paste_txt = std.ArrayList(u8).init(self.gpa);
             defer paste_txt.deinit();
             beui.getClipboard(&paste_txt);
-            self.core.paste(paste_txt.items);
+            self.core.executeCommand(.{ .paste = .{ .text = paste_txt.items } });
         }
 
         if (beui.textInput()) |text| {
@@ -248,10 +248,25 @@ pub const EditorView = struct {
             const alt_held = (beui.isKeyHeld(.left_alt) or beui.isKeyHeld(.right_alt)) != (beui.isKeyHeld(.left_control) or beui.isKeyHeld(.right_control));
 
             if (beui.isKeyPressed(.mouse_left)) {
-                self.core.onClick(clicked_pos, beui.leftMouseClickedCount(), shift_held, alt_held);
+                const mode: ?editor_core.DragSelectionMode = switch (beui.leftMouseClickedCount()) {
+                    1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
+                    2 => .{ .stop = .word, .select = true },
+                    3 => .{ .stop = .line, .select = true },
+                    else => null,
+                };
+                if (mode) |sel_mode| {
+                    self.core.executeCommand(.{ .click = .{
+                        .pos = clicked_pos,
+                        .mode = sel_mode,
+                        .extend = shift_held,
+                        .select_ts_node = alt_held,
+                    } });
+                } else {
+                    self.core.executeCommand(.select_all);
+                }
                 self.selecting = true;
             } else if (self.selecting and beui.isKeyHeld(.mouse_left)) {
-                self.core.onDrag(clicked_pos, alt_held);
+                self.core.executeCommand(.{ .drag = .{ .pos = clicked_pos, .select_ts_node = alt_held } });
             }
         }
         if (!beui.isKeyHeld(.mouse_left)) {

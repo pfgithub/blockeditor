@@ -55,6 +55,13 @@ pub const DragInfo = struct {
 pub const DragSelectionMode = struct {
     stop: CursorLeftRightStop,
     select: bool,
+
+    fn fromSelect(v: CursorLeftRightStop) DragSelectionMode {
+        return .{ .select = true, .stop = v };
+    }
+    fn fromMove(v: CursorLeftRightStop) DragSelectionMode {
+        return .{ .select = false, .stop = v };
+    }
 };
 
 const BetweenCharsStop = enum {
@@ -196,6 +203,9 @@ pub const EditorCommand = union(enum) {
     insert_text: struct {
         text: []const u8,
     },
+    paste: struct {
+        text: []const u8,
+    },
     newline: void,
     insert_line: struct {
         direction: enum { up, down },
@@ -213,6 +223,17 @@ pub const EditorCommand = union(enum) {
     },
     duplicate_line: struct {
         direction: enum { up, down },
+    },
+
+    click: struct {
+        pos: Position,
+        mode: DragSelectionMode = .fromMove(.unicode_grapheme_cluster),
+        extend: bool = false,
+        select_ts_node: bool = false,
+    },
+    drag: struct {
+        pos: Position,
+        select_ts_node: bool = false,
     },
 };
 
@@ -570,6 +591,9 @@ pub const EditorCore = struct {
                     } };
                 }
             },
+            .paste => |paste_op| {
+                self.paste(paste_op.text);
+            },
             .move_cursor_up_down => |ud_cmd| {
                 const orig_len = self.cursor_positions.items.len;
                 for (0..orig_len) |i| {
@@ -853,6 +877,12 @@ pub const EditorCore = struct {
                 // _ = redo_op;
                 @panic("TODO redo");
             },
+            .click => |click_op| {
+                self.onClick(click_op.pos, click_op.mode, click_op.extend, click_op.select_ts_node);
+            },
+            .drag => |drag_op| {
+                self.onDrag(drag_op.pos, drag_op.select_ts_node);
+            },
         }
     }
     pub const CopyMode = enum { copy, cut };
@@ -902,7 +932,7 @@ pub const EditorCore = struct {
 
         seg_dep.replaceInvalidUtf8(result_str.items);
     }
-    pub fn paste(self: *EditorCore, clipboard_contents: []const u8) void {
+    fn paste(self: *EditorCore, clipboard_contents: []const u8) void {
         self.normalizeCursors();
         defer self.normalizeCursors();
 
@@ -955,18 +985,8 @@ pub const EditorCore = struct {
     }
     // change to sel_mode: DragSelectionMode, shift_held: bool?
     // make this an EditorCommand?
-    pub fn onClick(self: *EditorCore, pos: Position, click_count: usize, shift_held: bool, ctrl_or_alt_held: bool) void {
+    fn onClick(self: *EditorCore, pos: Position, sel_mode: DragSelectionMode, shift_held: bool, ctrl_or_alt_held: bool) void {
         const cursor = self.getEnsureOneCursor(pos);
-        const sel_mode: DragSelectionMode = switch (click_count) {
-            1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
-            2 => .{ .stop = .word, .select = true },
-            3 => .{ .stop = .line, .select = true },
-            else => {
-                cursor.drag_info = null;
-                self.executeCommand(.select_all);
-                return;
-            },
-        };
 
         if (shift_held) {
             if (cursor.drag_info == null) {
@@ -984,7 +1004,7 @@ pub const EditorCore = struct {
         }
         self.onDrag(pos, ctrl_or_alt_held);
     }
-    pub fn onDrag(self: *EditorCore, pos: Position, ctrl_or_alt_held: bool) void {
+    fn onDrag(self: *EditorCore, pos: Position, ctrl_or_alt_held: bool) void {
         const block = self.document.value;
 
         // TODO: support tree_sitter selection when holding ctrl|alt:
@@ -1459,17 +1479,17 @@ test EditorCore {
     tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move } });
     try tester.expectContent("here are a few words to traverse!|");
 
-    tester.editor.onClick(tester.pos(13), 1, false, false);
+    tester.executeCommand(.{ .click = .{ .pos = tester.pos(13) } });
     try tester.expectContent("here are a fe|w words to traverse!");
-    tester.editor.onClick(tester.pos(17), 1, true, false);
+    tester.executeCommand(.{ .click = .{ .pos = tester.pos(17), .extend = true } });
     try tester.expectContent("here are a fe[w wo|rds to traverse!");
-    tester.editor.onClick(tester.pos(6), 1, false, false);
+    tester.executeCommand(.{ .click = .{ .pos = tester.pos(6) } });
     try tester.expectContent("here a|re a few words to traverse!");
-    tester.editor.onClick(tester.pos(6), 2, false, false);
+    tester.executeCommand(.{ .click = .{ .pos = tester.pos(6), .mode = .fromSelect(.word) } });
     try tester.expectContent("here [are| a few words to traverse!");
-    tester.editor.onDrag(tester.pos(13), false);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(13) } });
     try tester.expectContent("here [are a few| words to traverse!");
-    tester.editor.onDrag(tester.pos(1), false);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(1) } });
     try tester.expectContent("|here are] a few words to traverse!");
 
     tester.executeCommand(.select_all);
@@ -1538,17 +1558,17 @@ test EditorCore {
     //
     tester.executeCommand(.{ .insert_text = .{ .text = "e\u{301}" } });
     try tester.expectContent("e\u{301}|");
-    tester.editor.onClick(tester.pos(1), 1, false, false);
+    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(1) } });
     try tester.expectContent("|e\u{301}");
-    tester.editor.onDrag(tester.pos(2), false);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(2) } });
     try tester.expectContent("|e\u{301}");
-    tester.editor.onDrag(tester.pos(3), false);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(3) } });
     try tester.expectContent("[e\u{301}|");
-    tester.editor.onDrag(tester.pos(2), false);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(2) } });
     try tester.expectContent("|e\u{301}");
-    tester.editor.onDrag(tester.pos(1), false);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(1) } });
     try tester.expectContent("|e\u{301}");
-    tester.editor.onDrag(tester.pos(0), false);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(0) } });
     try tester.expectContent("|e\u{301}");
 
     //
@@ -1587,17 +1607,17 @@ test EditorCore {
     //
     tester.executeCommand(.select_all);
     tester.executeCommand(.{ .insert_text = .{ .text = "pub fn demo() !u8 {\n    return 5;\n}\n" } });
-    tester.editor.onClick(tester.pos(29), 1, false, false);
+    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(29) } });
     try tester.expectContent("pub fn demo() !u8 {\n    retur|n 5;\n}\n");
-    tester.editor.onDrag(tester.pos(29), true);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(29), .select_ts_node = true } });
     try tester.expectContent("pub fn demo() !u8 {\n    [return| 5;\n}\n");
-    tester.editor.onDrag(tester.pos(27), true);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(27), .select_ts_node = true } });
     try tester.expectContent("pub fn demo() !u8 {\n    |return] 5;\n}\n");
-    tester.editor.onDrag(tester.pos(23), true);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(23), .select_ts_node = true } });
     try tester.expectContent("pub fn demo() !u8 |{\n    return 5;\n}]\n");
-    tester.editor.onDrag(tester.pos(8), true);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(8), .select_ts_node = true } });
     try tester.expectContent("pub |fn demo() !u8 {\n    return 5;\n}]\n");
-    tester.editor.onDrag(tester.pos(29), false);
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(29) } });
     try tester.expectContent("pub fn demo() !u8 {\n    retur|n 5;\n}\n");
     tester.executeCommand(.{ .ts_select_node = .{ .direction = .parent } });
     try tester.expectContent("pub fn demo() !u8 {\n    [return| 5;\n}\n");
@@ -1652,35 +1672,35 @@ test EditorCore {
     try tester.expectContent("pub fn demo() !u8 {\n    |\n    |return 5;\n}\n");
     copied = tester.editor.copyAllocUtf8(copy_arena, .cut);
     try tester.expectContent("pub fn demo() !u8 {\n|}\n");
-    tester.editor.paste(copied);
+    tester.executeCommand(.{ .paste = .{ .text = copied } });
     try tester.expectContent("pub fn demo() !u8 {\n    \n    return 5;\n|}\n");
 
-    tester.editor.onClick(tester.pos(4), 1, false, false);
+    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(4) } });
     try tester.expectContent("pub |fn demo() !u8 {\n    \n    return 5;\n}\n");
     copied = tester.editor.copyAllocUtf8(copy_arena, .cut);
     try tester.expectContent("|    \n    return 5;\n}\n");
-    tester.editor.onClick(tester.pos(10), 1, false, false);
+    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(10) } });
     try tester.expectContent("    \n    r|eturn 5;\n}\n");
-    tester.editor.paste(copied);
+    tester.executeCommand(.{ .paste = .{ .text = copied } });
     try tester.expectContent("    \npub fn demo() !u8 {\n    r|eturn 5;\n}\n");
-    tester.editor.onClick(tester.pos(6), 1, false, false);
+    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(6) } });
     try tester.expectContent("    \np|ub fn demo() !u8 {\n    return 5;\n}\n");
-    tester.editor.onClick(tester.pos(6), 2, false, false);
+    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(6), .mode = .fromSelect(.word) } });
     try tester.expectContent("    \n[pub| fn demo() !u8 {\n    return 5;\n}\n");
     copied = tester.editor.copyAllocUtf8(copy_arena, .cut);
     try tester.expectContent("    \n| fn demo() !u8 {\n    return 5;\n}\n");
-    tester.editor.onClick(tester.pos(14), 1, false, false);
+    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(14) } });
     try tester.expectContent("    \n fn demo(|) !u8 {\n    return 5;\n}\n");
-    tester.editor.paste(copied);
+    tester.executeCommand(.{ .paste = .{ .text = copied } });
     try tester.expectContent("    \n fn demo(pub|) !u8 {\n    return 5;\n}\n");
-    tester.editor.paste(", const");
+    tester.executeCommand(.{ .paste = .{ .text = ", const" } });
     try tester.expectContent("    \n fn demo(pub, const|) !u8 {\n    return 5;\n}\n");
 
     copied = tester.editor.copyAllocUtf8(copy_arena, .cut);
     try tester.expectContent("    \n|    return 5;\n}\n");
-    tester.editor.paste("abc");
+    tester.executeCommand(.{ .paste = .{ .text = "abc" } });
     try tester.expectContent("    \nabc|    return 5;\n}\n");
-    tester.editor.paste(copied);
+    tester.executeCommand(.{ .paste = .{ .text = copied } });
     try tester.expectContent("    \nabc fn demo(pub, const) !u8 {\n|    return 5;\n}\n");
 }
 
