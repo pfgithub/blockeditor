@@ -264,6 +264,14 @@ pub const EditorCore = struct {
     gpa: std.mem.Allocator,
     document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
     syn_hl_ctx: tree_sitter.Context,
+    clipboard_cache: ?struct {
+        /// owned by self.gpa
+        contents: []const []const u8,
+        /// true only if every line copied had selection .len == 0
+        paste_in_new_line: bool,
+        /// Wyhash of copied string
+        copied_str_hash: u64,
+    },
 
     cursor_positions: std.ArrayList(CursorPosition),
 
@@ -277,6 +285,7 @@ pub const EditorCore = struct {
             .gpa = gpa,
             .document = document,
             .syn_hl_ctx = undefined,
+            .clipboard_cache = null,
 
             .cursor_positions = .init(gpa),
         };
@@ -288,6 +297,10 @@ pub const EditorCore = struct {
         };
     }
     pub fn deinit(self: *EditorCore) void {
+        if (self.clipboard_cache) |*v| {
+            for (v.contents) |c| self.gpa.free(c);
+            self.gpa.free(v.contents);
+        }
         self.syn_hl_ctx.deinit();
         self.cursor_positions.deinit();
         self.document.removeUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit));
@@ -329,6 +342,13 @@ pub const EditorCore = struct {
         if (next_line_start_byte == block.length()) return block.positionFromDocbyte(next_line_start_byte);
         std.debug.assert(next_line_start_byte > prev_line_start_byte);
         return block.positionFromDocbyte(next_line_start_byte - 1);
+    }
+    fn getNextLineStartMaybeInsertNewline(self: *EditorCore, pos: Position) Position {
+        if (self.document.value.docbyteFromPosition(pos) == self.document.value.length()) {
+            self.replaceRange(.{ .position = .end, .delete_len = 0, .insert_text = "\n" });
+            return .end;
+        }
+        return self.getNextLineStart(pos);
     }
     fn getNextLineStart(self: *EditorCore, prev_line_start: Position) Position {
         const block = self.document.value;
@@ -450,8 +470,8 @@ pub const EditorCore = struct {
         for (positions.positions.items) |pos| {
             const prev_selected = positions.count > 0;
             if (positions.idx >= positions.positions.items.len) break;
-            if (positions.positions.items[positions.idx].bufbyte > pos.bufbyte) continue;
-            const sel_info = positions.advanceAndRead(pos.bufbyte);
+            if (positions.positions.items[positions.idx].docbyte > pos.docbyte) continue;
+            const sel_info = positions.advanceAndRead(pos.docbyte);
             const next_selected = sel_info.selected;
 
             var res_cursor = sel_info.left_cursor_extra.?;
@@ -459,18 +479,18 @@ pub const EditorCore = struct {
                 // don't put a cursor
                 continue;
             } else if (!prev_selected and next_selected) {
-                uncommitted_start = pos.bufbyte;
+                uncommitted_start = pos.docbyte;
             } else if (prev_selected and !next_selected) {
                 // commit
                 std.debug.assert(uncommitted_start != null);
                 if (sel_info.left_cursor == .focus) {
                     res_cursor.pos = .range(
                         block.positionFromDocbyte(uncommitted_start.?),
-                        block.positionFromDocbyte(pos.bufbyte),
+                        block.positionFromDocbyte(pos.docbyte),
                     );
                 } else {
                     res_cursor.pos = .range(
-                        block.positionFromDocbyte(pos.bufbyte),
+                        block.positionFromDocbyte(pos.docbyte),
                         block.positionFromDocbyte(uncommitted_start.?),
                     );
                 }
@@ -480,7 +500,7 @@ pub const EditorCore = struct {
                 // commit
                 std.debug.assert(uncommitted_start == null);
                 res_cursor.pos = .at(
-                    block.positionFromDocbyte(pos.bufbyte),
+                    block.positionFromDocbyte(pos.docbyte),
                 );
                 self.cursor_positions.appendAssumeCapacity(res_cursor);
             } else unreachable;
@@ -835,6 +855,89 @@ pub const EditorCore = struct {
             },
         }
     }
+    /// caller owns the returned string and must copy it to the clipboard
+    pub fn copy(self: *EditorCore, alloc: std.mem.Allocator, mode: enum { copy, cut }) []const u8 {
+        self.normalizeCursors();
+        defer self.normalizeCursors();
+
+        var result_str = std.ArrayList(u8).init(alloc);
+        defer result_str.deinit();
+        const stored_buf = self.gpa.alloc([]const u8, self.cursor_positions.items.len) catch @panic("oom");
+        var paste_in_new_line = true;
+        for (self.cursor_positions.items, stored_buf, 0..) |*cursor, *stored, i| {
+            var pos_range = self.selectionToPosLen(cursor.pos);
+            if (pos_range.len == 0) {
+                pos_range = self.selectionToPosLen(.range(self.getLineStart(pos_range.pos), self.getNextLineStart(pos_range.pos)));
+            } else {
+                paste_in_new_line = false;
+            }
+            const slice = self.gpa.alloc(u8, pos_range.len) catch @panic("oom");
+            self.document.value.readSlice(pos_range.pos, slice);
+            stored.* = slice;
+
+            if (i != 0) result_str.appendSlice("\n") catch @panic("oom");
+            result_str.appendSlice(slice) catch @panic("oom");
+
+            if (mode == .cut) {
+                self.replaceRange(.{ .position = pos_range.pos, .delete_len = pos_range.len, .insert_text = "" });
+            }
+        }
+        self.clipboard_cache = .{
+            .contents = stored_buf,
+            .copied_str_hash = std.hash.Wyhash.hash(0, result_str.items),
+            .paste_in_new_line = paste_in_new_line,
+        };
+
+        seg_dep.replaceInvalidUtf8(result_str.items);
+
+        return result_str.toOwnedSlice() catch @panic("oom");
+    }
+    pub fn paste(self: *EditorCore, clipboard_contents: []const u8) void {
+        self.normalizeCursors();
+        defer self.normalizeCursors();
+
+        defer {
+            if (self.clipboard_cache) |*v| {
+                for (v.contents) |c| self.gpa.free(c);
+                self.gpa.free(v.contents);
+            }
+            self.clipboard_cache = null;
+        }
+
+        var clip_contents: []const []const u8 = &.{clipboard_contents};
+        var paste_in_new_line = false;
+        if (self.clipboard_cache) |*c| if (c.copied_str_hash == std.hash.Wyhash.hash(0, clipboard_contents)) {
+            clip_contents = c.contents;
+            paste_in_new_line = c.paste_in_new_line;
+        };
+
+        if (clip_contents.len == self.cursor_positions.items.len) {
+            for (clip_contents, self.cursor_positions.items) |text, *cursor_pos| {
+                self.pasteInternal(cursor_pos, text, paste_in_new_line);
+            }
+        } else {
+            for (clip_contents) |text| for (self.cursor_positions.items) |*cursor_pos| {
+                self.pasteInternal(cursor_pos, text, paste_in_new_line);
+            };
+        }
+    }
+    fn pasteInternal(self: *EditorCore, cursor_pos: *const CursorPosition, text: []const u8, paste_in_new_line: bool) void {
+        var pos_range = self.selectionToPosLen(cursor_pos.pos);
+        var add_newline = false;
+        if (pos_range.len == 0 and paste_in_new_line) {
+            pos_range = self.selectionToPosLen(.at(self.getLineStart(pos_range.pos)));
+            add_newline = true;
+        }
+
+        self.replaceRange(.{
+            .position = pos_range.pos,
+            .delete_len = pos_range.len,
+            .insert_text = text,
+        });
+        if (add_newline) {
+            self.replaceRange(.{ .position = pos_range.pos, .delete_len = 0, .insert_text = "\n" });
+        }
+    }
     fn getEnsureOneCursor(self: *EditorCore, default_pos: Position) *CursorPosition {
         if (self.cursor_positions.items.len == 0) {
             self.select(.at(default_pos));
@@ -972,14 +1075,14 @@ pub const EditorCore = struct {
 };
 
 const PositionItem = struct {
-    bufbyte: u64,
+    docbyte: u64,
     mode: enum { start, end },
     kind: enum { anchor, focus },
 
     extra: CursorPosition,
 
     fn compareFn(_: void, a: PositionItem, b: PositionItem) bool {
-        return a.bufbyte < b.bufbyte;
+        return a.docbyte < b.docbyte;
     }
 };
 pub const CursorPosState = enum { none, start, focus, end };
@@ -1002,25 +1105,25 @@ pub const CursorPositions = struct {
     fn add(self: *CursorPositions, anchor: u64, focus: u64, extra: CursorPosition) void {
         const left = @min(anchor, focus);
         const right = @max(anchor, focus);
-        self.positions.append(.{ .mode = .start, .bufbyte = left, .kind = if (left == focus) .focus else .anchor, .extra = extra }) catch @panic("oom");
-        self.positions.append(.{ .mode = .end, .bufbyte = right, .kind = if (left == focus) .anchor else .focus, .extra = extra }) catch @panic("oom");
+        self.positions.append(.{ .mode = .start, .docbyte = left, .kind = if (left == focus) .focus else .anchor, .extra = extra }) catch @panic("oom");
+        self.positions.append(.{ .mode = .end, .docbyte = right, .kind = if (left == focus) .anchor else .focus, .extra = extra }) catch @panic("oom");
     }
     fn sort(self: *CursorPositions) void {
         std.mem.sort(PositionItem, self.positions.items, {}, PositionItem.compareFn);
     }
 
-    pub fn advanceAndRead(self: *CursorPositions, bufbyte: u64) CursorPosRes {
+    pub fn advanceAndRead(self: *CursorPositions, docbyte: u64) CursorPosRes {
         var left_cursor: CursorPosState = .none;
         var left_cursor_extra: ?CursorPosition = null;
         while (true) : (self.idx += 1) {
             if (self.idx >= self.positions.items.len) break;
             const itm = self.positions.items[self.idx];
-            if (itm.bufbyte > bufbyte) break;
+            if (itm.docbyte > docbyte) break;
             switch (itm.mode) {
                 .start => self.count += 1,
                 .end => self.count -= 1,
             }
-            if (itm.bufbyte == bufbyte) {
+            if (itm.docbyte == docbyte) {
                 left_cursor = switch (left_cursor) {
                     .none => switch (itm.kind) {
                         .anchor => switch (itm.mode) {
@@ -1529,6 +1632,20 @@ test EditorCore {
     try tester.expectContent("pub fn demo() !u8 {\n    return 5;|\n}\n");
     tester.executeCommand(.{ .insert_line = .{ .direction = .up } });
     try tester.expectContent("pub fn demo() !u8 {\n    |\n    return 5;\n}\n");
+
+    //
+    // Copy/Paste
+    //
+    var copy_arena_backing = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer copy_arena_backing.deinit();
+    const copy_arena = copy_arena_backing.allocator();
+
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .mode = .duplicate, .metric = .byte } });
+    try tester.expectContent("pub fn demo() !u8 {\n    |\n    |return 5;\n}\n");
+    const copied_0 = tester.editor.copy(copy_arena, .cut);
+    try tester.expectContent("pub fn demo() !u8 {\n}\n");
+    tester.editor.paste(copied_0);
+    try tester.expectContent("pub fn demo() !u8 {\n    \n    return 5;|\n}\n");
 }
 
 fn usi(a: u64) usize {
