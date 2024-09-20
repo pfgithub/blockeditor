@@ -9,6 +9,7 @@ const zgui = @import("zgui"); // zgui doesn't have everything! we should use cim
 const beui_mod = @import("beui");
 
 const ft = beui_mod.font_experiment.ft;
+const hb = beui_mod.font_experiment.hb;
 
 const editor_core = @import("texteditor").core;
 
@@ -16,6 +17,7 @@ pub const EditorView = struct {
     gpa: std.mem.Allocator,
     core: editor_core.EditorCore,
     selecting: bool = false,
+    _layout_temp_al: std.ArrayList(u8),
 
     scroll: struct {
         /// null = start of file
@@ -28,10 +30,12 @@ pub const EditorView = struct {
             .gpa = gpa,
             .core = undefined,
             .scroll = .{},
+            ._layout_temp_al = .init(gpa),
         };
         self.core.initFromDoc(gpa, document);
     }
     pub fn deinit(self: *EditorView) void {
+        self._layout_temp_al.deinit();
         self.core.deinit();
     }
 
@@ -41,6 +45,50 @@ pub const EditorView = struct {
     // - this will let us quickly go from bufbyte -> screen position
     // - or from screen position -> bufbyte
     // - and it will always give us access to total scroll height
+
+    pub fn layoutLine(self: *EditorView, line_middle: editor_core.Position) void {
+        std.debug.assert(self._layout_temp_al.items.len == 0);
+        defer self._layout_temp_al.clearRetainingCapacity();
+
+        // TODO: cache layouts. use an addUpdateListener handler to invalidate caches.
+        const line_start = self.core.getLineStart(line_middle);
+        const line_end = self.core.getNextLineStart(line_start); // includes the '\n' character because that shows up in invisibles selection
+        const line_start_docbyte = self.core.document.value.positionFromDocbyte(line_start);
+        const line_len = self.core.document.value.docbyteFromPosition(line_end) - line_start_docbyte;
+
+        self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
+
+        // TODO: segment shape() calls based on:
+        // - syntax highlighting style (eg in markdown we want to have some text rendered bold, or some as a heading)
+        // - unicode bidi algorithm (fribidi or sheenbidi)
+        // - different languages or something??
+        // - fallback characters in different fonts????
+        // - maybe use libraqm. it should handle all of this except fallback characters
+
+        const buf: hb.Buffer = hb.Buffer.init() orelse @panic("oom");
+        defer buf.deinit();
+
+        buf.addUTF8(self._layout_temp_al.items, 0, null); // invalid utf-8 is ok, so we don't have to call the replace fn ourselves
+        buf.setDirection(.ltr);
+        buf.setScript(.latin);
+        buf.setLanguage(.fromString("en"));
+
+        const font: hb.Font = undefined; // TODO
+
+        font.shape(buf, null);
+
+        for (
+            buf.getGlyphInfos(),
+            buf.getGlyphPositions().?,
+        ) |glyph_info, glyph_pos| {
+            const glyph_id = glyph_info.codepoint;
+            const glyph_docbyte = line_start_docbyte + glyph_info.cluster;
+
+            _ = glyph_id;
+            _ = glyph_docbyte;
+            _ = glyph_pos;
+        }
+    }
 
     pub fn gui(self: *EditorView, beui: *beui_mod.Beui, content_region_size: @Vector(2, f32)) void {
         const arena = beui.arena();
