@@ -15,8 +15,9 @@ const sb = beui_mod.font_experiment.sb;
 const editor_core = @import("texteditor").core;
 
 pub const LayoutItem = struct {
+    docbyte: u64,
     glyph_id: u32,
-    pos: @Vector(2, f64),
+    pos: @Vector(2, f32),
 };
 pub const LayoutInfo = struct {
     height: f64,
@@ -70,6 +71,8 @@ const Font = struct {
     }
 };
 
+const GlyphCacheEntry = struct { size: @Vector(2, u32), offset: @Vector(2, i32) = .{ 0, 0 }, region: ?beui_mod.texpack.Region };
+
 pub const EditorView = struct {
     gpa: std.mem.Allocator,
     core: editor_core.EditorCore,
@@ -78,6 +81,9 @@ pub const EditorView = struct {
     _layout_result_temp_al: std.ArrayList(LayoutItem),
 
     font: ?Font,
+    glyphs: beui_mod.texpack,
+    glyph_cache: std.AutoHashMap(u32, GlyphCacheEntry),
+    glyphs_cache_full: bool,
 
     scroll: struct {
         /// null = start of file
@@ -93,10 +99,15 @@ pub const EditorView = struct {
             ._layout_temp_al = .init(gpa),
             ._layout_result_temp_al = .init(gpa),
             .font = .init(beui_mod.font_experiment.NotoSans_wght),
+            .glyphs = beui_mod.texpack.init(gpa, 2048, .greyscale) catch @panic("oom"),
+            .glyph_cache = .init(gpa),
+            .glyphs_cache_full = false,
         };
         self.core.initFromDoc(gpa, document);
     }
     pub fn deinit(self: *EditorView) void {
+        self.glyph_cache.deinit();
+        self.glyphs.deinit(self.gpa);
         if (self.font) |*font| font.deinit();
         self._layout_temp_al.deinit();
         self._layout_result_temp_al.deinit();
@@ -111,14 +122,14 @@ pub const EditorView = struct {
     // - and it will always give us access to total scroll height
 
     /// result pointer is valid until next layoutLine() call
-    pub fn layoutLine(self: *EditorView, line_middle: editor_core.Position) LayoutInfo {
+    fn layoutLine(self: *EditorView, line_middle: editor_core.Position) LayoutInfo {
         std.debug.assert(self._layout_temp_al.items.len == 0);
         defer self._layout_temp_al.clearRetainingCapacity();
 
         // TODO: cache layouts. use an addUpdateListener handler to invalidate caches.
         const line_start = self.core.getLineStart(line_middle);
         const line_end = self.core.getNextLineStart(line_start); // includes the '\n' character because that shows up in invisibles selection
-        const line_start_docbyte = self.core.document.value.positionFromDocbyte(line_start);
+        const line_start_docbyte = self.core.document.value.docbyteFromPosition(line_start);
         const line_len = self.core.document.value.docbyteFromPosition(line_end) - line_start_docbyte;
 
         self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
@@ -136,23 +147,22 @@ pub const EditorView = struct {
 
         const segments = [_]ShapingSegment{.{ .length = line_len }};
 
-        const font: hb.Font = undefined; // TODO
         self._layout_result_temp_al.clearRetainingCapacity();
 
         var start_offset: usize = 0;
-        var cursor_pos: @Vector(2, i64) = .{ 0, 0 };
+        var cursor_pos: @Vector(2, i64) = .{ 64 * 10, 64 * 10 };
         for (segments) |segment| {
             const buf: hb.Buffer = hb.Buffer.init() orelse @panic("oom");
             defer buf.deinit();
 
-            buf.addUTF8(self._layout_temp_al.items, start_offset, segment.length); // invalid utf-8 is ok, so we don't have to call the replace fn ourselves
+            buf.addUTF8(self._layout_temp_al.items, @intCast(start_offset), @intCast(segment.length)); // invalid utf-8 is ok, so we don't have to call the replace fn ourselves
             defer start_offset += segment.length;
 
             buf.setDirection(.ltr);
             buf.setScript(.latin);
             buf.setLanguage(.fromString("en"));
 
-            font.shape(buf, null);
+            self.font.?.hb_font.shape(buf, null);
 
             for (
                 buf.getGlyphInfos(),
@@ -168,10 +178,10 @@ pub const EditorView = struct {
 
                 self._layout_result_temp_al.append(.{
                     .glyph_id = glyph_id,
-                    .pos = @floatFromInt(glyph_pos),
+                    .docbyte = glyph_docbyte,
+                    .pos = @as(@Vector(2, f32), @floatFromInt(glyph_pos)) / @as(@Vector(2, f32), @splat(64.0)),
                 }) catch @panic("oom");
 
-                _ = glyph_docbyte;
                 _ = glyph_flags;
             }
         }
@@ -182,7 +192,48 @@ pub const EditorView = struct {
         };
     }
 
+    fn renderGlyph(self: *EditorView, glyph_id: u32) GlyphCacheEntry {
+        if (self.glyph_cache.get(glyph_id)) |v| return v;
+        const result: GlyphCacheEntry = self.renderGlyph_nocache(glyph_id) catch |e| blk: {
+            std.log.err("render glyph error: {s}", .{@errorName(e)});
+            break :blk .{ .size = .{ 0, 0 }, .region = null };
+        };
+        self.glyph_cache.putNoClobber(glyph_id, result) catch @panic("oom");
+        return result;
+    }
+    fn renderGlyph_nocache(self: *EditorView, glyph_id: u32) !GlyphCacheEntry {
+        try self.font.?.ft_face.setPixelSizes(0, 16);
+        try self.font.?.ft_face.loadGlyph(glyph_id, .{ .render = true });
+        const glyph = self.font.?.ft_face.glyph();
+        const bitmap = glyph.bitmap();
+        const line_height: i32 = 25;
+
+        if (bitmap.buffer() == null) return error.NoBitmapBuffer;
+
+        const region = self.glyphs.reserve(self.gpa, bitmap.width(), bitmap.rows()) catch |e| switch (e) {
+            error.AtlasFull => {
+                self.glyphs_cache_full = true;
+                return .{ .size = .{ bitmap.width(), bitmap.rows() }, .region = null };
+            },
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+        self.glyphs.set(region, bitmap.buffer().?);
+
+        return .{
+            .offset = .{ glyph.bitmapLeft(), line_height - glyph.bitmapTop() },
+            .size = .{ bitmap.width(), bitmap.rows() },
+            .region = region,
+        };
+    }
+
     pub fn gui(self: *EditorView, beui: *beui_mod.Beui, content_region_size: @Vector(2, f32)) void {
+        if (self.glyphs_cache_full) {
+            self.glyphs.clear();
+            self.glyph_cache.clearRetainingCapacity();
+            self.glyphs_cache_full = false;
+            // TODO if it's full two frames in a row, give up for a little while
+        }
+
         const arena = beui.arena();
         _ = arena;
         const draw_list = beui.draw();
@@ -344,12 +395,41 @@ pub const EditorView = struct {
         var syn_hl = self.core.syn_hl_ctx.highlight();
         defer syn_hl.deinit();
 
+        const layout_test = self.layoutLine(render_start_pos);
+        for (layout_test.items) |item| {
+            const glyph_info = self.renderGlyph(item.glyph_id);
+            if (glyph_info.region) |region| {
+                const syn_hl_info = syn_hl.advanceAndRead(item.docbyte);
+                const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
+                const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
+                draw_list.addRegion(.{
+                    .pos = item.pos + glyph_offset,
+                    .size = glyph_size,
+                    .region = region,
+                    .image = .editor_view_glyphs,
+                    .image_size = self.glyphs.size,
+                    .tint = hexToFloat(DefaultTheme.synHlColor(syn_hl_info)),
+                });
+                // _ = region;
+                // draw_list.addRect(item.pos, @floatFromInt(glyph_info.size), .{
+                //     .image = null,
+                //     .tint = hexToFloat(DefaultTheme.synHlColor(syn_hl_info)),
+                // });
+                // _ = syn_hl_info;
+            }
+        }
+        draw_list.addRect(.{ 0, 100 }, .{ 2048, 2048 }, .{
+            .image = .editor_view_glyphs,
+            .uv_pos = .{ 0, 0 },
+            .uv_size = .{ 1, 1 },
+            .tint = .{ 1, 1, 1, 1 },
+        });
+
         var pos: @Vector(2, f32) = .{ 0, @floatCast(self.scroll.offset) };
         var prev_char_advance: f32 = 0;
         var click_target: ?usize = null;
         for (block.docbyteFromPosition(render_start_pos)..block.length() + 1) |i| {
             const cursor_info = cursor_positions.advanceAndRead(i);
-            const syn_hl_info = syn_hl.advanceAndRead(i);
             const char = syn_hl.znh.charAt(i);
 
             if (cursor_info.left_cursor == .focus) {
@@ -388,9 +468,10 @@ pub const EditorView = struct {
             const char_offset = @Vector(2, f32){ (invisible_advance - char_advance) / 2.0, 0.0 };
 
             if ((show_invisibles or is_invisible == null) and pos[0] <= window_size[0] and pos[1] <= window_size[1] and pos[0] >= 0 and pos[1] >= 0) {
+                // _ = char_offset;
                 draw_list.addChar(char_or_invisible, window_pos + pos + char_offset, hexToFloat(DefaultTheme.synHlColor(switch (is_invisible != null) {
                     true => .invisible,
-                    false => syn_hl_info,
+                    false => syn_hl.advanceAndRead(i),
                 })));
             }
             if (cursor_info.selected) {
@@ -474,6 +555,7 @@ fn hexToFloat(hex: u32) @Vector(4, f32) {
 
 const DefaultTheme = struct {
     // colors are defined in srgb
+    // we can make this a simple json file with {"editor_bg": "#mycolor"}
     pub const editor_bg: u32 = 0x1d252c;
     pub const selection_color: u32 = 0x28323a;
 

@@ -60,7 +60,7 @@ test "font_experiment" {
         const writer_unb = std.io.getStdErr().writer();
         var writer_buffered_backing = std.io.bufferedWriter(writer_unb);
         const writer_buffered = writer_buffered_backing.writer();
-        try writer_buffered.print("\nbyte {d}: drawGlyph: {d} {d} {d}\n\n", .{ glyph_info.cluster, glyphid, cursor_pos[0] + glyph_pos.x_offset, cursor_pos[0] + glyph_pos.y_offset });
+        try writer_buffered.print("\nbyte {d}: drawGlyph: {d} {d}+{d} {d}+{d}\n\n", .{ glyph_info.cluster, glyphid, cursor_pos[0], glyph_pos.x_offset, cursor_pos[1], glyph_pos.y_offset });
         for (0..bitmap.rows()) |y| {
             const w = bitmap.width();
             for (0..w) |x| {

@@ -14,6 +14,7 @@ const std = @import("std");
 
 pub const RenderListImage = enum(u64) {
     beui_font,
+    editor_view_glyphs,
     _,
 };
 pub const RenderListIndex = u16;
@@ -103,6 +104,22 @@ pub const RenderList = struct {
         cmd.index_count += @intCast(indices.len);
     }
 
+    pub fn addRegion(self: *RenderList, opts: struct {
+        pos: @Vector(2, f32),
+        size: @Vector(2, f32),
+        region: @import("texpack.zig").Region,
+        image: RenderListImage,
+        image_size: u32,
+        tint: @Vector(4, f32) = .{ 1, 1, 1, 1 },
+    }) void {
+        const uv = opts.region.calculateUV(opts.image_size);
+        return self.addRect(opts.pos, opts.size, .{
+            .uv_pos = .{ uv.x, uv.y },
+            .uv_size = .{ uv.width, uv.height },
+            .image = opts.image,
+            .tint = opts.tint,
+        });
+    }
     pub fn addRect(self: *RenderList, pos: @Vector(2, f32), size: @Vector(2, f32), opts: struct {
         uv_pos: @Vector(2, f32) = .{ -1234.0, -1234.0 },
         uv_size: @Vector(2, f32) = .{ 0, 0 },
@@ -120,7 +137,7 @@ pub const RenderList = struct {
         const uv_bl = opts.uv_pos + @Vector(2, f32){ 0, opts.uv_size[1] };
         const uv_br = opts.uv_pos + opts.uv_size;
 
-        self.addVertices(null, &.{
+        self.addVertices(opts.image, &.{
             .{ .pos = ul, .uv = uv_ul, .tint = opts.tint },
             .{ .pos = ur, .uv = uv_ur, .tint = opts.tint },
             .{ .pos = bl, .uv = uv_bl, .tint = opts.tint },

@@ -141,12 +141,16 @@ const DemoState = struct {
     gctx: *zgpu.GraphicsContext,
 
     pipeline: zgpu.RenderPipelineHandle = .{},
-    bind_group: zgpu.BindGroupHandle,
 
     vertex_buffer: ?zgpu.BufferHandle = null,
     vertex_buffer_len: usize = 0,
     index_buffer: ?zgpu.BufferHandle = null,
     index_buffer_len: usize = 0,
+
+    bind_group_layout: zgpu.BindGroupLayoutHandle,
+
+    texture_2: ?zgpu.TextureHandle = null,
+    texture_view_2: ?zgpu.TextureViewHandle = null,
 
     texture: zgpu.TextureHandle,
     texture_view: zgpu.TextureViewHandle,
@@ -182,7 +186,7 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         zgpu.textureEntry(1, .{ .fragment = true }, .float, .tvdim_2d, false),
         zgpu.samplerEntry(2, .{ .fragment = true }, .filtering),
     });
-    defer gctx.releaseResource(bind_group_layout);
+    errdefer gctx.releaseResource(bind_group_layout);
 
     zstbi.init(arena);
     defer zstbi.deinit();
@@ -220,20 +224,14 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
     // Create a sampler.
     const sampler = gctx.createSampler(.{});
 
-    const bind_group = gctx.createBindGroup(bind_group_layout, &.{
-        .{ .binding = 0, .buffer_handle = gctx.uniforms.buffer, .offset = 0, .size = 256 },
-        .{ .binding = 1, .texture_view_handle = texture_view },
-        .{ .binding = 2, .sampler_handle = sampler },
-    });
-
     const demo = try gpa.create(DemoState);
     demo.* = .{
         .gctx = gctx,
-        .bind_group = bind_group,
         .vertex_buffer = null,
         .index_buffer = null,
         .texture = texture,
         .texture_view = texture_view,
+        .bind_group_layout = bind_group_layout,
         .sampler = sampler,
     };
 
@@ -300,6 +298,7 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
 }
 
 fn destroy(allocator: std.mem.Allocator, demo: *DemoState) void {
+    demo.gctx.releaseResource(demo.bind_group_layout);
     demo.gctx.destroy(allocator);
     allocator.destroy(demo);
 }
@@ -330,10 +329,44 @@ fn update(demo: *DemoState) void {
     zgui.end();
 }
 
-fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
+fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *beui_mod.texpack) void {
     const gctx = demo.gctx;
     const fb_width = gctx.swapchain_descriptor.width;
     const fb_height = gctx.swapchain_descriptor.height;
+
+    if (demo.texture_2 == null) {
+        texture_2_src.modified = true;
+
+        demo.texture_2 = gctx.createTexture(.{
+            .usage = .{ .texture_binding = true, .copy_dst = true },
+            .size = .{
+                .width = texture_2_src.size,
+                .height = texture_2_src.size,
+                .depth_or_array_layers = texture_2_src.format.depth(),
+            },
+            .format = switch (texture_2_src.format) {
+                .greyscale => .r8_unorm,
+                .rgb => @panic("TODO rgb"),
+                .rgba => .rgba8_unorm,
+            },
+        });
+    }
+    if (demo.texture_view_2 == null) {
+        demo.texture_view_2 = gctx.createTextureView(demo.texture_2.?, .{});
+    }
+    if (texture_2_src.modified) {
+        gctx.queue.writeTexture(
+            .{ .texture = gctx.lookupResource(demo.texture_2.?).? },
+            .{
+                .bytes_per_row = texture_2_src.size * texture_2_src.format.depth(),
+                .rows_per_image = texture_2_src.size,
+            },
+            .{ .width = texture_2_src.size, .height = texture_2_src.size },
+            u8,
+            texture_2_src.data,
+        );
+        texture_2_src.modified = false;
+    }
 
     const back_buffer_view = gctx.swapchain.getCurrentTextureView();
     defer back_buffer_view.release();
@@ -386,7 +419,6 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
             const vb_info = gctx.lookupResourceInfo(demo.vertex_buffer.?) orelse break :pass;
             const ib_info = gctx.lookupResourceInfo(demo.index_buffer.?) orelse break :pass;
             const pipeline = gctx.lookupResource(demo.pipeline) orelse break :pass;
-            const bind_group = gctx.lookupResource(demo.bind_group) orelse break :pass;
 
             const color_attachments = [_]wgpu.RenderPassColorAttachment{.{
                 .view = back_buffer_view,
@@ -417,8 +449,22 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList) void {
                 .screen_size = .{ @floatFromInt(fb_width), @floatFromInt(fb_height) },
                 .mip_level = @as(f32, @floatFromInt(demo.mip_level)),
             };
-            pass.setBindGroup(0, bind_group, &.{mem.offset});
             for (draw_list.commands.items) |command| {
+                const bind_group_handle = gctx.createBindGroup(demo.bind_group_layout, &.{
+                    .{ .binding = 0, .buffer_handle = gctx.uniforms.buffer, .offset = 0, .size = 256 },
+                    .{ .binding = 1, .texture_view_handle = switch (command.image orelse .beui_font) {
+                        .beui_font => demo.texture_view,
+                        .editor_view_glyphs => demo.texture_view_2.?,
+                        else => demo.texture_view,
+                    } },
+                    .{ .binding = 2, .sampler_handle = demo.sampler },
+                });
+                defer demo.gctx.releaseResource(bind_group_handle);
+
+                const bind_group = gctx.lookupResource(bind_group_handle) orelse break :pass;
+
+                pass.setBindGroup(0, bind_group, &.{mem.offset});
+
                 pass.drawIndexed(command.index_count, 1, command.first_index, command.base_vertex, 0);
             }
         }
@@ -769,6 +815,6 @@ pub fn main() !void {
 
         zgui.showDemoWindow(null);
 
-        draw(demo, &draw_list);
+        draw(demo, &draw_list, &my_text_editor.glyphs);
     }
 }
