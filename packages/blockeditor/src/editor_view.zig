@@ -13,11 +13,18 @@ const hb = beui_mod.font_experiment.hb;
 
 const editor_core = @import("texteditor").core;
 
+pub const LayoutItem = struct {};
+pub const LayoutInfo = struct {
+    height: f64,
+    items: []LayoutItem,
+};
+
 pub const EditorView = struct {
     gpa: std.mem.Allocator,
     core: editor_core.EditorCore,
     selecting: bool = false,
     _layout_temp_al: std.ArrayList(u8),
+    _layout_result_temp_al: std.ArrayList(LayoutItem),
 
     scroll: struct {
         /// null = start of file
@@ -31,11 +38,13 @@ pub const EditorView = struct {
             .core = undefined,
             .scroll = .{},
             ._layout_temp_al = .init(gpa),
+            ._layout_result_temp_al = .init(gpa),
         };
         self.core.initFromDoc(gpa, document);
     }
     pub fn deinit(self: *EditorView) void {
         self._layout_temp_al.deinit();
+        self._layout_result_temp_al.deinit();
         self.core.deinit();
     }
 
@@ -46,7 +55,8 @@ pub const EditorView = struct {
     // - or from screen position -> bufbyte
     // - and it will always give us access to total scroll height
 
-    pub fn layoutLine(self: *EditorView, line_middle: editor_core.Position) void {
+    /// result pointer is valid until next layoutLine() call
+    pub fn layoutLine(self: *EditorView, line_middle: editor_core.Position) LayoutInfo {
         std.debug.assert(self._layout_temp_al.items.len == 0);
         defer self._layout_temp_al.clearRetainingCapacity();
 
@@ -77,6 +87,8 @@ pub const EditorView = struct {
 
         font.shape(buf, null);
 
+        self._layout_result_temp_al.clearRetainingCapacity();
+
         for (
             buf.getGlyphInfos(),
             buf.getGlyphPositions().?,
@@ -88,6 +100,11 @@ pub const EditorView = struct {
             _ = glyph_docbyte;
             _ = glyph_pos;
         }
+
+        return .{
+            .height = 0.0,
+            .items = self._layout_result_temp_al.items,
+        };
     }
 
     pub fn gui(self: *EditorView, beui: *beui_mod.Beui, content_region_size: @Vector(2, f32)) void {
