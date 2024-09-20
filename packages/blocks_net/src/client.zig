@@ -15,7 +15,6 @@ pub const TcpSync = struct {
     closed: std.atomic.Value(bool),
     kill_send_thread: std.atomic.Value(bool),
     write_mutex: std.Thread.Mutex,
-    send_thread_msg_buf: std.ArrayList(u8),
 
     send_thread: std.Thread,
     recv_thread: std.Thread,
@@ -30,7 +29,6 @@ pub const TcpSync = struct {
             .closed = .{ .raw = false },
             .kill_send_thread = .{ .raw = false },
             .write_mutex = .{},
-            .send_thread_msg_buf = .init(gpa),
 
             .send_thread = undefined,
             .recv_thread = undefined,
@@ -57,7 +55,6 @@ pub const TcpSync = struct {
         self.send_thread.join();
 
         log.info("-> send thread closed, deinit", .{});
-        self.send_thread_msg_buf.deinit();
         if (self.client) |*client| {
             client.deinit();
         }
@@ -150,45 +147,70 @@ pub const TcpSync = struct {
         if (self.client == null) return;
         if (self.closed.load(.monotonic)) return;
 
-        // websocket has messages. we're ignoring them and treating writeBin like tcp.
-        const WriterType = std.io.Writer(*TcpSync, @typeInfo(@typeInfo(@TypeOf(_writeBin)).@"fn".return_type.?).error_union.error_set, _writeBin);
-        var unbuffered_writer_backing = WriterType{ .context = self };
-        var writer_backing = std.io.bufferedWriter(unbuffered_writer_backing.any());
-        const writer = writer_backing.writer().any();
+        var builder: CombinedMessageBuilder = .{
+            .message = .init(self.gpa),
+            .client = &self.client.?,
+            .mutex = &self.write_mutex,
+        };
+        defer builder.message.deinit();
 
         while (true) {
             const item = blk: {
                 if (self.db.send_queue.tryRead()) |v| break :blk v;
-                try writer_backing.flush();
+                try builder.flush();
                 break :blk self.db.send_queue.waitRead(&self.kill_send_thread) orelse break;
             };
             defer item.deinit(self.db);
 
             switch (item) {
                 .fetch => |op| {
-                    try writer.writeStructEndian(shared.message_header_v1{
+                    try builder.addMessage(.{
                         .tag = .fetch_block,
-                        .block_id = .from(op),
-                        .remaining_length = 0,
-                    }, .little);
+                        .block_id = op,
+                    }, "");
                 },
                 .create_block => |op| {
-                    try writer.writeStructEndian(shared.message_header_v1{
+                    try builder.addMessage(.{
                         .tag = .create_block,
-                        .block_id = .from(op.block_id),
-                        .remaining_length = op.initial_value_owned.len,
-                    }, .little);
-                    try writer.writeAll(op.initial_value_owned);
+                        .block_id = op.block_id,
+                    }, op.initial_value_owned);
                 },
                 .apply_operation => |op| {
-                    try writer.writeStructEndian(shared.message_header_v1{
+                    try builder.addMessage(.{
                         .tag = .apply_operation,
-                        .block_id = .from(op.block_id),
-                        .remaining_length = op.operation_owned.len,
-                    }, .little);
-                    try writer.writeAll(op.operation_owned);
+                        .block_id = op.block_id,
+                    }, op.operation_owned);
                 },
             }
         }
+    }
+};
+
+const CombinedMessageBuilder = struct {
+    message: std.ArrayList(u8),
+    client: *ws.Client,
+    mutex: *std.Thread.Mutex,
+
+    pub fn flush(self: *CombinedMessageBuilder) !void {
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            try self.client.writeBin(self.message.items);
+        }
+        self.message.clearRetainingCapacity();
+    }
+
+    pub fn addMessage(self: *CombinedMessageBuilder, header: struct {
+        tag: enum { create_block, apply_operation, fetch_block },
+        block_id: blocks_mod.blockinterface2.BlockID,
+    }, contents: []const u8) !void {
+        self.message.writer().writeStructEndian(shared.message_header_v1{
+            .tag = switch (header.tag) {
+                inline else => |v| @field(shared.message_tag_v1, @tagName(v)),
+            },
+            .block_id = .{ .value = @intFromEnum(header.block_id) },
+            .remaining_length = contents.len,
+        }, .little) catch @panic("oom");
+        self.message.writer().writeAll(contents) catch @panic("oom");
     }
 };
