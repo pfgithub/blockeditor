@@ -53,7 +53,7 @@ const wgsl_common = (
     \\      if in.uv.x == -1234.0 { return premultiply(in.tint); }
     \\      // texture must be premultiplied
     \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, in.uv, uniforms.mip_level);
-    \\      if true { color = vec4<f32>(color.r); }
+    \\      if true { color = vec4<f32>(1.0, 1.0, 1.0, color.r); }
     \\      color *= in.tint;
     \\      return premultiply(color);
     \\  }

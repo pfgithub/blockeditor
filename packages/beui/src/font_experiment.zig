@@ -3,6 +3,7 @@ pub const hb = @import("harfbuzz");
 pub const ft = @import("freetype");
 pub const sb = @import("sheen_bidi");
 pub const NotoSans_wght = @embedFile("NotoSans[wght].ttf");
+pub const NotoSansMono_wght = @embedFile("NotoSansMono[wght].ttf");
 
 var global_ft_lib: ?ft.Library = null;
 pub fn getFtLib() ft.Library {

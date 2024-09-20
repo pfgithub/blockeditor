@@ -34,20 +34,18 @@ const Font = struct {
     // beui can hold a font cache
     // this can also be where getFtLib is defined
 
-    hb_blob: hb.Blob,
-    hb_face: hb.Face,
     hb_font: hb.Font,
     ft_face: ft.Face,
 
     pub fn init(font_data: []const u8) ?Font {
-        const hb_blob = hb.Blob.init(@constCast(font_data), .readonly) orelse return null;
-        errdefer hb_blob.deinit();
+        // const hb_blob = hb.Blob.init(@constCast(font_data), .readonly) orelse return null;
+        // errdefer hb_blob.deinit();
 
-        const hb_face = hb.Face.init(hb_blob, 0);
-        errdefer hb_face.deinit();
+        // const hb_face = hb.Face.init(hb_blob, 0);
+        // errdefer hb_face.deinit();
 
-        const hb_font = hb.Font.init(hb_face);
-        errdefer hb_font.deinit();
+        // const hb_font = hb.Font.init(hb_face);
+        // errdefer hb_font.deinit();
 
         const ft_face = beui_mod.font_experiment.getFtLib().createFaceMemory(font_data, 0) catch |err| {
             std.log.err("ft createFaceMemory fail: {s}", .{@errorName(err)});
@@ -55,19 +53,20 @@ const Font = struct {
         };
         errdefer ft_face.deinit();
 
+        ft_face.setCharSize(12 * 64, 12 * 64, 0, 0) catch return null;
+
+        const hb_font = hb.Font.fromFreetypeFace(ft_face);
+        errdefer hb_font.deinit();
+
         return .{
-            .hb_blob = hb_blob,
-            .hb_face = hb_face,
             .hb_font = hb_font,
             .ft_face = ft_face,
         };
     }
 
     pub fn deinit(self: *Font) void {
-        self.ft_face.deinit();
         self.hb_font.deinit();
-        self.hb_face.deinit();
-        self.hb_blob.deinit();
+        self.ft_face.deinit();
     }
 };
 
@@ -98,7 +97,7 @@ pub const EditorView = struct {
             .scroll = .{},
             ._layout_temp_al = .init(gpa),
             ._layout_result_temp_al = .init(gpa),
-            .font = .init(beui_mod.font_experiment.NotoSans_wght),
+            .font = .init(beui_mod.font_experiment.NotoSansMono_wght),
             .glyphs = beui_mod.texpack.init(gpa, 2048, .greyscale) catch @panic("oom"),
             .glyph_cache = .init(gpa),
             .glyphs_cache_full = false,
@@ -202,7 +201,6 @@ pub const EditorView = struct {
         return result;
     }
     fn renderGlyph_nocache(self: *EditorView, glyph_id: u32) !GlyphCacheEntry {
-        try self.font.?.ft_face.setPixelSizes(0, 16);
         try self.font.?.ft_face.loadGlyph(glyph_id, .{ .render = true });
         const glyph = self.font.?.ft_face.glyph();
         const bitmap = glyph.bitmap();
@@ -403,7 +401,7 @@ pub const EditorView = struct {
                 const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
                 const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
                 draw_list.addRegion(.{
-                    .pos = item.pos + glyph_offset,
+                    .pos = @round(item.pos + glyph_offset),
                     .size = glyph_size,
                     .region = region,
                     .image = .editor_view_glyphs,
@@ -411,7 +409,7 @@ pub const EditorView = struct {
                     .tint = hexToFloat(DefaultTheme.synHlColor(syn_hl_info)),
                 });
                 // _ = region;
-                // draw_list.addRect(item.pos, @floatFromInt(glyph_info.size), .{
+                // draw_list.addRect(item.pos + glyph_offset, glyph_size, .{
                 //     .image = null,
                 //     .tint = hexToFloat(DefaultTheme.synHlColor(syn_hl_info)),
                 // });
