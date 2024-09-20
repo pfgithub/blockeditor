@@ -16,12 +16,18 @@ pub const EditorView = struct {
     gpa: std.mem.Allocator,
     core: editor_core.EditorCore,
     selecting: bool = false,
-    scroll_position: f64 = 0.0,
+
+    scroll: struct {
+        /// null = start of file
+        line_before_anchor: ?editor_core.Position = null,
+        offset: f64 = 0.0,
+    },
 
     pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
         self.* = .{
             .gpa = gpa,
             .core = undefined,
+            .scroll = .{},
         };
         self.core.initFromDoc(gpa, document);
     }
@@ -170,7 +176,24 @@ pub const EditorView = struct {
             self.core.executeCommand(.{ .insert_text = .{ .text = text } });
         }
 
-        self.scroll_position += @floatCast(beui.frame.scroll_px[1]);
+        self.scroll.offset += @floatCast(beui.frame.scroll_px[1]);
+        const render_start_pos = self.core.getLineStart(blk: {
+            if (self.scroll.line_before_anchor == null) break :blk block.positionFromDocbyte(0);
+            break :blk self.core.getNextLineStart(self.scroll.line_before_anchor.?);
+        });
+
+        // todo: measure height starting line
+        // we can offer a function layoutLine(line) to layout and soft wrap a single line, and return metrics about it
+        // - eventually, this won't be enough. natural language documents and random binary files will have very
+        //   long lines
+        // if scroll offset < 0:
+        // - measureLineHeight(line_before_anchor)
+        // - scroll_offset += line height
+        // - line before anchor = block.getThisLineStart(line_before_anchor) - 1
+        // else if scroll offset > line height:
+        // - line_before_anchor = block.getNextLineStart(line_before_anchor)
+        // - scroll offset -= line height
+        // and some edge cases for first and last lines
 
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
         const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };
@@ -181,10 +204,10 @@ pub const EditorView = struct {
         var syn_hl = self.core.syn_hl_ctx.highlight();
         defer syn_hl.deinit();
 
-        var pos: @Vector(2, f32) = .{ 0, @floatCast(self.scroll_position) };
+        var pos: @Vector(2, f32) = .{ 0, @floatCast(self.scroll.offset) };
         var prev_char_advance: f32 = 0;
         var click_target: ?usize = null;
-        for (0..block.length() + 1) |i| {
+        for (block.docbyteFromPosition(render_start_pos)..block.length() + 1) |i| {
             const cursor_info = cursor_positions.advanceAndRead(i);
             const syn_hl_info = syn_hl.advanceAndRead(i);
             const char = syn_hl.znh.charAt(i);

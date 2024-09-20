@@ -334,7 +334,7 @@ pub const EditorCore = struct {
         _ = edit;
     }
 
-    fn getLineStart(self: *EditorCore, pos: Position) Position {
+    pub fn getLineStart(self: *EditorCore, pos: Position) Position {
         const block = self.document.value;
         var index: u64 = block.docbyteFromPosition(pos);
         while (index > 0) : (index -= 1) {
@@ -347,13 +347,13 @@ pub const EditorCore = struct {
         }
         return block.positionFromDocbyte(index);
     }
-    fn getPrevLineStart(self: *EditorCore, prev_line_start: Position) Position {
+    pub fn getPrevLineStart(self: *EditorCore, prev_line_start: Position) Position {
         const block = self.document.value;
         const value = block.docbyteFromPosition(prev_line_start);
         if (value == 0) return prev_line_start;
         return self.getLineStart(block.positionFromDocbyte(value - 1));
     }
-    fn getThisLineEnd(self: *EditorCore, prev_line_start: Position) Position {
+    pub fn getThisLineEnd(self: *EditorCore, prev_line_start: Position) Position {
         const block = self.document.value;
         const next_line_start = self.getNextLineStart(prev_line_start);
         const next_line_start_byte = block.docbyteFromPosition(next_line_start);
@@ -364,14 +364,14 @@ pub const EditorCore = struct {
         std.debug.assert(next_line_start_byte > prev_line_start_byte);
         return block.positionFromDocbyte(next_line_start_byte - 1);
     }
-    fn getNextLineStartMaybeInsertNewline(self: *EditorCore, pos: Position) Position {
+    pub fn getNextLineStartMaybeInsertNewline(self: *EditorCore, pos: Position) Position {
         if (self.document.value.docbyteFromPosition(pos) == self.document.value.length()) {
             self.replaceRange(.{ .position = .end, .delete_len = 0, .insert_text = "\n" });
             return .end;
         }
         return self.getNextLineStart(pos);
     }
-    fn getNextLineStart(self: *EditorCore, prev_line_start: Position) Position {
+    pub fn getNextLineStart(self: *EditorCore, prev_line_start: Position) Position {
         const block = self.document.value;
         var index: u64 = block.docbyteFromPosition(prev_line_start);
         const len = block.length();
