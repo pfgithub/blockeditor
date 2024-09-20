@@ -83,6 +83,7 @@ pub const EditorView = struct {
     glyphs: beui_mod.texpack,
     glyph_cache: std.AutoHashMap(u32, GlyphCacheEntry),
     glyphs_cache_full: bool,
+    verdana_ttf: ?[]const u8,
 
     scroll: struct {
         /// null = start of file
@@ -91,20 +92,25 @@ pub const EditorView = struct {
     },
 
     pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
+        const verdana_ttf: ?[]const u8 = std.fs.cwd().readFileAlloc(gpa, "/usr/share/fonts/TTF/verdana.ttf", std.math.maxInt(usize)) catch null;
+
         self.* = .{
             .gpa = gpa,
             .core = undefined,
             .scroll = .{},
             ._layout_temp_al = .init(gpa),
             ._layout_result_temp_al = .init(gpa),
-            .font = .init(beui_mod.font_experiment.NotoSansMono_wght),
+            .font = .init(verdana_ttf orelse beui_mod.font_experiment.NotoSansMono_wght),
             .glyphs = beui_mod.texpack.init(gpa, 2048, .greyscale) catch @panic("oom"),
             .glyph_cache = .init(gpa),
             .glyphs_cache_full = false,
+
+            .verdana_ttf = verdana_ttf,
         };
         self.core.initFromDoc(gpa, document);
     }
     pub fn deinit(self: *EditorView) void {
+        if (self.verdana_ttf) |v| self.gpa.free(v);
         self.glyph_cache.deinit();
         self.glyphs.deinit(self.gpa);
         if (self.font) |*font| font.deinit();
