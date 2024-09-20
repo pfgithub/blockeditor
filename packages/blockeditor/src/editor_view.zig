@@ -407,7 +407,7 @@ pub const EditorView = struct {
                 const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
                 const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
                 draw_list.addRegion(.{
-                    .pos = @round(item.pos + glyph_offset),
+                    .pos = @floor(item.pos + glyph_offset),
                     .size = glyph_size,
                     .region = region,
                     .image = .editor_view_glyphs,
