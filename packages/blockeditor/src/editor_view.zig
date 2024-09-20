@@ -86,6 +86,7 @@ pub const EditorView = struct {
         self._layout_result_temp_al.clearRetainingCapacity();
 
         var start_offset: usize = 0;
+        var cursor_pos: @Vector(2, i64) = .{ 0, 0 };
         for (segments) |segment| {
             const buf: hb.Buffer = hb.Buffer.init() orelse @panic("oom");
             defer buf.deinit();
@@ -106,9 +107,13 @@ pub const EditorView = struct {
                 const glyph_id = glyph_info.codepoint;
                 const glyph_docbyte = line_start_docbyte + glyph_info.cluster;
 
+                const char_offset: @Vector(2, i64) = .{ glyph_pos.x_offset, glyph_pos.y_offset };
+                const char_pos = cursor_pos + char_offset;
+                cursor_pos += .{ glyph_pos.x_advance, glyph_pos.y_advance };
+
                 _ = glyph_id;
                 _ = glyph_docbyte;
-                _ = glyph_pos;
+                _ = char_pos;
             }
         }
 
