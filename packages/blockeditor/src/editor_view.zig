@@ -18,6 +18,11 @@ pub const LayoutInfo = struct {
     height: f64,
     items: []LayoutItem,
 };
+const ShapingSegment = struct {
+    length: usize,
+
+    // TODO more stuff in here, ie text direction, ...
+};
 
 pub const EditorView = struct {
     gpa: std.mem.Allocator,
@@ -75,30 +80,36 @@ pub const EditorView = struct {
         // - fallback characters in different fonts????
         // - maybe use libraqm. it should handle all of this except fallback characters
 
-        const buf: hb.Buffer = hb.Buffer.init() orelse @panic("oom");
-        defer buf.deinit();
-
-        buf.addUTF8(self._layout_temp_al.items, 0, null); // invalid utf-8 is ok, so we don't have to call the replace fn ourselves
-        buf.setDirection(.ltr);
-        buf.setScript(.latin);
-        buf.setLanguage(.fromString("en"));
+        const segments = [_]ShapingSegment{.{ .length = line_len }};
 
         const font: hb.Font = undefined; // TODO
-
-        font.shape(buf, null);
-
         self._layout_result_temp_al.clearRetainingCapacity();
 
-        for (
-            buf.getGlyphInfos(),
-            buf.getGlyphPositions().?,
-        ) |glyph_info, glyph_pos| {
-            const glyph_id = glyph_info.codepoint;
-            const glyph_docbyte = line_start_docbyte + glyph_info.cluster;
+        var start_offset: usize = 0;
+        for (segments) |segment| {
+            const buf: hb.Buffer = hb.Buffer.init() orelse @panic("oom");
+            defer buf.deinit();
 
-            _ = glyph_id;
-            _ = glyph_docbyte;
-            _ = glyph_pos;
+            buf.addUTF8(self._layout_temp_al.items, start_offset, segment.length); // invalid utf-8 is ok, so we don't have to call the replace fn ourselves
+            start_offset += segment.length;
+
+            buf.setDirection(.ltr);
+            buf.setScript(.latin);
+            buf.setLanguage(.fromString("en"));
+
+            font.shape(buf, null);
+
+            for (
+                buf.getGlyphInfos(),
+                buf.getGlyphPositions().?,
+            ) |glyph_info, glyph_pos| {
+                const glyph_id = glyph_info.codepoint;
+                const glyph_docbyte = line_start_docbyte + glyph_info.cluster;
+
+                _ = glyph_id;
+                _ = glyph_docbyte;
+                _ = glyph_pos;
+            }
         }
 
         return .{
