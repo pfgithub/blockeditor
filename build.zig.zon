@@ -10,6 +10,7 @@
         .blocks = .{ .path = "packages/blocks" },
         .blocks_net = .{ .path = "packages/blocks_net" },
         .loadimage = .{ .path = "packages/loadimage" },
+        .sheen_bidi = .{ .path = "packages/sheen_bidi" },
         .texteditor = .{ .path = "packages/texteditor" },
         .unicode_segmentation = .{ .path = "packages/unicode_segmentation" },
     },

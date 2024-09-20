@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
     const loadimage_dep = b.dependency("loadimage", .{ .target = target, .optimize = optimize });
+    const sheen_bidi_dep = b.dependency("sheen_bidi", .{ .target = target, .optimize = optimize });
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
 
@@ -25,6 +26,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(blocks_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(blocks_net_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(loadimage_dep.artifact("test")).step);
+    test_step.dependOn(&b.addRunArtifact(sheen_bidi_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);
 
