@@ -1,5 +1,6 @@
 const std = @import("std");
 const ws = @import("websocket");
+const shared = @import("shared.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -45,7 +46,10 @@ const Handler = struct {
     }
 
     // You must defined a public clientMessage method
-    pub fn clientMessage(self: *Handler, data: []const u8) !void {
+    pub fn clientMessage(self: *Handler, data: []const u8, message_type: ws.MessageType) !void {
+        if (message_type != .binary) return error.BadMessage;
+        // simulate network latency
+        std.time.sleep(300 * std.time.ns_per_ms);
         try self.conn.write(data); // echo the message back
     }
 };

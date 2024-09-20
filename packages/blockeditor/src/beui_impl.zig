@@ -715,6 +715,9 @@ pub fn main() !void {
     while (!window.shouldClose() and window.getKey(.escape) != .press) {
         _ = arena_state.reset(.retain_capacity);
 
+        interface.tickBegin();
+        defer interface.tickEnd();
+
         var draw_list = draw_lists.RenderList.init(gpa);
         defer draw_list.deinit();
 

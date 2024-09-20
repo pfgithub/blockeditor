@@ -47,6 +47,7 @@ pub const BlockDB = struct {
 
     path_to_blockref_map: std.AutoArrayHashMap(bi.BlockID, *BlockRef),
 
+    waiting_send_queue: std.ArrayList(ThreadInstruction),
     send_queue: util.ThreadQueue(ThreadInstruction),
     recv_queue: util.ThreadQueue(ToApplyInstruction),
 
@@ -90,6 +91,7 @@ pub const BlockDB = struct {
 
             .path_to_blockref_map = .init(gpa),
 
+            .waiting_send_queue = .init(gpa),
             .send_queue = .init(gpa),
             .recv_queue = .init(gpa),
         };
@@ -97,14 +99,22 @@ pub const BlockDB = struct {
 
     /// any other threads watching the thread queue must be joined before deinit is called
     pub fn deinit(self: *BlockDB) void {
-        // clear send_queue
+        // clear recv_queue and waiting_send_queue
+        self.tickBegin();
+        self.tickEnd();
+
+        // deinit waiting_send_queue
+        std.debug.assert(self.waiting_send_queue.items.len == 0);
+        self.waiting_send_queue.deinit();
+
+        // clear and deinit send_queue
         for (self.send_queue._raw_queue.readableSlice(0)) |*item| {
             item.deinit(self);
         }
         self.send_queue.deinit();
 
-        // clear recv_queue
-        self.tick();
+        // deinit recv_queue
+        std.debug.assert(self.recv_queue._raw_queue.readableSlice(0).len == 0);
         self.recv_queue.deinit();
 
         // blockrefs have a reference to the block interface so they better be gone
@@ -114,7 +124,8 @@ pub const BlockDB = struct {
         std.debug.assert(self.path_to_blockref_map.values().len == 0);
         self.path_to_blockref_map.deinit();
     }
-    pub fn tick(self: *BlockDB) void {
+    /// call at the beginning of a frame
+    pub fn tickBegin(self: *BlockDB) void {
         // apply any waiting changes on the main thread
         while (self.recv_queue.tryRead()) |item| {
             defer item.deinit(self);
@@ -173,6 +184,13 @@ pub const BlockDB = struct {
             }
         }
     }
+    /// call at the end of a frame
+    pub fn tickEnd(self: *BlockDB) void {
+        if (self.waiting_send_queue.items.len > 0) {
+            self.send_queue.writeMany(self.waiting_send_queue.items);
+            self.waiting_send_queue.clearRetainingCapacity();
+        }
+    }
 
     /// Takes ownership of the passed-in AnyBlock. Returns a referenced BlockRef - make sure to unref when you're done with it!
     pub fn createBlock(self: *BlockDB, initial_value: bi.AnyBlock) *BlockRef {
@@ -199,12 +217,12 @@ pub const BlockDB = struct {
 
         initial_value.vtable.serialize(initial_value, &initial_value_owned_al);
 
-        self.send_queue.write(.{
+        self.waiting_send_queue.append(.{
             .create_block = .{
                 .block_id = new_blockref.id,
                 .initial_value_owned = initial_value_owned_al.toOwnedSlice() catch @panic("oom"),
             },
-        });
+        }) catch @panic("oom");
 
         return new_blockref;
     }
@@ -224,7 +242,7 @@ pub const BlockDB = struct {
 
         self.path_to_blockref_map.put(id, new_blockref) catch @panic("oom");
 
-        self.send_queue.write(.{ .fetch = new_blockref.id });
+        self.waiting_send_queue.write(.{ .fetch = new_blockref.id });
 
         return new_blockref;
     }
@@ -234,7 +252,7 @@ pub const BlockDB = struct {
         const op_owned = self.gpa.alignedAlloc(u8, 16, op_unowned.len) catch @panic("oom");
         @memcpy(op_owned, op_unowned);
 
-        self.send_queue.write(.{ .apply_operation = .{ .block_id = block.id, .operation_owned = op_owned } });
+        self.waiting_send_queue.append(.{ .apply_operation = .{ .block_id = block.id, .operation_owned = op_owned } }) catch @panic("oom");
     }
     fn destroyBlock(self: *BlockDB, block: *BlockRef) void {
         std.debug.assert(block.ref_count == 0);

@@ -3,6 +3,7 @@ const ws = @import("websocket");
 const blocks_mod = @import("blocks");
 const db_mod = blocks_mod.blockdb;
 const log = std.log.scoped(.tcp_client);
+const shared = @import("shared.zig");
 
 pub const TcpSync = struct {
     gpa: std.mem.Allocator,
@@ -14,6 +15,7 @@ pub const TcpSync = struct {
     closed: std.atomic.Value(bool),
     kill_send_thread: std.atomic.Value(bool),
     write_mutex: std.Thread.Mutex,
+    send_thread_msg_buf: std.ArrayList(u8),
 
     send_thread: std.Thread,
     recv_thread: std.Thread,
@@ -28,6 +30,8 @@ pub const TcpSync = struct {
             .closed = .{ .raw = false },
             .kill_send_thread = .{ .raw = false },
             .write_mutex = .{},
+            .send_thread_msg_buf = .init(gpa),
+
             .send_thread = undefined,
             .recv_thread = undefined,
         };
@@ -52,9 +56,12 @@ pub const TcpSync = struct {
         log.info("-> recv thread closed, join send thread", .{});
         self.send_thread.join();
 
+        log.info("-> send thread closed, deinit", .{});
+        self.send_thread_msg_buf.deinit();
         if (self.client) |*client| {
             client.deinit();
         }
+        log.info("-> done.", .{});
     }
 
     fn _close(self: *TcpSync) void {
@@ -122,22 +129,64 @@ pub const TcpSync = struct {
         }
     }
     fn sendThread(self: *TcpSync) void {
+        sendThread_error(self) catch |e| {
+            std.log.err("send thread error: {s}", .{@errorName(e)});
+        };
+    }
+
+    fn _writeBin(self: *TcpSync, msg: []const u8) !usize {
+        std.debug.assert(self.send_thread_msg_buf.items.len == 0);
+        try self.send_thread_msg_buf.appendSlice(msg);
+        defer self.send_thread_msg_buf.clearRetainingCapacity();
+
+        self.write_mutex.lock();
+        defer self.write_mutex.unlock();
+        try self.client.?.writeBin(self.send_thread_msg_buf.items);
+
+        return msg.len;
+    }
+    fn sendThread_error(self: *TcpSync) !void {
         self.client_ready_to_send.wait();
         if (self.client == null) return;
         if (self.closed.load(.monotonic)) return;
 
-        while (self.db.send_queue.waitRead(&self.kill_send_thread)) |item| {
+        // websocket has messages. we're ignoring them and treating writeBin like tcp.
+        const WriterType = std.io.Writer(*TcpSync, @typeInfo(@typeInfo(@TypeOf(_writeBin)).@"fn".return_type.?).error_union.error_set, _writeBin);
+        var unbuffered_writer_backing = WriterType{ .context = self };
+        var writer_backing = std.io.bufferedWriter(unbuffered_writer_backing.any());
+        const writer = writer_backing.writer().any();
+
+        while (true) {
+            const item = blk: {
+                if (self.db.send_queue.tryRead()) |v| break :blk v;
+                try writer_backing.flush();
+                break :blk self.db.send_queue.waitRead(&self.kill_send_thread) orelse break;
+            };
             defer item.deinit(self.db);
 
             switch (item) {
                 .fetch => |op| {
-                    log.info("TODO fetch block: {}", .{op});
+                    try writer.writeStructEndian(shared.message_header_v1{
+                        .tag = .fetch_block,
+                        .block_id = .from(op),
+                        .remaining_length = 0,
+                    }, .little);
                 },
                 .create_block => |op| {
-                    log.info("TODO create block: {}/{d}", .{ op.block_id, op.initial_value_owned.len });
+                    try writer.writeStructEndian(shared.message_header_v1{
+                        .tag = .create_block,
+                        .block_id = .from(op.block_id),
+                        .remaining_length = op.initial_value_owned.len,
+                    }, .little);
+                    try writer.writeAll(op.initial_value_owned);
                 },
                 .apply_operation => |op| {
-                    log.info("TODO apply operation: {}/{d}", .{ op.block_id, op.operation_owned.len });
+                    try writer.writeStructEndian(shared.message_header_v1{
+                        .tag = .apply_operation,
+                        .block_id = .from(op.block_id),
+                        .remaining_length = op.operation_owned.len,
+                    }, .little);
+                    try writer.writeAll(op.operation_owned);
                 },
             }
         }
