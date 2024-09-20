@@ -10,6 +10,7 @@ const beui_mod = @import("beui");
 
 const ft = beui_mod.font_experiment.ft;
 const hb = beui_mod.font_experiment.hb;
+const sb = beui_mod.font_experiment.sb;
 
 const editor_core = @import("texteditor").core;
 
@@ -27,12 +28,56 @@ const ShapingSegment = struct {
     // TODO more stuff in here, ie text direction, ...
 };
 
+const Font = struct {
+    // TODO
+    // beui can hold a font cache
+    // this can also be where getFtLib is defined
+
+    hb_blob: hb.Blob,
+    hb_face: hb.Face,
+    hb_font: hb.Font,
+    ft_face: ft.Face,
+
+    pub fn init(font_data: []const u8) ?Font {
+        const hb_blob = hb.Blob.init(@constCast(font_data), .readonly) orelse return null;
+        errdefer hb_blob.deinit();
+
+        const hb_face = hb.Face.init(hb_blob, 0);
+        errdefer hb_face.deinit();
+
+        const hb_font = hb.Font.init(hb_face);
+        errdefer hb_font.deinit();
+
+        const ft_face = beui_mod.font_experiment.getFtLib().createFaceMemory(font_data, 0) catch |err| {
+            std.log.err("ft createFaceMemory fail: {s}", .{@errorName(err)});
+            return null;
+        };
+        errdefer ft_face.deinit();
+
+        return .{
+            .hb_blob = hb_blob,
+            .hb_face = hb_face,
+            .hb_font = hb_font,
+            .ft_face = ft_face,
+        };
+    }
+
+    pub fn deinit(self: *Font) void {
+        self.ft_face.deinit();
+        self.hb_font.deinit();
+        self.hb_face.deinit();
+        self.hb_blob.deinit();
+    }
+};
+
 pub const EditorView = struct {
     gpa: std.mem.Allocator,
     core: editor_core.EditorCore,
     selecting: bool = false,
     _layout_temp_al: std.ArrayList(u8),
     _layout_result_temp_al: std.ArrayList(LayoutItem),
+
+    font: ?Font,
 
     scroll: struct {
         /// null = start of file
@@ -47,10 +92,12 @@ pub const EditorView = struct {
             .scroll = .{},
             ._layout_temp_al = .init(gpa),
             ._layout_result_temp_al = .init(gpa),
+            .font = .init(beui_mod.font_experiment.NotoSans_wght),
         };
         self.core.initFromDoc(gpa, document);
     }
     pub fn deinit(self: *EditorView) void {
+        if (self.font) |*font| font.deinit();
         self._layout_temp_al.deinit();
         self._layout_result_temp_al.deinit();
         self.core.deinit();

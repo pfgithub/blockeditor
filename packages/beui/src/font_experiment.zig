@@ -2,6 +2,18 @@ const std = @import("std");
 pub const hb = @import("harfbuzz");
 pub const ft = @import("freetype");
 pub const sb = @import("sheen_bidi");
+pub const NotoSans_wght = @embedFile("NotoSans[wght].ttf");
+
+var global_ft_lib: ?ft.Library = null;
+pub fn getFtLib() ft.Library {
+    if (global_ft_lib == null) {
+        global_ft_lib = ft.Library.init() catch |err| {
+            std.log.err("Freetype library init fail: {s}", .{@errorName(err)});
+            @panic("error");
+        };
+    }
+    return global_ft_lib.?;
+}
 
 test "font_experiment" {
     const buf = hb.Buffer.init() orelse return error.OutOfMemory;
@@ -19,7 +31,7 @@ test "font_experiment" {
 
     buf.guessSegmentProps();
 
-    const blob = hb.Blob.init(@constCast(@embedFile("NotoSans[wght].ttf")), .readonly) orelse return error.OutOfMemory;
+    const blob = hb.Blob.init(@constCast(NotoSans_wght), .readonly) orelse return error.OutOfMemory;
     defer blob.deinit();
 
     const face = hb.Face.init(blob, 0);
@@ -29,10 +41,7 @@ test "font_experiment" {
 
     font.shape(buf, null);
 
-    const ft_lib = try ft.Library.init();
-    defer ft_lib.deinit();
-
-    const ft_face = try ft_lib.createFaceMemory(@embedFile("NotoSans[wght].ttf"), 0);
+    const ft_face = try getFtLib().createFaceMemory(@embedFile("NotoSans[wght].ttf"), 0);
     defer ft_face.deinit();
     // try ft_face.setCharSize(60 * 48, 0, 50, 0);
     try ft_face.setPixelSizes(0, 16);
