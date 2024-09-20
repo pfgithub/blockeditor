@@ -132,6 +132,7 @@ pub const EditorView = struct {
         //   - UAX 24, SheenBidi has a method for this
         // - fallback characters in different fonts????
         // - maybe use libraqm. it should handle all of this except fallback characters
+        // - alternatively, use pango. it handles fallback characters too, if we can get it to build.
 
         const segments = [_]ShapingSegment{.{ .length = line_len }};
 
