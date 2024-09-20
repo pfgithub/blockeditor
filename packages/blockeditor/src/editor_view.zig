@@ -13,7 +13,10 @@ const hb = beui_mod.font_experiment.hb;
 
 const editor_core = @import("texteditor").core;
 
-pub const LayoutItem = struct {};
+pub const LayoutItem = struct {
+    glyph_id: u32,
+    pos: @Vector(2, f64),
+};
 pub const LayoutInfo = struct {
     height: f64,
     items: []LayoutItem,
@@ -75,8 +78,11 @@ pub const EditorView = struct {
 
         // TODO: segment shape() calls based on:
         // - syntax highlighting style (eg in markdown we want to have some text rendered bold, or some as a heading)
+        //   - syntax highlighting can change if a line above this one changed, so we will need to throw out the cache of
+        //     anything below a changed line
         // - unicode bidi algorithm (fribidi or sheenbidi)
         // - different languages or something??
+        //   - UAX 24, SheenBidi has a method for this
         // - fallback characters in different fonts????
         // - maybe use libraqm. it should handle all of this except fallback characters
 
@@ -92,7 +98,7 @@ pub const EditorView = struct {
             defer buf.deinit();
 
             buf.addUTF8(self._layout_temp_al.items, start_offset, segment.length); // invalid utf-8 is ok, so we don't have to call the replace fn ourselves
-            start_offset += segment.length;
+            defer start_offset += segment.length;
 
             buf.setDirection(.ltr);
             buf.setScript(.latin);
@@ -103,17 +109,22 @@ pub const EditorView = struct {
             for (
                 buf.getGlyphInfos(),
                 buf.getGlyphPositions().?,
-            ) |glyph_info, glyph_pos| {
+            ) |glyph_info, glyph_relative_pos| {
                 const glyph_id = glyph_info.codepoint;
-                const glyph_docbyte = line_start_docbyte + glyph_info.cluster;
+                const glyph_docbyte = line_start_docbyte + start_offset + glyph_info.cluster;
+                const glyph_flags = glyph_info.getFlags();
 
-                const char_offset: @Vector(2, i64) = .{ glyph_pos.x_offset, glyph_pos.y_offset };
-                const char_pos = cursor_pos + char_offset;
-                cursor_pos += .{ glyph_pos.x_advance, glyph_pos.y_advance };
+                const glyph_offset: @Vector(2, i64) = .{ glyph_relative_pos.x_offset, glyph_relative_pos.y_offset };
+                const glyph_pos = cursor_pos + glyph_offset;
+                cursor_pos += .{ glyph_relative_pos.x_advance, glyph_relative_pos.y_advance };
 
-                _ = glyph_id;
+                self._layout_result_temp_al.append(.{
+                    .glyph_id = glyph_id,
+                    .pos = @floatFromInt(glyph_pos),
+                }) catch @panic("oom");
+
                 _ = glyph_docbyte;
-                _ = char_pos;
+                _ = glyph_flags;
             }
         }
 
