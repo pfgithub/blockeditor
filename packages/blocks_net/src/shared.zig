@@ -7,7 +7,9 @@ pub const message_header_v1 = extern struct {
 pub const message_tag_v1 = enum(u64) {
     create_block = 0,
     apply_operation = 1,
-    fetch_block = 2,
+    fetch_and_watch_block = 2,
+    unwatch_block = 3,
+    _,
 };
 
 pub const block_id_v1 = extern struct {

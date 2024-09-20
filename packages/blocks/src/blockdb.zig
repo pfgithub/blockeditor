@@ -67,14 +67,16 @@ pub const BlockDB = struct {
         }
     };
     const ThreadInstruction = union(enum) {
-        fetch: bi.BlockID,
+        fetch_and_watch_block: bi.BlockID,
+        unwatch_block: bi.BlockID,
         create_block: struct { block_id: bi.BlockID, initial_value_owned: bi.AlignedByteSlice },
         apply_operation: struct { block_id: bi.BlockID, operation_owned: bi.AlignedByteSlice },
 
         /// may be called from any thread
         pub fn deinit(self: ThreadInstruction, dbi: *BlockDB) void {
             switch (self) {
-                .fetch => {},
+                .fetch_and_watch_block => {},
+                .unwatch_block => {},
                 .create_block => |bl| {
                     dbi.gpa.free(bl.initial_value_owned);
                 },
@@ -242,7 +244,7 @@ pub const BlockDB = struct {
 
         self.path_to_blockref_map.put(id, new_blockref) catch @panic("oom");
 
-        self.waiting_send_queue.append(.{ .fetch = new_blockref.id }) catch @panic("oom");
+        self.waiting_send_queue.append(.{ .fetch_and_watch_block = new_blockref.id }) catch @panic("oom");
 
         return new_blockref;
     }
@@ -256,6 +258,8 @@ pub const BlockDB = struct {
     }
     fn destroyBlock(self: *BlockDB, block: *BlockRef) void {
         std.debug.assert(block.ref_count == 0);
+
+        self.waiting_send_queue.append(.{ .unwatch_block = block.id }) catch @panic("oom");
 
         if (block.contents()) |contents| {
             if (contents.server()) |server| server.vtable.deinit(server);

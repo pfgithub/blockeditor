@@ -163,9 +163,15 @@ pub const TcpSync = struct {
             defer item.deinit(self.db);
 
             switch (item) {
-                .fetch => |op| {
+                .fetch_and_watch_block => |op| {
                     try builder.addMessage(.{
-                        .tag = .fetch_block,
+                        .tag = .fetch_and_watch_block,
+                        .block_id = op,
+                    }, "");
+                },
+                .unwatch_block => |op| {
+                    try builder.addMessage(.{
+                        .tag = .unwatch_block,
                         .block_id = op,
                     }, "");
                 },
@@ -201,13 +207,11 @@ const CombinedMessageBuilder = struct {
     }
 
     pub fn addMessage(self: *CombinedMessageBuilder, header: struct {
-        tag: enum { create_block, apply_operation, fetch_block },
+        tag: shared.message_tag_v1,
         block_id: blocks_mod.blockinterface2.BlockID,
     }, contents: []const u8) !void {
         self.message.writer().writeStructEndian(shared.message_header_v1{
-            .tag = switch (header.tag) {
-                inline else => |v| @field(shared.message_tag_v1, @tagName(v)),
-            },
+            .tag = header.tag,
             .block_id = .{ .value = @intFromEnum(header.block_id) },
             .remaining_length = contents.len,
         }, .little) catch @panic("oom");

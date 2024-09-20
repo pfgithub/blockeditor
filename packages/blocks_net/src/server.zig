@@ -49,8 +49,40 @@ const Handler = struct {
     pub fn clientMessage(self: *Handler, data: []const u8, message_type: ws.MessageType) !void {
         if (message_type != .binary) return error.BadMessage;
         // simulate network latency
-        std.time.sleep(300 * std.time.ns_per_ms);
-        try self.conn.write(data); // echo the message back
+        // std.time.sleep(300 * std.time.ns_per_ms);
+        // TODO better network latency sim
+
+        var fbs_backing = std.io.fixedBufferStream(data);
+        const fbs = fbs_backing.reader().any();
+
+        while (fbs_backing.pos < fbs_backing.buffer.len) {
+            const msg = try fbs.readStructEndian(shared.message_header_v1, .little);
+            if (msg.remaining_length > std.math.maxInt(u32)) return error.BadMessage;
+            if (fbs_backing.pos + msg.remaining_length > fbs_backing.buffer.len) break;
+            const content = fbs_backing.buffer[fbs_backing.pos..][0..msg.remaining_length];
+            fbs_backing.pos += msg.remaining_length;
+
+            switch (msg.tag) {
+                .create_block => {
+                    std.log.info("TODO: create_block {d}", .{content.len});
+                },
+                .apply_operation => {
+                    std.log.info("TODO: apply_operation {d}", .{content.len});
+                },
+                .fetch_and_watch_block => {
+                    if (content.len != 0) return error.BadMessage;
+                    std.log.info("TODO: fetch_and_watch_block {d}", .{content.len});
+                },
+                .unwatch_block => {
+                    if (content.len != 0) return error.BadMessage;
+                    std.log.info("TODO: unwatch_block {d}", .{content.len});
+                },
+                else => return error.BadMessage,
+            }
+        }
+
+        _ = self;
+        // try self.conn.write(data);
     }
 };
 
