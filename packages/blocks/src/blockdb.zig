@@ -242,7 +242,7 @@ pub const BlockDB = struct {
 
         self.path_to_blockref_map.put(id, new_blockref) catch @panic("oom");
 
-        self.waiting_send_queue.write(.{ .fetch = new_blockref.id });
+        self.waiting_send_queue.append(.{ .fetch = new_blockref.id }) catch @panic("oom");
 
         return new_blockref;
     }

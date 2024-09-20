@@ -51,6 +51,7 @@ pub const CursorPosition = struct {
 pub const DragInfo = struct {
     start_pos: Position,
     sel_mode: DragSelectionMode,
+    select_ts_node: bool,
 };
 pub const DragSelectionMode = struct {
     stop: CursorLeftRightStop,
@@ -233,7 +234,6 @@ pub const EditorCommand = union(enum) {
     },
     drag: struct {
         pos: Position,
-        select_ts_node: bool = false,
     },
 };
 
@@ -881,7 +881,7 @@ pub const EditorCore = struct {
                 self.onClick(click_op.pos, click_op.mode, click_op.extend, click_op.select_ts_node);
             },
             .drag => |drag_op| {
-                self.onDrag(drag_op.pos, drag_op.select_ts_node);
+                self.onDrag(drag_op.pos);
             },
         }
     }
@@ -993,6 +993,7 @@ pub const EditorCore = struct {
                 cursor.drag_info = .{
                     .start_pos = cursor.pos.focus,
                     .sel_mode = sel_mode,
+                    .select_ts_node = ctrl_or_alt_held,
                 };
             }
             if (sel_mode.select) cursor.drag_info.?.sel_mode = sel_mode;
@@ -1000,11 +1001,12 @@ pub const EditorCore = struct {
             cursor.drag_info = .{
                 .start_pos = pos,
                 .sel_mode = sel_mode,
+                .select_ts_node = ctrl_or_alt_held,
             };
         }
-        self.onDrag(pos, ctrl_or_alt_held);
+        self.onDrag(pos);
     }
-    fn onDrag(self: *EditorCore, pos: Position, ctrl_or_alt_held: bool) void {
+    fn onDrag(self: *EditorCore, pos: Position) void {
         const block = self.document.value;
 
         // TODO: support tree_sitter selection when holding ctrl|alt:
@@ -1018,7 +1020,7 @@ pub const EditorCore = struct {
         const drag_info = cursor.drag_info.?;
         const stop = drag_info.sel_mode.stop;
         const anchor_pos = drag_info.start_pos;
-        if (ctrl_or_alt_held) {
+        if (drag_info.select_ts_node) {
             const sel_start: Selection = .range(anchor_pos, pos);
             const pos_len = self.selectionToPosLen(sel_start);
 
@@ -1607,17 +1609,17 @@ test EditorCore {
     //
     tester.executeCommand(.select_all);
     tester.executeCommand(.{ .insert_text = .{ .text = "pub fn demo() !u8 {\n    return 5;\n}\n" } });
-    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(29) } });
-    try tester.expectContent("pub fn demo() !u8 {\n    retur|n 5;\n}\n");
-    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(29), .select_ts_node = true } });
+    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(29), .select_ts_node = true } });
     try tester.expectContent("pub fn demo() !u8 {\n    [return| 5;\n}\n");
-    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(27), .select_ts_node = true } });
-    try tester.expectContent("pub fn demo() !u8 {\n    |return] 5;\n}\n");
-    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(23), .select_ts_node = true } });
-    try tester.expectContent("pub fn demo() !u8 |{\n    return 5;\n}]\n");
-    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(8), .select_ts_node = true } });
-    try tester.expectContent("pub |fn demo() !u8 {\n    return 5;\n}]\n");
     tester.executeCommand(.{ .drag = .{ .pos = tester.pos(29) } });
+    try tester.expectContent("pub fn demo() !u8 {\n    [return| 5;\n}\n");
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(27) } });
+    try tester.expectContent("pub fn demo() !u8 {\n    |return] 5;\n}\n");
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(23) } });
+    try tester.expectContent("pub fn demo() !u8 |{\n    return 5;\n}]\n");
+    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(8) } });
+    try tester.expectContent("pub |fn demo() !u8 {\n    return 5;\n}]\n");
+    tester.executeCommand(.{ .click = .{ .pos = tester.pos(29) } });
     try tester.expectContent("pub fn demo() !u8 {\n    retur|n 5;\n}\n");
     tester.executeCommand(.{ .ts_select_node = .{ .direction = .parent } });
     try tester.expectContent("pub fn demo() !u8 {\n    [return| 5;\n}\n");

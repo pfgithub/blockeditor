@@ -247,6 +247,8 @@ pub const EditorView = struct {
             const shift_held = beui.isKeyHeld(.left_shift) or beui.isKeyHeld(.right_shift);
             const alt_held = (beui.isKeyHeld(.left_alt) or beui.isKeyHeld(.right_alt)) != (beui.isKeyHeld(.left_control) or beui.isKeyHeld(.right_control));
 
+            // if we're going to support ctrl+left click to jump to definition, then maybe select ts node needs to be on ctrl right click
+
             if (beui.isKeyPressed(.mouse_left)) {
                 const mode: ?editor_core.DragSelectionMode = switch (beui.leftMouseClickedCount()) {
                     1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
@@ -266,7 +268,7 @@ pub const EditorView = struct {
                 }
                 self.selecting = true;
             } else if (self.selecting and beui.isKeyHeld(.mouse_left)) {
-                self.core.executeCommand(.{ .drag = .{ .pos = clicked_pos, .select_ts_node = alt_held } });
+                self.core.executeCommand(.{ .drag = .{ .pos = clicked_pos } });
             }
         }
         if (!beui.isKeyHeld(.mouse_left)) {
