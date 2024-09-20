@@ -364,6 +364,18 @@ pub const EditorView = struct {
 
             // if we're going to support ctrl+left click to jump to definition, then maybe select ts node needs to be on ctrl right click
 
+            // we would like:
+            // - alt click -> jump to defintion
+            // - ctrl click -> add multi cursor
+            //   - dragging this should select with the just-added multicursor. onDrag isn't set up for that yet, but we'll fix it
+            //   - ideally if you drag over a previous cursor and drag back, it won't eat up the previous cursor. but vscode does eat it
+            //     so we can eat it too for now
+            // - some kind of click -> select ts node
+            //   - ideally you can both add multi cursor and select ts node, so if it's alt right click then you should be able to
+            //     hold ctrl and the new multicursor you're adding with select_ts_node true
+            // - these conflict on mac. that's why vscode has different buttons for these two on mac, windows, and linux. you can
+            //   never learn the right buttons
+
             if (beui.isKeyPressed(.mouse_left)) {
                 const mode: ?editor_core.DragSelectionMode = switch (beui.leftMouseClickedCount()) {
                     1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
