@@ -27,6 +27,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = font_rgba,
     });
 
+    const sheen_bidi_dep = b.dependency("sheen_bidi", .{});
+    const sheen_bidi_mod = sheen_bidi_dep.module("sheen_bidi");
+
     const fonts_mod = b.dependency("fonts", .{});
     const notosans_wght_mod = b.createModule(.{
         .root_source_file = fonts_mod.path("NotoSans[wght].ttf"),
@@ -48,6 +51,7 @@ pub fn build(b: *std.Build) void {
     beui_mod.addImport("font.rgba", font_rgba_mod);
     beui_mod.addImport("freetype", freetype_mod);
     beui_mod.addImport("harfbuzz", harfbuzz_mod);
+    beui_mod.addImport("sheen_bidi", sheen_bidi_mod);
     beui_mod.addImport("NotoSans[wght].ttf", notosans_wght_mod);
 
     const beui_test = b.addTest(.{
@@ -58,6 +62,7 @@ pub fn build(b: *std.Build) void {
     beui_test.root_module.addImport("font.rgba", font_rgba_mod);
     beui_test.root_module.addImport("freetype", freetype_mod);
     beui_test.root_module.addImport("harfbuzz", harfbuzz_mod);
+    beui_test.root_module.addImport("sheen_bidi", sheen_bidi_mod);
     beui_test.root_module.addImport("NotoSans[wght].ttf", notosans_wght_mod);
 
     b.installArtifact(beui_test);

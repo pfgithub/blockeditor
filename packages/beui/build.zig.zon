@@ -16,5 +16,8 @@
             .url = "https://github.com/pfgithub/fonts/archive/c4a43ca5f1249d71fe6e47eed0e3c42650aa1ccd.tar.gz",
             .hash = "12207dca8a636bd67c2071115916f8bcfbc9cc16b59fe8528f569d9a36d09271da93",
         },
+        .sheen_bidi = .{
+            .path = "../sheen_bidi",
+        },
     },
 }

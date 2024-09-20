@@ -1,6 +1,7 @@
 const std = @import("std");
 pub const hb = @import("harfbuzz");
 pub const ft = @import("freetype");
+pub const sb = @import("sheen_bidi");
 
 test "font_experiment" {
     const buf = hb.Buffer.init() orelse return error.OutOfMemory;
