@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const profiler_optimize = std.builtin.Mode.ReleaseSafe;
 
     const fmt_step = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
     b.getInstallStep().dependOn(&fmt_step.step);
@@ -48,11 +49,11 @@ pub fn build(b: *std.Build) !void {
 
     // TODO: support cross-compiling profiler exe
 
-    const glfw_for_tracy_dep = b.dependency("glfw", .{ .target = target, .optimize = optimize });
+    const glfw_for_tracy_dep = b.dependency("glfw", .{ .target = target, .optimize = profiler_optimize });
     const tracy_exe = b.addExecutable(.{
         .name = "tracy",
         .target = target,
-        .optimize = optimize,
+        .optimize = profiler_optimize,
     });
     tracy_exe.linkLibrary(glfw_for_tracy_dep.artifact("glfw"));
     tracy_exe.addCSourceFiles(.{
@@ -171,6 +172,9 @@ pub fn build(b: *std.Build) !void {
         .flags = &[_][]const u8{
             "-fno-sanitize=undefined",
             "-fexperimental-library",
+
+            "-D__DATE__=\"disabled\"",
+            "-D__TIME__=\"disabled\"",
         },
     });
     switch (target.result.os.tag) {
