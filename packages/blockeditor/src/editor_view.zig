@@ -204,7 +204,7 @@ pub const EditorView = struct {
     fn renderGlyph(self: *EditorView, glyph_id: u32, line_height: i32) GlyphCacheEntry {
         if (self.glyph_cache.get(glyph_id)) |v| return v;
         const result: GlyphCacheEntry = self.renderGlyph_nocache(glyph_id, line_height) catch |e| blk: {
-            std.log.err("render glyph error: {s}", .{@errorName(e)});
+            std.log.err("render glyph error: glyph={d}, err={s}", .{ glyph_id, @errorName(e) });
             break :blk .{ .size = .{ 0, 0 }, .region = null };
         };
         self.glyph_cache.putNoClobber(glyph_id, result) catch @panic("oom");
