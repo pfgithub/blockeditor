@@ -63,6 +63,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .filter = b.option([]const u8, "filter", ""),
     });
     texteditor_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
     texteditor_test.root_module.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
