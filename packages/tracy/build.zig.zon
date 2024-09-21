@@ -4,8 +4,8 @@
     .paths = .{""},
     .dependencies = .{
         .tracy = .{
-            .url = "https://github.com/wolfpld/tracy/archive/dcb383701aad7b09dc1ae062d3f4d5f14ad37345.tar.gz",
-            .hash = "1220b2b5b1ad5c8209495bbed3eb4a6e28aac51ca651376e4693a33199b5ff903c67",
+            .url = "https://github.com/wolfpld/tracy/archive/8b9da2efba6937b66085a52f7281c59293ffe985.tar.gz",
+            .hash = "122008f368247daaf70b0c7280d3748982aa74baac4b498ab71008f740949bbd1921",
         },
         .glfw = .{
             .url = "https://pkg.machengine.org/glfw/e6f377baed70a7bef9fa08d808f40b64c5136bf6.tar.gz",

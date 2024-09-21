@@ -56,9 +56,53 @@ pub fn build(b: *std.Build) !void {
         .optimize = profiler_optimize,
     });
     tracy_exe.linkLibrary(glfw_for_tracy_dep.artifact("glfw"));
+    tracy_exe.addIncludePath(b.path("src"));
+    const profiler_flags: []const []const u8 = &[_][]const u8{
+        "-fno-sanitize=undefined",
+        "-fexperimental-library",
+        "-std=c++20",
+        //
+        // "-Wno-attributes", // error: attribute declaration must precede definition
+        // "-Wno-unused-result", // error: ignoring return value of function declared with 'warn_unused_result' attribute
+        "-Wno-builtin-macro-redefined", // error: redefining builtin macro (__TIME__, __DATE__)
+        "-D__DATE__=\"disabled\"",
+        "-D__TIME__=\"disabled\"",
+    };
     tracy_exe.addCSourceFiles(.{
         .root = tracy_dep.path("."),
         .files = &[_][]const u8{
+            // ls profiler/***.{c} server/***.{c} public/***.{c} imgui/***.{c}
+            "profiler/src/ini.c",
+        },
+        .flags = &.{
+            "-fno-sanitize=undefined",
+        },
+    });
+    tracy_exe.addCSourceFiles(.{
+        .root = tracy_dep.path("."),
+        .files = &[_][]const u8{
+            // ls profiler/***.{cpp} server/***.{cpp} public/***.{cpp} imgui/***.{cpp}
+
+            "imgui/imgui.cpp",
+            "imgui/imgui_demo.cpp",
+            "imgui/imgui_draw.cpp",
+            "imgui/imgui_tables.cpp",
+            "imgui/imgui_widgets.cpp",
+            // "imgui/misc/freetype/imgui_freetype.cpp",
+            // "profiler/src/BackendEmscripten.cpp",
+            "profiler/src/BackendGlfw.cpp",
+            // "profiler/src/BackendWayland.cpp",
+            "profiler/src/ConnectionHistory.cpp",
+            "profiler/src/Filters.cpp",
+            "profiler/src/Fonts.cpp",
+            "profiler/src/HttpRequest.cpp",
+            "profiler/src/ImGuiContext.cpp",
+            "profiler/src/imgui/imgui_impl_glfw.cpp",
+            "profiler/src/imgui/imgui_impl_opengl3.cpp",
+            "profiler/src/IsElevated.cpp",
+            "profiler/src/main.cpp",
+            "profiler/src/profiler/TracyAchievementData.cpp",
+            "profiler/src/profiler/TracyAchievements.cpp",
             "profiler/src/profiler/TracyBadVersion.cpp",
             "profiler/src/profiler/TracyColor.cpp",
             "profiler/src/profiler/TracyEventDebug.cpp",
@@ -81,14 +125,15 @@ pub fn build(b: *std.Build) !void {
             "profiler/src/profiler/TracyTimelineItemThread.cpp",
             "profiler/src/profiler/TracyUserData.cpp",
             "profiler/src/profiler/TracyUtility.cpp",
-            "profiler/src/profiler/TracyView.cpp",
             "profiler/src/profiler/TracyView_Annotations.cpp",
             "profiler/src/profiler/TracyView_Callstack.cpp",
             "profiler/src/profiler/TracyView_Compare.cpp",
             "profiler/src/profiler/TracyView_ConnectionState.cpp",
             "profiler/src/profiler/TracyView_ContextSwitch.cpp",
+            "profiler/src/profiler/TracyView.cpp",
             "profiler/src/profiler/TracyView_CpuData.cpp",
             "profiler/src/profiler/TracyView_FindZone.cpp",
+            "profiler/src/profiler/TracyView_FlameGraph.cpp",
             "profiler/src/profiler/TracyView_FrameOverview.cpp",
             "profiler/src/profiler/TracyView_FrameTimeline.cpp",
             "profiler/src/profiler/TracyView_FrameTree.cpp",
@@ -110,37 +155,15 @@ pub fn build(b: *std.Build) !void {
             "profiler/src/profiler/TracyView_ZoneInfo.cpp",
             "profiler/src/profiler/TracyView_ZoneTimeline.cpp",
             "profiler/src/profiler/TracyWeb.cpp",
-
-            "profiler/src/imgui/imgui_impl_opengl3.cpp",
-            "profiler/src/ConnectionHistory.cpp",
-            "profiler/src/Filters.cpp",
-            "profiler/src/Fonts.cpp",
-            "profiler/src/HttpRequest.cpp",
-            "profiler/src/ImGuiContext.cpp",
-            "profiler/src/ini.c",
-            "profiler/src/IsElevated.cpp",
-            "profiler/src/main.cpp",
             "profiler/src/ResolvService.cpp",
             "profiler/src/RunQueue.cpp",
             "profiler/src/WindowPosition.cpp",
-            "profiler/src/winmain.cpp",
             "profiler/src/winmainArchDiscovery.cpp",
-
-            "server/TracyMemory.cpp",
-            "server/TracyMmap.cpp",
-            "server/TracyPrint.cpp",
-            "server/TracySysUtil.cpp",
-            "server/TracyTaskDispatch.cpp",
-            "server/TracyTextureCompression.cpp",
-            "server/TracyThreadCompress.cpp",
-            "server/TracyWorker.cpp",
-
-            "profiler/src/BackendGlfw.cpp",
-            "profiler/src/imgui/imgui_impl_glfw.cpp",
-
+            "profiler/src/winmain.cpp",
             // "public/client/TracyAlloc.cpp",
             // "public/client/TracyCallstack.cpp",
             // "public/client/TracyDxt1.cpp",
+            // "public/client/TracyKCore.cpp",
             // "public/client/TracyOverride.cpp",
             // "public/client/TracyProfiler.cpp",
             // "public/client/tracy_rpmalloc.cpp",
@@ -151,31 +174,27 @@ pub fn build(b: *std.Build) !void {
             "public/common/tracy_lz4hc.cpp",
             "public/common/TracySocket.cpp",
             "public/common/TracyStackFrames.cpp",
-            // "public/common/TracySystem.cpp",
+            "public/common/TracySystem.cpp",
             "public/libbacktrace/alloc.cpp",
             "public/libbacktrace/dwarf.cpp",
-            // "public/libbacktrace/elf.cpp",
+            // "public/libbacktrace/elf.cpp", // conflicts with macho
             "public/libbacktrace/fileline.cpp",
-            "public/libbacktrace/macho.cpp",
+            // "public/libbacktrace/macho.cpp", // conflicts with elf
             "public/libbacktrace/mmapio.cpp",
             "public/libbacktrace/posix.cpp",
             "public/libbacktrace/sort.cpp",
             "public/libbacktrace/state.cpp",
-            "public/TracyClient.cpp",
-
-            "imgui/imgui.cpp",
-            "imgui/imgui_demo.cpp",
-            "imgui/imgui_draw.cpp",
-            "imgui/imgui_tables.cpp",
-            "imgui/imgui_widgets.cpp",
+            // "public/TracyClient.cpp",
+            "server/TracyMemory.cpp",
+            "server/TracyMmap.cpp",
+            "server/TracyPrint.cpp",
+            "server/TracySysUtil.cpp",
+            "server/TracyTaskDispatch.cpp",
+            "server/TracyTextureCompression.cpp",
+            "server/TracyThreadCompress.cpp",
+            "server/TracyWorker.cpp",
         },
-        .flags = &[_][]const u8{
-            "-fno-sanitize=undefined",
-            "-fexperimental-library",
-
-            "-D__DATE__=\"disabled\"",
-            "-D__TIME__=\"disabled\"",
-        },
+        .flags = profiler_flags,
     });
     switch (target.result.os.tag) {
         .macos => {
@@ -185,11 +204,9 @@ pub fn build(b: *std.Build) !void {
                 .root = tracy_dep.path("."),
                 .files = &[_][]const u8{
                     "nfd/nfd_cocoa.m",
+                    "public/libbacktrace/macho.cpp",
                 },
-                .flags = &[_][]const u8{
-                    "-fno-sanitize=undefined",
-                    "-fexperimental-library",
-                },
+                .flags = profiler_flags,
             });
             tracy_exe.linkFramework("AppKit");
             tracy_exe.linkFramework("UniformTypeIdentifiers");
@@ -202,11 +219,9 @@ pub fn build(b: *std.Build) !void {
                 .root = tracy_dep.path("."),
                 .files = &[_][]const u8{
                     "nfd/nfd_portal.cpp",
+                    "public/libbacktrace/elf.cpp",
                 },
-                .flags = &[_][]const u8{
-                    "-fno-sanitize=undefined",
-                    "-fexperimental-library",
-                },
+                .flags = profiler_flags,
             });
         },
         else => {
