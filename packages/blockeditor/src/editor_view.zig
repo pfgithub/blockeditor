@@ -375,24 +375,47 @@ pub const EditorView = struct {
             self.core.executeCommand(.{ .insert_text = .{ .text = text } });
         }
 
-        self.scroll.offset += beui.frame.scroll_px[1];
-        const render_start_pos = self.core.getLineStart(blk: {
-            if (self.scroll.line_before_anchor == null) break :blk block.positionFromDocbyte(0);
-            break :blk self.core.getNextLineStart(self.scroll.line_before_anchor.?);
-        });
+        self.scroll.offset -= beui.frame.scroll_px[1];
 
-        // todo: measure height starting line
-        // we can offer a function layoutLine(line) to layout and soft wrap a single line, and return metrics about it
-        // - eventually, this won't be enough. natural language documents and random binary files will have very
-        //   long lines
-        // if scroll offset < 0:
-        // - measureLineHeight(line_before_anchor)
-        // - scroll_offset += line height
-        // - line before anchor = block.getThisLineStart(line_before_anchor) - 1
-        // else if scroll offset > line height:
-        // - line_before_anchor = block.getNextLineStart(line_before_anchor)
-        // - scroll offset -= line height
-        // and some edge cases for first and last lines
+        if (self.scroll.line_before_anchor != null) self.scroll.line_before_anchor = self.core.getLineStart(self.scroll.line_before_anchor.?);
+        blk: {
+            if (self.scroll.offset < 0) {
+                while (self.scroll.line_before_anchor != null and self.scroll.offset < 0) {
+                    var prev_line: ?editor_core.Position = self.core.getPrevLineStart(self.scroll.line_before_anchor.?);
+                    if (block.docbyteFromPosition(prev_line.?) == block.docbyteFromPosition(self.scroll.line_before_anchor.?)) {
+                        // no prev line
+                        prev_line = null;
+                    }
+                    const line_measure = self.layoutLine(self.scroll.line_before_anchor.?);
+                    self.scroll.offset += @floatFromInt(line_measure.height);
+                    self.scroll.line_before_anchor = prev_line;
+                }
+                break :blk;
+            }
+            while (true) {
+                const this_line = self.core.getLineStart(blk2: {
+                    if (self.scroll.line_before_anchor) |v| break :blk2 self.core.getNextLineStart(v);
+                    break :blk2 block.positionFromDocbyte(0);
+                });
+                if (self.scroll.line_before_anchor != null and block.docbyteFromPosition(this_line) == block.docbyteFromPosition(self.scroll.line_before_anchor.?)) {
+                    // no next line
+                    break :blk;
+                }
+                const this_measure = self.layoutLine(this_line);
+                if (self.scroll.offset > @as(f32, @floatFromInt(this_measure.height))) {
+                    self.scroll.offset -= @floatFromInt(this_measure.height);
+                    self.scroll.line_before_anchor = this_line;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        const render_start_pos = self.core.getLineStart(blk: {
+            if (self.scroll.line_before_anchor) |v| break :blk self.core.getNextLineStart(v);
+            break :blk block.positionFromDocbyte(0);
+        });
 
         const window_pos: @Vector(2, f32) = .{ 10, 10 };
         const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };
@@ -404,7 +427,7 @@ pub const EditorView = struct {
         defer syn_hl.deinit();
 
         var line_to_render = render_start_pos;
-        var line_pos: @Vector(2, f32) = .{ 10, 10 + self.scroll.offset };
+        var line_pos: @Vector(2, f32) = .{ 10, 10 - self.scroll.offset };
         while (true) {
             if (line_pos[1] > (window_pos + window_size)[1]) break;
 

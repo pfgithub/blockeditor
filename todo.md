@@ -21,7 +21,7 @@ Tasks:
 - [x] text editor: ctrl+enter = insert new line at end of current line
 - [ ] replace all uses of 'std.log' with 'log' + ban unscoped 'std.log'
 - [ ] text editor: add back selection
-- [ ] text editor: impl scroll algorithm described in editor_view.zig
+- [x] text editor: impl scroll algorithm described in editor_view.zig
 - [ ] text editor: cache harfbuzz layout results
 - [ ] text editor: use sheen_bidi for bidi & script run splitting (and maybe glyph mirroring, if required?)
 
