@@ -31,14 +31,14 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);
 
     const run_blockeditor = b.addRunArtifact(blockeditor_dep.artifact("blockeditor"));
+    run_blockeditor.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_blockeditor.addArgs(args);
     const run_blockeditor_step = b.step("run", "Run blockeditor");
-    run_blockeditor_step.dependOn(b.getInstallStep());
     run_blockeditor_step.dependOn(&run_blockeditor.step);
 
     const run_server = b.addRunArtifact(blocks_net_dep.artifact("server"));
+    run_server.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_server.addArgs(args);
     const run_server_step = b.step("server", "Run server");
-    run_server_step.dependOn(b.getInstallStep());
     run_server_step.dependOn(&run_server.step);
 }

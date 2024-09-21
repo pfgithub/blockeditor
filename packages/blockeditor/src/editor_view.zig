@@ -20,7 +20,7 @@ pub const LayoutItem = struct {
     pos: @Vector(2, f32),
 };
 pub const LayoutInfo = struct {
-    height: f64,
+    height: i32,
     items: []LayoutItem,
 };
 const ShapingSegment = struct {
@@ -88,7 +88,7 @@ pub const EditorView = struct {
     scroll: struct {
         /// null = start of file
         line_before_anchor: ?editor_core.Position = null,
-        offset: f64 = 0.0,
+        offset: f32 = 0.0,
     },
 
     pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
@@ -137,6 +137,10 @@ pub const EditorView = struct {
         const line_start_docbyte = self.core.document.value.docbyteFromPosition(line_start);
         const line_len = self.core.document.value.docbyteFromPosition(line_end) - line_start_docbyte;
 
+        const line_height: i32 = 16;
+
+        if (line_len == 0) return .{ .height = line_height, .items = &.{} };
+
         self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
 
         // TODO: segment shape() calls based on:
@@ -155,7 +159,7 @@ pub const EditorView = struct {
         self._layout_result_temp_al.clearRetainingCapacity();
 
         var start_offset: usize = 0;
-        var cursor_pos: @Vector(2, i64) = .{ 64 * 10, 64 * 10 };
+        var cursor_pos: @Vector(2, i64) = .{ 0, 0 };
         for (segments) |segment| {
             const buf: hb.Buffer = hb.Buffer.init() orelse @panic("oom");
             defer buf.deinit();
@@ -192,25 +196,24 @@ pub const EditorView = struct {
         }
 
         return .{
-            .height = 0.0,
+            .height = line_height,
             .items = self._layout_result_temp_al.items,
         };
     }
 
-    fn renderGlyph(self: *EditorView, glyph_id: u32) GlyphCacheEntry {
+    fn renderGlyph(self: *EditorView, glyph_id: u32, line_height: i32) GlyphCacheEntry {
         if (self.glyph_cache.get(glyph_id)) |v| return v;
-        const result: GlyphCacheEntry = self.renderGlyph_nocache(glyph_id) catch |e| blk: {
+        const result: GlyphCacheEntry = self.renderGlyph_nocache(glyph_id, line_height) catch |e| blk: {
             std.log.err("render glyph error: {s}", .{@errorName(e)});
             break :blk .{ .size = .{ 0, 0 }, .region = null };
         };
         self.glyph_cache.putNoClobber(glyph_id, result) catch @panic("oom");
         return result;
     }
-    fn renderGlyph_nocache(self: *EditorView, glyph_id: u32) !GlyphCacheEntry {
+    fn renderGlyph_nocache(self: *EditorView, glyph_id: u32, line_height: i32) !GlyphCacheEntry {
         try self.font.?.ft_face.loadGlyph(glyph_id, .{ .render = true });
         const glyph = self.font.?.ft_face.glyph();
         const bitmap = glyph.bitmap();
-        const line_height: i32 = 25;
 
         if (bitmap.buffer() == null) return error.NoBitmapBuffer;
 
@@ -232,6 +235,7 @@ pub const EditorView = struct {
 
     pub fn gui(self: *EditorView, beui: *beui_mod.Beui, content_region_size: @Vector(2, f32)) void {
         if (self.glyphs_cache_full) {
+            std.log.info("recreating glyph cache", .{});
             self.glyphs.clear();
             self.glyph_cache.clearRetainingCapacity();
             self.glyphs_cache_full = false;
@@ -371,7 +375,7 @@ pub const EditorView = struct {
             self.core.executeCommand(.{ .insert_text = .{ .text = text } });
         }
 
-        self.scroll.offset += @floatCast(beui.frame.scroll_px[1]);
+        self.scroll.offset += beui.frame.scroll_px[1];
         const render_start_pos = self.core.getLineStart(blk: {
             if (self.scroll.line_before_anchor == null) break :blk block.positionFromDocbyte(0);
             break :blk self.core.getNextLineStart(self.scroll.line_before_anchor.?);
@@ -399,96 +403,102 @@ pub const EditorView = struct {
         var syn_hl = self.core.syn_hl_ctx.highlight();
         defer syn_hl.deinit();
 
-        const layout_test = self.layoutLine(render_start_pos);
-        for (layout_test.items) |item| {
-            const glyph_info = self.renderGlyph(item.glyph_id);
-            if (glyph_info.region) |region| {
-                const syn_hl_info = syn_hl.advanceAndRead(item.docbyte);
-                const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
-                const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
-                draw_list.addRegion(.{
-                    .pos = @floor(item.pos + glyph_offset),
-                    .size = glyph_size,
-                    .region = region,
-                    .image = .editor_view_glyphs,
-                    .image_size = self.glyphs.size,
-                    .tint = hexToFloat(DefaultTheme.synHlColor(syn_hl_info)),
-                });
-                // _ = region;
-                // draw_list.addRect(item.pos + glyph_offset, glyph_size, .{
-                //     .image = null,
-                //     .tint = hexToFloat(DefaultTheme.synHlColor(syn_hl_info)),
-                // });
-                // _ = syn_hl_info;
-            }
-        }
-        draw_list.addRect(.{ 0, 100 }, .{ 2048, 2048 }, .{
-            .image = .editor_view_glyphs,
-            .uv_pos = .{ 0, 0 },
-            .uv_size = .{ 1, 1 },
-            .tint = .{ 1, 1, 1, 1 },
-        });
+        var line_to_render = render_start_pos;
+        var line_pos: @Vector(2, f32) = .{ 10, 10 + self.scroll.offset };
+        while (true) {
+            if (line_pos[1] > (window_pos + window_size)[1]) break;
 
-        var pos: @Vector(2, f32) = .{ 0, @floatCast(self.scroll.offset) };
-        var prev_char_advance: f32 = 0;
-        var click_target: ?usize = null;
-        for (block.docbyteFromPosition(render_start_pos)..block.length() + 1) |i| {
-            const cursor_info = cursor_positions.advanceAndRead(i);
-            const char = syn_hl.znh.charAt(i);
-
-            if (cursor_info.left_cursor == .focus) {
-                draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{
-                    1, draw_list.getCharHeight() + 2,
-                }, .{ .tint = .{ 1, 1, 1, 1 } });
-            }
-            const show_invisibles = cursor_info.selected;
-            const is_invisible: ?u8 = switch (char) {
-                '\x00' => '\x00',
-                ' ' => '_', // '·'
-                '\n' => '\n', // '⏎'
-                '\t' => '\t', // '⇥'
-                else => null,
-            };
-            var char_or_invisible = char;
-            if (show_invisibles and is_invisible != null) {
-                char_or_invisible = is_invisible.?;
-            }
-
-            {
-                const min = window_pos + pos + @Vector(2, f32){ -prev_char_advance / 2.0, 0 };
-                if (@reduce(.And, beui.persistent.mouse_pos > min)) {
-                    click_target = i;
+            const layout_test = self.layoutLine(line_to_render);
+            for (layout_test.items) |item| {
+                const glyph_info = self.renderGlyph(item.glyph_id, layout_test.height);
+                if (glyph_info.region) |region| {
+                    const syn_hl_info = syn_hl.advanceAndRead(item.docbyte);
+                    const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
+                    const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
+                    draw_list.addRegion(.{
+                        .pos = @floor(line_pos + item.pos + glyph_offset),
+                        .size = glyph_size,
+                        .region = region,
+                        .image = if (true) .editor_view_glyphs else null,
+                        .image_size = self.glyphs.size,
+                        .tint = hexToFloat(DefaultTheme.synHlColor(syn_hl_info)),
+                    });
                 }
             }
+            line_pos[1] += @floatFromInt(layout_test.height);
 
-            const char_advance: f32 = draw_list.getCharAdvance(char);
-            prev_char_advance = char_advance;
-            const invisible_advance: f32 = draw_list.getCharAdvance(char_or_invisible);
-
-            if (pos[0] + char_advance > window_size[0]) {
-                pos = .{ 0, pos[1] + draw_list.getCharHeight() };
-            }
-
-            const char_offset = @Vector(2, f32){ (invisible_advance - char_advance) / 2.0, 0.0 };
-
-            if ((show_invisibles or is_invisible == null) and pos[0] <= window_size[0] and pos[1] <= window_size[1] and pos[0] >= 0 and pos[1] >= 0) {
-                // _ = char_offset;
-                draw_list.addChar(char_or_invisible, window_pos + pos + char_offset, hexToFloat(DefaultTheme.synHlColor(switch (is_invisible != null) {
-                    true => .invisible,
-                    false => syn_hl.advanceAndRead(i),
-                })));
-            }
-            if (cursor_info.selected) {
-                draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{ char_advance, draw_list.getCharHeight() + 2 - 1 }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
-            }
-            if (pos[1] > window_size[1]) break;
-
-            if (char == '\n') {
-                pos = .{ 0, pos[1] + draw_list.getCharHeight() };
-            } else {
-                pos += .{ char_advance, 0 };
-            }
+            const next_line = self.core.getNextLineStart(line_to_render);
+            if (block.docbyteFromPosition(next_line) == block.docbyteFromPosition(line_to_render)) break;
+            line_to_render = next_line;
         }
+        // draw_list.addRect(.{ 0, 100 }, .{ 2048, 2048 }, .{
+        //     .image = .editor_view_glyphs,
+        //     .uv_pos = .{ 0, 0 },
+        //     .uv_size = .{ 1, 1 },
+        //     .tint = .{ 1, 1, 1, 1 },
+        // });
+
+        // var pos: @Vector(2, f32) = .{ 0, @floatCast(self.scroll.offset) };
+        // var prev_char_advance: f32 = 0;
+        var click_target: ?usize = null;
+        _ = &click_target;
+        // for (block.docbyteFromPosition(render_start_pos)..block.length() + 1) |i| {
+        //     const cursor_info = cursor_positions.advanceAndRead(i);
+        //     const char = syn_hl.znh.charAt(i);
+
+        //     if (cursor_info.left_cursor == .focus) {
+        //         draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{
+        //             1, draw_list.getCharHeight() + 2,
+        //         }, .{ .tint = .{ 1, 1, 1, 1 } });
+        //     }
+        //     const show_invisibles = cursor_info.selected;
+        //     const is_invisible: ?u8 = switch (char) {
+        //         '\x00' => '\x00',
+        //         ' ' => '_', // '·'
+        //         '\n' => '\n', // '⏎'
+        //         '\t' => '\t', // '⇥'
+        //         else => null,
+        //     };
+        //     var char_or_invisible = char;
+        //     if (show_invisibles and is_invisible != null) {
+        //         char_or_invisible = is_invisible.?;
+        //     }
+
+        //     {
+        //         const min = window_pos + pos + @Vector(2, f32){ -prev_char_advance / 2.0, 0 };
+        //         if (@reduce(.And, beui.persistent.mouse_pos > min)) {
+        //             click_target = i;
+        //         }
+        //     }
+
+        //     const char_advance: f32 = draw_list.getCharAdvance(char);
+        //     prev_char_advance = char_advance;
+        //     const invisible_advance: f32 = draw_list.getCharAdvance(char_or_invisible);
+
+        //     if (pos[0] + char_advance > window_size[0]) {
+        //         pos = .{ 0, pos[1] + draw_list.getCharHeight() };
+        //     }
+
+        //     const char_offset = @Vector(2, f32){ (invisible_advance - char_advance) / 2.0, 0.0 };
+
+        //     if ((show_invisibles or is_invisible == null) and pos[0] <= window_size[0] and pos[1] <= window_size[1] and pos[0] >= 0 and pos[1] >= 0) {
+        //         // _ = char_offset;
+        //         draw_list.addChar(char_or_invisible, window_pos + pos + char_offset, hexToFloat(DefaultTheme.synHlColor(switch (is_invisible != null) {
+        //             true => .invisible,
+        //             false => syn_hl.advanceAndRead(i),
+        //         })));
+        //     }
+        //     if (cursor_info.selected) {
+        //         draw_list.addRect(window_pos + pos + @Vector(2, f32){ -1, -1 }, .{ char_advance, draw_list.getCharHeight() + 2 - 1 }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
+        //     }
+        //     if (pos[1] > window_size[1]) break;
+
+        //     if (char == '\n') {
+        //         pos = .{ 0, pos[1] + draw_list.getCharHeight() };
+        //     } else {
+        //         pos += .{ char_advance, 0 };
+        //     }
+        // }
 
         if (click_target) |clicked_bufbyte| {
             const clicked_pos = block.positionFromDocbyte(clicked_bufbyte);

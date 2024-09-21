@@ -108,7 +108,7 @@ pub const RenderList = struct {
         pos: @Vector(2, f32),
         size: @Vector(2, f32),
         region: @import("texpack.zig").Region,
-        image: RenderListImage,
+        image: ?RenderListImage,
         image_size: u32,
         tint: @Vector(4, f32) = .{ 1, 1, 1, 1 },
     }) void {
@@ -120,12 +120,18 @@ pub const RenderList = struct {
             .tint = opts.tint,
         });
     }
-    pub fn addRect(self: *RenderList, pos: @Vector(2, f32), size: @Vector(2, f32), opts: struct {
+    pub fn addRect(self: *RenderList, pos: @Vector(2, f32), size: @Vector(2, f32), opts_in: struct {
         uv_pos: @Vector(2, f32) = .{ -1234.0, -1234.0 },
         uv_size: @Vector(2, f32) = .{ 0, 0 },
         image: ?RenderListImage = null,
         tint: @Vector(4, f32) = .{ 1, 1, 1, 1 },
     }) void {
+        var opts = opts_in;
+        if (opts.image == null) {
+            opts.uv_pos = .{ -1234.0, -1234.0 };
+            opts.uv_size = .{ 0, 0 };
+        }
+
         // have to go clockwise to not get culled
         const ul = pos;
         const ur = pos + @Vector(2, f32){ size[0], 0 };
