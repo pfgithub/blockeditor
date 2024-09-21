@@ -9,8 +9,7 @@ Tasks:
 
 - [ ] implement server & try collaborative
   - [ ] later: presence
-- [ ] freetype font rendering
-  - [ ] later: harfbuzz layout
+- [x] freetype font rendering
 - [x] increase scroll speed
 - [ ] text editor: ctrl or alt + up / ctrl or alt + down to move lines
   - Document 'move' is not implemented yet so we'll have to copy/paste for now
