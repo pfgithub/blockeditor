@@ -36,21 +36,44 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);
 
-    const run_blockeditor = b.addRunArtifact(blockeditor_dep.artifact("blockeditor"));
-    run_blockeditor.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_blockeditor.addArgs(args);
-    const run_blockeditor_step = b.step("run", "Run blockeditor");
-    run_blockeditor_step.dependOn(&run_blockeditor.step);
-
-    const run_server = b.addRunArtifact(blocks_net_dep.artifact("server"));
-    run_server.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_server.addArgs(args);
-    const run_server_step = b.step("server", "Run server");
-    run_server_step.dependOn(&run_server.step);
+    const multirun_exe = b.addExecutable(.{
+        .name = "multirun",
+        .root_source_file = b.path("multirun.zig"),
+        .target = b.resolveTargetQuery(.{}),
+        .optimize = .Debug,
+    });
+    b.getInstallStep().dependOn(&b.addInstallArtifact(multirun_exe, .{ .dest_dir = .{ .override = .{ .custom = "tool" } } }).step);
 
     const run_tracy = b.addRunArtifact(tracy_dep.artifact("tracy"));
     run_tracy.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_tracy.addArgs(args);
     const run_tracy_step = b.step("tracy", "Run tracy");
     run_tracy_step.dependOn(&run_tracy.step);
+
+    if (enable_tracy) {
+        const run_multirun = b.addRunArtifact(multirun_exe);
+        run_multirun.step.dependOn(b.getInstallStep());
+
+        run_multirun.addArg("|-|");
+        run_multirun.addFileArg(blockeditor_dep.artifact("blockeditor").getEmittedBin());
+        if (b.args) |args| run_multirun.addArgs(args);
+
+        run_multirun.addArg("|-|");
+        run_multirun.addFileArg(tracy_dep.artifact("tracy").getEmittedBin());
+
+        const run_blockeditor_step = b.step("run", "Run blockeditor");
+        run_blockeditor_step.dependOn(&run_multirun.step);
+    } else {
+        const run_blockeditor = b.addRunArtifact(blockeditor_dep.artifact("blockeditor"));
+        run_blockeditor.step.dependOn(b.getInstallStep());
+        if (b.args) |args| run_blockeditor.addArgs(args);
+        const run_blockeditor_step = b.step("run", "Run blockeditor");
+        run_blockeditor_step.dependOn(&run_blockeditor.step);
+    }
+
+    const run_server = b.addRunArtifact(blocks_net_dep.artifact("server"));
+    run_server.step.dependOn(b.getInstallStep());
+    if (b.args) |args| run_server.addArgs(args);
+    const run_server_step = b.step("server", "Run server");
+    run_server_step.dependOn(&run_server.step);
 }
