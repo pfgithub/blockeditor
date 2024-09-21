@@ -782,17 +782,20 @@ pub fn main() !void {
 
         update(demo);
 
-        for (0..11) |i| {
-            const im: f32 = @floatFromInt(i);
-            draw_list.addRect(.{ 50 * im + 50, 50 }, .{ 50, 50 }, .{ .tint = .{ 1.0, 0.0, 0.0, im / 10.0 } });
-        }
-        for (0..11) |i| {
-            const im: f32 = @floatFromInt(i);
-            draw_list.addRect(.{ 50 * im + 50, 83 }, .{ 50, 50 }, .{ .tint = .{ 0.0, 1.0, 0.0, im / 10.0 } });
-        }
-        for (0..11) |i| {
-            const im: f32 = @floatFromInt(i);
-            draw_list.addRect(.{ 50 * im + 50, 116 }, .{ 50, 50 }, .{ .tint = .{ 0.0, 0.0, 1.0, im / 10.0 } });
+        // transparency test rainbows
+        if (false) {
+            for (0..11) |i| {
+                const im: f32 = @floatFromInt(i);
+                draw_list.addRect(.{ 50 * im + 50, 50 }, .{ 50, 50 }, .{ .tint = .{ 1.0, 0.0, 0.0, im / 10.0 } });
+            }
+            for (0..11) |i| {
+                const im: f32 = @floatFromInt(i);
+                draw_list.addRect(.{ 50 * im + 50, 83 }, .{ 50, 50 }, .{ .tint = .{ 0.0, 1.0, 0.0, im / 10.0 } });
+            }
+            for (0..11) |i| {
+                const im: f32 = @floatFromInt(i);
+                draw_list.addRect(.{ 50 * im + 50, 116 }, .{ 50, 50 }, .{ .tint = .{ 0.0, 0.0, 1.0, im / 10.0 } });
+            }
         }
 
         zgui.setNextWindowPos(.{ .x = 20.0, .y = 80.0, .cond = .first_use_ever });
