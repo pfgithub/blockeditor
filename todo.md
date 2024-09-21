@@ -30,6 +30,7 @@ Tasks:
 - [x] text editor: show invisibles in selection
 - [ ] text editor: show invisibles for any spaces before a newline (ie `abcd efg  ` the last two spaces should show)
 - [ ] text editor: position visible invisibles halfway through the original width they would have taken
+- [ ] text editor: fix kerning problems. `"vert"` has trouble between the v, e, and r
 
 future blocks:
 
