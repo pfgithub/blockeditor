@@ -763,16 +763,17 @@ pub fn main() !void {
 
     zgui.getStyle().scaleAllSizes(scale_factor);
 
+    var draw_list = draw_lists.RenderList.init(gpa);
+    defer draw_list.deinit();
+
     while (!window.shouldClose() and window.getKey(.escape) != .press) {
         tracy.frameMark();
 
         _ = arena_state.reset(.retain_capacity);
+        draw_list.clear();
 
         interface.tickBegin();
         defer interface.tickEnd();
-
-        var draw_list = draw_lists.RenderList.init(gpa);
-        defer draw_list.deinit();
 
         var beui_vtable: BeuiVtable = .{ .window = window };
         beui.newFrame(.{
