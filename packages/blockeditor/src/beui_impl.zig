@@ -670,9 +670,10 @@ const BeuiVtable = struct {
 
 pub fn main() !void {
     var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa_state.deinit();
+    defer std.debug.assert(gpa_state.deinit() == .ok);
+    var tracy_wrapped = tracy.tracyAllocator(gpa_state.allocator());
 
-    const gpa = gpa_state.allocator();
+    const gpa = tracy_wrapped.allocator();
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
