@@ -51,6 +51,10 @@ pub fn build(b: *std.Build) void {
     run_tracy_step.dependOn(&run_tracy.step);
 
     if (enable_tracy) {
+        if (optimize == .Debug) {
+            b.getInstallStep().dependOn(&b.addFail("To use tracy, -Doptimize must be set to a release mode").step);
+        }
+
         const run_multirun = b.addRunArtifact(multirun_exe);
         run_multirun.step.dependOn(b.getInstallStep());
 
