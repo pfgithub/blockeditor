@@ -433,8 +433,14 @@ pub const EditorView = struct {
 
             const layout_test = self.layoutLine(line_to_render);
             var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
+            var length_with_no_selection_render: f32 = 0.0;
             for (layout_test.items, 0..) |item, i| {
-                const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) break else layout_test.items[i + 1].docbyte;
+                const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) item.docbyte + 1 else layout_test.items[i + 1].docbyte;
+                if (next_glyph_docbyte == item.docbyte) {
+                    length_with_no_selection_render += item.advance[0];
+                } else {
+                    length_with_no_selection_render = 0;
+                }
 
                 const glyph_info = self.renderGlyph(item.glyph_id, layout_test.height);
                 if (glyph_info.region) |region| {
@@ -451,18 +457,23 @@ pub const EditorView = struct {
                     });
                 }
 
+                const total_width: f32 = length_with_no_selection_render + item.advance[0];
                 const len = next_glyph_docbyte - item.docbyte;
-                var cursor_render_docbyte = item.docbyte;
-                // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions. Include them all.
-                while (cursor_render_docbyte < next_glyph_docbyte) : (cursor_render_docbyte += 1) {
-                    // const cursor_info = cursor_positions.advanceAndRead(cursor_render_docbyte);
-                    // if (cursor_info.selected) {
-                    //     draw_list.addRect(@floor(line_pos + cursor_pos), .{ item.advance[0], @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
-                    // }
-                    // TODO add 1/n based on the length of the thingy
-                    _ = len;
-                    // const portion = (cursor_render_docbyte - item.docbyte) / len;
-                    draw_list.addRect(@floor(line_pos + cursor_pos) + @Vector(2, f32){ 0, -1 }, .{ 2, @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.cursor_color) });
+                // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions (when moving with .byte). Include them all.
+                for (0..@intCast(len)) |docbyte_offset| {
+                    const docbyte = item.docbyte + docbyte_offset;
+                    const cursor_info = cursor_positions.advanceAndRead(docbyte);
+
+                    const portion = @floor(@as(f32, @floatFromInt(docbyte_offset)) / @as(f32, @floatFromInt(len)) * total_width);
+                    const portion_next = @floor(@as(f32, @floatFromInt(docbyte_offset + 1)) / @as(f32, @floatFromInt(len)) * total_width);
+                    const portion_width = portion_next - portion;
+
+                    if (cursor_info.left_cursor == .focus) {
+                        draw_list.addRect(@floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, -1 }), .{ 2, @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.cursor_color) });
+                    }
+                    if (cursor_info.selected) {
+                        draw_list.addRect(@floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 }), .{ portion_width, @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
+                    }
                 }
 
                 cursor_pos += item.advance;
