@@ -48,6 +48,9 @@ Tasks:
   brackets as invalid. Check if an update fixes this
 - [ ] text editor tree sitter: add a button to copy dot graph of the current syntax tree to
   clipboard
+- [ ] Document: expose line_count functionality and two way fns for (line, col) -> Position
+  and Position -> (line, col)
+  - [ ] Use this new functionality for tree sitter rather than calculating from the start of the file
 
 future blocks:
 
