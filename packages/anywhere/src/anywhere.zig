@@ -3,10 +3,30 @@ const root = @import("root");
 
 pub const AnywhereCfg = struct {
     tracy: ?type = null,
+    zgui: ?type = null,
 };
 const anywhere_cfg: AnywhereCfg = if (@hasDecl(root, "anywhere_cfg")) root.anywhere_cfg else .{};
 
 const tracy_mod: ?type = anywhere_cfg.tracy;
+const zgui_mod: ?type = anywhere_cfg.zgui;
+
+pub const zgui = struct {
+    pub inline fn beginWindow(title: [:0]const u8, _: struct {}) bool {
+        if (zgui_mod) |z| {
+            const res = z.begin(title, .{});
+            if (!res) z.end();
+            return res;
+        }
+        return false;
+    }
+    pub inline fn endWindow() void {
+        if (zgui_mod) |z| z.end();
+    }
+
+    pub inline fn text(comptime fmt: []const u8, args: anytype) void {
+        if (zgui_mod) |z| z.text(fmt, args);
+    }
+};
 
 pub const tracy = struct {
     pub const Ctx = struct {

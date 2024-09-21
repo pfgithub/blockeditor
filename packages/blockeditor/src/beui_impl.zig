@@ -27,6 +27,7 @@ const window_title = "zig-gamedev: textured quad (wgpu)";
 
 pub const anywhere_cfg: anywhere.AnywhereCfg = .{
     .tracy = if (build_options.enable_tracy) @import("tracy__impl") else null,
+    .zgui = zgui,
 };
 
 const wgsl_common = (

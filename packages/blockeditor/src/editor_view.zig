@@ -8,6 +8,7 @@ const zglfw = @import("zglfw");
 const zgui = @import("zgui"); // zgui doesn't have everything! we should use cimgui + translate-c like we used to
 const beui_mod = @import("beui");
 const tracy = @import("anywhere").tracy;
+const zgui_anywhere = @import("anywhere").zgui;
 
 const ft = beui_mod.font_experiment.ft;
 const hb = beui_mod.font_experiment.hb;
@@ -700,6 +701,15 @@ pub const EditorView = struct {
             zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
         }
         zgui.end();
+
+        if (zgui_anywhere.beginWindow("Tree Sitter Info", .{})) {
+            defer zgui_anywhere.endWindow();
+
+            for (self.core.cursor_positions.items) |cursor_pos| {
+                const range = self.core.selectionToPosLen(cursor_pos.pos);
+                self.core.syn_hl_ctx.guiInspectNodeUnderCursor(range.left_docbyte, range.right_docbyte);
+            }
+        }
 
         // background
         draw_list.addRect(.{ 0, 0 }, content_region_size, .{ .tint = hexToFloat(DefaultTheme.editor_bg) });

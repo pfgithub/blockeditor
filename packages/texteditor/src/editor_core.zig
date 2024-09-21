@@ -453,7 +453,7 @@ pub const EditorCore = struct {
         return block.positionFromDocbyte(index);
     }
 
-    fn selectionToPosLen(self: *EditorCore, selection: Selection) PosLen {
+    pub fn selectionToPosLen(self: *EditorCore, selection: Selection) PosLen {
         const block = self.document.value;
 
         const bufbyte_1 = block.docbyteFromPosition(selection.anchor);

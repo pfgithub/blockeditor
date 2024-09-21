@@ -5,6 +5,7 @@ const blocks_mod = @import("blocks");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const tracy = @import("anywhere").tracy;
+const zgui = @import("anywhere").zgui;
 
 // TODO
 // https://github.com/tree-sitter/tree-sitter/issues/739
@@ -48,6 +49,7 @@ fn textComponentToTsInput(block_val: *const bi.text_component.TextDocument) tree
 pub const Context = struct {
     alloc: std.mem.Allocator,
     parser: *tree_sitter.TSParser,
+    language: *tree_sitter.TSLanguage,
     cached_tree: *tree_sitter.TSTree,
     document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
     tree_needs_reparse: bool,
@@ -81,6 +83,7 @@ pub const Context = struct {
             .tree_needs_reparse = false,
             .znh = undefined,
             .old_slice = undefined,
+            .language = lang,
         };
         self.znh.init(alloc, lang);
         errdefer self.znh.deinit();
@@ -148,6 +151,20 @@ pub const Context = struct {
         _ = self;
     }
 
+    pub fn guiInspectNodeUnderCursor(self: *Context, cursor_left: u64, cursor_right: u64) void {
+        var cursor: TSTreeCursor = .init(self.alloc, .{ .node = tree_sitter.ts_tree_root_node(self.getTree()) });
+        defer cursor.deinit();
+
+        zgui.text("For range: {d}-{d}", .{ cursor_left, cursor_right });
+
+        var node: TSNode = .{ .node = tree_sitter.ts_node_descendant_for_byte_range(tree_sitter.ts_tree_root_node(self.getTree()), @intCast(cursor_left), @intCast(cursor_right)) };
+        while (true) {
+            zgui.text("{s}", .{std.mem.span(tree_sitter.ts_language_symbol_name(self.language, tree_sitter.ts_node_symbol(node.node)))});
+
+            node = node.slowParent() orelse break;
+        }
+    }
+
     // pub fn displayExplorer(self: *Context) void {
     //     const root_node = tree_sitter.ts_tree_root_node(self.getTree());
 
@@ -196,6 +213,13 @@ const TSNode = struct {
     }
     pub fn eq(self: TSNode, other: TSNode) bool {
         return tree_sitter.ts_node_eq(self.node, other.node);
+    }
+
+    /// do not use! slow!
+    pub fn slowParent(self: TSNode) ?TSNode {
+        const res = tree_sitter.ts_node_parent(self.node);
+        if (tree_sitter.ts_node_is_null(res)) return null;
+        return .{ .node = res };
     }
 };
 const TSTreeCursor = struct {
