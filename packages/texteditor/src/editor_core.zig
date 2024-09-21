@@ -1124,9 +1124,11 @@ pub const CursorPositions = struct {
     idx: usize,
     count: i32,
     positions: std.ArrayList(PositionItem),
+    last_query: u64,
+    last_query_result: ?CursorPosRes,
 
     pub fn init(gpa: std.mem.Allocator) CursorPositions {
-        return .{ .idx = 0, .count = 0, .positions = .init(gpa) };
+        return .{ .idx = 0, .count = 0, .positions = .init(gpa), .last_query = 0, .last_query_result = null };
     }
     pub fn deinit(self: *CursorPositions) void {
         self.positions.deinit();
@@ -1142,6 +1144,8 @@ pub const CursorPositions = struct {
     }
 
     pub fn advanceAndRead(self: *CursorPositions, docbyte: u64) CursorPosRes {
+        if (docbyte == self.last_query and self.last_query_result != null) return self.last_query_result.?;
+        if (docbyte < self.last_query) @panic("advanceAndRead must advance");
         var left_cursor: CursorPosState = .none;
         var left_cursor_extra: ?CursorPosition = null;
         while (true) : (self.idx += 1) {
@@ -1166,11 +1170,13 @@ pub const CursorPositions = struct {
             }
             left_cursor_extra = itm.extra;
         }
-        return .{
+        self.last_query = docbyte;
+        self.last_query_result = .{
             .left_cursor = left_cursor,
             .left_cursor_extra = left_cursor_extra,
             .selected = self.count != 0,
         };
+        return self.last_query_result.?;
     }
 };
 

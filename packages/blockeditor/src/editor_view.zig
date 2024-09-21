@@ -26,6 +26,7 @@ pub const LayoutInfo = struct {
 };
 const ShapingSegment = struct {
     length: usize,
+    replace_text: ?[]const u8 = null,
 
     // TODO more stuff in here, ie text direction, ...
 };
@@ -140,7 +141,12 @@ pub const EditorView = struct {
 
         const line_height: i32 = 16;
 
-        if (line_len == 0) return .{ .height = line_height, .items = &.{} };
+        if (line_len == 0) return .{
+            .height = line_height,
+            .items = &.{
+                // TODO add an invisible char for the last one or something
+            },
+        };
 
         self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
 
@@ -155,16 +161,32 @@ pub const EditorView = struct {
         // - maybe use libraqm. it should handle all of this except fallback characters
         // - alternatively, use pango. it handles fallback characters too, if we can get it to build.
 
-        const segments = [_]ShapingSegment{.{ .length = line_len }};
+        var segments_al = std.ArrayList(ShapingSegment).init(self.gpa);
+        defer segments_al.deinit();
+
+        segments_al.append(.{ .length = line_len }) catch @panic("oom");
+        std.debug.assert(line_len > 0); // handled above
+        const last_byte = self.core.document.value.read(self.core.document.value.positionFromDocbyte(line_start_docbyte + line_len - 1))[0];
+        if (last_byte == '\n') {
+            var last = segments_al.pop();
+            last.length -= 1;
+            if (last.length > 0) segments_al.append(last) catch @panic("oom");
+            segments_al.append(.{ .length = 1, .replace_text = "_" }) catch @panic("oom");
+        }
 
         self._layout_result_temp_al.clearRetainingCapacity();
 
         var start_offset: usize = 0;
-        for (segments) |segment| {
+        for (segments_al.items) |segment| {
             const buf: hb.Buffer = hb.Buffer.init() orelse @panic("oom");
             defer buf.deinit();
 
-            buf.addUTF8(self._layout_temp_al.items, @intCast(start_offset), @intCast(segment.length)); // invalid utf-8 is ok, so we don't have to call the replace fn ourselves
+            if (segment.replace_text) |rpl| {
+                std.debug.assert(rpl.len == segment.length);
+                buf.addUTF8(rpl, 0, @intCast(segment.length));
+            } else {
+                buf.addUTF8(self._layout_temp_al.items, @intCast(start_offset), @intCast(segment.length)); // invalid utf-8 is ok, so we don't have to call the replace fn ourselves
+            }
             defer start_offset += segment.length;
 
             buf.setDirection(.ltr);
@@ -426,12 +448,10 @@ pub const EditorView = struct {
         var syn_hl = self.core.syn_hl_ctx.highlight();
         defer syn_hl.deinit();
 
-        const replace_space = self.font.?.ft_face.getCharIndex('·');
-        const replace_tab = self.font.?.ft_face.getCharIndex('→');
-        const replace_newline = self.font.?.ft_face.getCharIndex('⏎'); // '␊'?
-        _ = replace_space;
-        _ = replace_tab;
-        _ = replace_newline;
+        const replace_space = self.font.?.ft_face.getCharIndex('·') orelse self.font.?.ft_face.getCharIndex('_');
+        const replace_tab = self.font.?.ft_face.getCharIndex('⇥') orelse self.font.?.ft_face.getCharIndex('→') orelse self.font.?.ft_face.getCharIndex('>');
+        const replace_newline = self.font.?.ft_face.getCharIndex('⏎') orelse self.font.?.ft_face.getCharIndex('␊') orelse self.font.?.ft_face.getCharIndex('\\');
+        const replace_cr = self.font.?.ft_face.getCharIndex('␍') orelse self.font.?.ft_face.getCharIndex('<');
 
         var line_to_render = render_start_pos;
         var line_pos: @Vector(2, f32) = .{ 10, 10 - self.scroll.offset };
@@ -444,29 +464,63 @@ pub const EditorView = struct {
             var length_with_no_selection_render: f32 = 0.0;
             for (layout_test.items, 0..) |item, i| {
                 const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) item.docbyte + 1 else layout_test.items[i + 1].docbyte;
+                const len = next_glyph_docbyte - item.docbyte;
                 if (next_glyph_docbyte == item.docbyte) {
                     length_with_no_selection_render += item.advance[0];
                 } else {
                     length_with_no_selection_render = 0;
                 }
+                const single_char: u8 = if (len == 1) blk: {
+                    break :blk block.read(block.positionFromDocbyte(item.docbyte))[0];
+                } else '?';
+                const replace_invisible_glyph_id: ?u32 = switch (single_char) {
+                    '\n' => replace_newline,
+                    '\r' => replace_cr,
+                    ' ' => replace_space,
+                    '\t' => replace_tab,
+                    else => null,
+                };
+                const start_docbyte_selected = cursor_positions.advanceAndRead(item.docbyte).selected;
 
-                const glyph_info = self.renderGlyph(item.glyph_id, layout_test.height);
-                if (glyph_info.region) |region| {
-                    const syn_hl_info = syn_hl.advanceAndRead(item.docbyte);
-                    const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
-                    const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
-                    draw_list.addRegion(.{
-                        .pos = @floor(line_pos + cursor_pos + item.offset + glyph_offset),
-                        .size = glyph_size,
-                        .region = region,
-                        .image = if (true) .editor_view_glyphs else null,
-                        .image_size = self.glyphs.size,
-                        .tint = hexToFloat(DefaultTheme.synHlColor(syn_hl_info)),
-                    });
+                if (replace_invisible_glyph_id) |invis_glyph| {
+                    // TODO: also show invisibles for trailing whitespace
+                    if (start_docbyte_selected) {
+                        const tint = DefaultTheme.synHlColor(.invisible);
+
+                        const invis_glyph_info = self.renderGlyph(invis_glyph, layout_test.height);
+                        if (invis_glyph_info.region) |region| {
+                            const glyph_size: @Vector(2, f32) = @floatFromInt(invis_glyph_info.size);
+                            const glyph_offset: @Vector(2, f32) = @floatFromInt(invis_glyph_info.offset);
+
+                            draw_list.addRegion(.{
+                                .pos = @floor(line_pos + cursor_pos + item.offset + glyph_offset),
+                                .size = glyph_size,
+                                .region = region,
+                                .image = .editor_view_glyphs,
+                                .image_size = self.glyphs.size,
+                                .tint = hexToFloat(tint),
+                            });
+                        }
+                    }
+                } else {
+                    const glyph_info = self.renderGlyph(item.glyph_id, layout_test.height);
+                    if (glyph_info.region) |region| {
+                        const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
+                        const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
+
+                        const tint = DefaultTheme.synHlColor(syn_hl.advanceAndRead(item.docbyte));
+                        draw_list.addRegion(.{
+                            .pos = @floor(line_pos + cursor_pos + item.offset + glyph_offset),
+                            .size = glyph_size,
+                            .region = region,
+                            .image = .editor_view_glyphs,
+                            .image_size = self.glyphs.size,
+                            .tint = hexToFloat(tint),
+                        });
+                    }
                 }
 
                 const total_width: f32 = length_with_no_selection_render + item.advance[0];
-                const len = next_glyph_docbyte - item.docbyte;
                 // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions (when moving with .byte). Include them all.
                 for (0..@intCast(len)) |docbyte_offset| {
                     const docbyte = item.docbyte + docbyte_offset;
@@ -601,7 +655,7 @@ const DefaultTheme = struct {
             .variable_mutable => 0xB7C5D3,
             .comment => 0xff9d1c,
 
-            .invisible => 0x2e3c47,
+            .invisible => 0x43515c,
         };
     }
 };
