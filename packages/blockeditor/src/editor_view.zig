@@ -454,7 +454,7 @@ pub const EditorView = struct {
         const replace_cr = self.font.?.ft_face.getCharIndex('␍') orelse self.font.?.ft_face.getCharIndex('<');
 
         var line_to_render = render_start_pos;
-        var line_pos: @Vector(2, f32) = .{ 10, 10 - self.scroll.offset };
+        var line_pos: @Vector(2, f32) = @floor(@Vector(2, f32){ 10, 10 - self.scroll.offset });
         var click_target: ?usize = 0;
         while (true) {
             if (line_pos[1] > (window_pos + window_size)[1]) break;
@@ -481,6 +481,7 @@ pub const EditorView = struct {
                     else => null,
                 };
                 const start_docbyte_selected = cursor_positions.advanceAndRead(item.docbyte).selected;
+                const item_offset = @round(item.offset);
 
                 if (replace_invisible_glyph_id) |invis_glyph| {
                     // TODO: also show invisibles for trailing whitespace
@@ -493,7 +494,7 @@ pub const EditorView = struct {
                             const glyph_offset: @Vector(2, f32) = @floatFromInt(invis_glyph_info.offset);
 
                             draw_list.addRegion(.{
-                                .pos = @floor(line_pos + cursor_pos + item.offset + glyph_offset),
+                                .pos = line_pos + cursor_pos + item_offset + glyph_offset,
                                 .size = glyph_size,
                                 .region = region,
                                 .image = .editor_view_glyphs,
@@ -510,7 +511,7 @@ pub const EditorView = struct {
 
                         const tint = DefaultTheme.synHlColor(syn_hl.advanceAndRead(item.docbyte));
                         draw_list.addRegion(.{
-                            .pos = @floor(line_pos + cursor_pos + item.offset + glyph_offset),
+                            .pos = line_pos + cursor_pos + item_offset + glyph_offset,
                             .size = glyph_size,
                             .region = region,
                             .image = .editor_view_glyphs,
