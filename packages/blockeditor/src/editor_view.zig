@@ -15,12 +15,14 @@ const sb = beui_mod.font_experiment.sb;
 const editor_core = @import("texteditor").core;
 
 pub const LayoutItem = struct {
-    docbyte: u64,
+    docbyte_offset_from_layout_line_start: u64,
     glyph_id: u32,
     offset: @Vector(2, f32),
     advance: @Vector(2, f32),
 };
 pub const LayoutInfo = struct {
+    last_used: i64,
+    ticked_last_frame: bool,
     height: i32,
     items: []LayoutItem,
 };
@@ -79,13 +81,13 @@ pub const EditorView = struct {
     core: editor_core.EditorCore,
     selecting: bool = false,
     _layout_temp_al: std.ArrayList(u8),
-    _layout_result_temp_al: std.ArrayList(LayoutItem),
 
     font: ?Font,
     glyphs: beui_mod.texpack,
     glyph_cache: std.AutoHashMap(u32, GlyphCacheEntry),
     glyphs_cache_full: bool,
     verdana_ttf: ?[]const u8,
+    layout_cache: std.StringArrayHashMap(LayoutInfo),
 
     scroll: struct {
         /// null = start of file
@@ -101,23 +103,25 @@ pub const EditorView = struct {
             .core = undefined,
             .scroll = .{},
             ._layout_temp_al = .init(gpa),
-            ._layout_result_temp_al = .init(gpa),
             .font = .init(verdana_ttf orelse beui_mod.font_experiment.NotoSansMono_wght),
             .glyphs = beui_mod.texpack.init(gpa, 2048, .greyscale) catch @panic("oom"),
             .glyph_cache = .init(gpa),
             .glyphs_cache_full = false,
+            .layout_cache = .init(gpa),
 
             .verdana_ttf = verdana_ttf,
         };
         self.core.initFromDoc(gpa, document);
     }
     pub fn deinit(self: *EditorView) void {
+        for (self.layout_cache.keys()) |k| self.gpa.free(k);
+        for (self.layout_cache.values()) |v| self.gpa.free(v.items);
+        self.layout_cache.deinit();
         if (self.verdana_ttf) |v| self.gpa.free(v);
         self.glyph_cache.deinit();
         self.glyphs.deinit(self.gpa);
         if (self.font) |*font| font.deinit();
         self._layout_temp_al.deinit();
-        self._layout_result_temp_al.deinit();
         self.core.deinit();
     }
 
@@ -128,27 +132,71 @@ pub const EditorView = struct {
     // - or from screen position -> bufbyte
     // - and it will always give us access to total scroll height
 
+    fn tickLayoutCache(self: *EditorView, beui: *beui_mod.Beui) void {
+        const max_time = 10_000;
+        const last_valid_time = beui.frame.frame_cfg.?.now_ms - max_time;
+
+        var i: usize = 0;
+        while (i < self.layout_cache.count()) {
+            const key = self.layout_cache.keys()[i];
+            const value = &self.layout_cache.values()[i];
+            if (!value.ticked_last_frame and value.last_used < last_valid_time) {
+                std.log.info("removing dead item from layout cache", .{});
+                self.gpa.free(value.items);
+                // value pointer invalidates after this line
+                std.debug.assert(self.layout_cache.swapRemove(key));
+                self.gpa.free(key);
+                // don't increment i; must process this item again because it just changed
+            } else {
+                value.ticked_last_frame = false;
+                i += 1;
+            }
+        }
+    }
+
     /// result pointer is valid until next layoutLine() call
-    fn layoutLine(self: *EditorView, line_middle: editor_core.Position) LayoutInfo {
+    fn layoutLine(self: *EditorView, beui: *beui_mod.Beui, line_middle: editor_core.Position) LayoutInfo {
         std.debug.assert(self._layout_temp_al.items.len == 0);
         defer self._layout_temp_al.clearRetainingCapacity();
 
-        // TODO: cache layouts. use an addUpdateListener handler to invalidate caches.
         const line_start = self.core.getLineStart(line_middle);
         const line_end = self.core.getNextLineStart(line_start); // includes the '\n' character because that shows up in invisibles selection
         const line_start_docbyte = self.core.document.value.docbyteFromPosition(line_start);
         const line_len = self.core.document.value.docbyteFromPosition(line_end) - line_start_docbyte;
 
+        self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
+
+        const gpres = self.layout_cache.getOrPut(self._layout_temp_al.items) catch @panic("oom");
+        if (gpres.found_existing) {
+            gpres.value_ptr.last_used = beui.frame.frame_cfg.?.now_ms;
+            gpres.value_ptr.ticked_last_frame = true;
+            return gpres.value_ptr.*;
+        }
+
+        var layout_result_al: std.ArrayList(LayoutItem) = .init(self.gpa);
+        defer layout_result_al.deinit();
+
+        gpres.value_ptr.* = layoutLine_internal(self, line_start_docbyte, line_len, &layout_result_al);
+        gpres.key_ptr.* = self._layout_temp_al.toOwnedSlice() catch @panic("oom");
+        gpres.value_ptr.last_used = beui.frame.frame_cfg.?.now_ms;
+        gpres.value_ptr.ticked_last_frame = true;
+        gpres.value_ptr.items = layout_result_al.toOwnedSlice() catch @panic("oom");
+
+        return gpres.value_ptr.*;
+    }
+    fn layoutLine_internal(self: *EditorView, line_start_docbyte: u64, line_len: u64, layout_result_al: *std.ArrayList(LayoutItem)) LayoutInfo {
+        // TODO: cache layouts. use an addUpdateListener handler to invalidate caches.
+
         const line_height: i32 = 16;
 
         if (line_len == 0) return .{
+            .last_used = 0,
+            .ticked_last_frame = true,
             .height = line_height,
             .items = &.{
                 // TODO add an invisible char for the last one or something
             },
         };
-
-        self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
 
         // TODO: segment shape() calls based on:
         // - syntax highlighting style (eg in markdown we want to have some text rendered bold, or some as a heading)
@@ -174,7 +222,7 @@ pub const EditorView = struct {
             segments_al.append(.{ .length = 1, .replace_text = "_" }) catch @panic("oom");
         }
 
-        self._layout_result_temp_al.clearRetainingCapacity();
+        layout_result_al.clearRetainingCapacity();
 
         var start_offset: usize = 0;
         for (segments_al.items) |segment| {
@@ -185,6 +233,7 @@ pub const EditorView = struct {
                 std.debug.assert(rpl.len == segment.length);
                 buf.addUTF8(rpl, 0, @intCast(segment.length));
             } else {
+                _ = self._layout_temp_al.items[start_offset..][0..segment.length];
                 buf.addUTF8(self._layout_temp_al.items, @intCast(start_offset), @intCast(segment.length)); // invalid utf-8 is ok, so we don't have to call the replace fn ourselves
             }
             defer start_offset += segment.length;
@@ -200,15 +249,15 @@ pub const EditorView = struct {
                 buf.getGlyphPositions().?,
             ) |glyph_info, glyph_relative_pos| {
                 const glyph_id = glyph_info.codepoint;
-                const glyph_docbyte = line_start_docbyte + start_offset + glyph_info.cluster;
+                const glyph_docbyte = start_offset + glyph_info.cluster;
                 const glyph_flags = glyph_info.getFlags();
 
                 const glyph_offset: @Vector(2, i64) = .{ glyph_relative_pos.x_offset, glyph_relative_pos.y_offset };
                 const glyph_advance: @Vector(2, i64) = .{ glyph_relative_pos.x_advance, glyph_relative_pos.y_advance };
 
-                self._layout_result_temp_al.append(.{
+                layout_result_al.append(.{
                     .glyph_id = glyph_id,
-                    .docbyte = glyph_docbyte,
+                    .docbyte_offset_from_layout_line_start = glyph_docbyte,
                     .offset = @as(@Vector(2, f32), @floatFromInt(glyph_offset)) / @as(@Vector(2, f32), @splat(64.0)),
                     .advance = @as(@Vector(2, f32), @floatFromInt(glyph_advance)) / @as(@Vector(2, f32), @splat(64.0)),
                 }) catch @panic("oom");
@@ -218,8 +267,10 @@ pub const EditorView = struct {
         }
 
         return .{
+            .last_used = 0,
+            .ticked_last_frame = true,
             .height = line_height,
-            .items = self._layout_result_temp_al.items,
+            .items = layout_result_al.items,
         };
     }
 
@@ -263,6 +314,7 @@ pub const EditorView = struct {
             self.glyphs_cache_full = false;
             // TODO if it's full two frames in a row, give up for a little while
         }
+        self.tickLayoutCache(beui);
 
         const arena = beui.arena();
         _ = arena;
@@ -408,7 +460,7 @@ pub const EditorView = struct {
                         // no prev line
                         prev_line = null;
                     }
-                    const line_measure = self.layoutLine(self.scroll.line_before_anchor.?);
+                    const line_measure = self.layoutLine(beui, self.scroll.line_before_anchor.?);
                     self.scroll.offset += @floatFromInt(line_measure.height);
                     self.scroll.line_before_anchor = prev_line;
                 }
@@ -423,7 +475,7 @@ pub const EditorView = struct {
                     // no next line
                     break :blk;
                 }
-                const this_measure = self.layoutLine(this_line);
+                const this_measure = self.layoutLine(beui, this_line);
                 if (self.scroll.offset > @as(f32, @floatFromInt(this_measure.height))) {
                     self.scroll.offset -= @floatFromInt(this_measure.height);
                     self.scroll.line_before_anchor = this_line;
@@ -459,19 +511,21 @@ pub const EditorView = struct {
         while (true) {
             if (line_pos[1] > (window_pos + window_size)[1]) break;
 
-            const layout_test = self.layoutLine(line_to_render);
+            const layout_test = self.layoutLine(beui, line_to_render);
+            const line_start_docbyte = block.docbyteFromPosition(self.core.getLineStart(line_to_render));
             var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
             var length_with_no_selection_render: f32 = 0.0;
             for (layout_test.items, 0..) |item, i| {
-                const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) item.docbyte + 1 else layout_test.items[i + 1].docbyte;
-                const len = next_glyph_docbyte - item.docbyte;
-                if (next_glyph_docbyte == item.docbyte) {
+                const item_docbyte = line_start_docbyte + item.docbyte_offset_from_layout_line_start;
+                const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) item_docbyte + 1 else line_start_docbyte + layout_test.items[i + 1].docbyte_offset_from_layout_line_start;
+                const len = next_glyph_docbyte - item_docbyte;
+                if (next_glyph_docbyte == item_docbyte) {
                     length_with_no_selection_render += item.advance[0];
                 } else {
                     length_with_no_selection_render = 0;
                 }
                 const single_char: u8 = if (len == 1) blk: {
-                    break :blk block.read(block.positionFromDocbyte(item.docbyte))[0];
+                    break :blk block.read(block.positionFromDocbyte(item_docbyte))[0];
                 } else '?';
                 const replace_invisible_glyph_id: ?u32 = switch (single_char) {
                     '\n' => replace_newline,
@@ -480,7 +534,7 @@ pub const EditorView = struct {
                     '\t' => replace_tab,
                     else => null,
                 };
-                const start_docbyte_selected = cursor_positions.advanceAndRead(item.docbyte).selected;
+                const start_docbyte_selected = cursor_positions.advanceAndRead(item_docbyte).selected;
                 const item_offset = @round(item.offset);
 
                 if (replace_invisible_glyph_id) |invis_glyph| {
@@ -509,7 +563,7 @@ pub const EditorView = struct {
                         const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
                         const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
 
-                        const tint = DefaultTheme.synHlColor(syn_hl.advanceAndRead(item.docbyte));
+                        const tint = DefaultTheme.synHlColor(syn_hl.advanceAndRead(item_docbyte));
                         draw_list.addRegion(.{
                             .pos = line_pos + cursor_pos + item_offset + glyph_offset,
                             .size = glyph_size,
@@ -524,7 +578,7 @@ pub const EditorView = struct {
                 const total_width: f32 = length_with_no_selection_render + item.advance[0];
                 // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions (when moving with .byte). Include them all.
                 for (0..@intCast(len)) |docbyte_offset| {
-                    const docbyte = item.docbyte + docbyte_offset;
+                    const docbyte = item_docbyte + docbyte_offset;
                     const cursor_info = cursor_positions.advanceAndRead(docbyte);
 
                     const portion = @floor(@as(f32, @floatFromInt(docbyte_offset)) / @as(f32, @floatFromInt(len)) * total_width);
