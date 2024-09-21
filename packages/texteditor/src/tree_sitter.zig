@@ -217,11 +217,15 @@ pub const TreeSitterSyntaxHighlighter = struct {
 
         if (false) return .punctuation_important;
 
-        const hl_node = tree_sitter.ts_node_descendant_for_byte_range(
-            syn_hl.root_node,
-            @intCast(idx),
-            @intCast(idx + 1),
-        );
+        const hl_node = blk: {
+            const tctx_ = tracy.traceNamed(@src(), "ts_node_descendant_for_byte_range");
+            defer tctx_.end();
+            break :blk tree_sitter.ts_node_descendant_for_byte_range(
+                syn_hl.root_node,
+                @intCast(idx),
+                @intCast(idx + 1),
+            );
+        };
         return syn_hl.znh.highlightNode(hl_node, idx);
     }
 };
@@ -376,6 +380,9 @@ const ZigNodeHighlighter = struct {
     }
 
     pub fn highlightNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode, byte_index: usize) editor_core.SynHlColorScope {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         if (hl.last_node_cache) |cache| {
             if (tree_sitter.ts_node_eq(cache.node, node)) {
                 return renderCache(hl, cache.cache, byte_index);
@@ -386,6 +393,9 @@ const ZigNodeHighlighter = struct {
         return renderCache(hl, cache, byte_index);
     }
     pub fn charAt(hl: *ZigNodeHighlighter, pos: u64) u8 {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         if (pos >= hl.doc.?.length()) return '\x00';
         var char_arr: [1]u8 = undefined;
         hl.doc.?.readSlice(hl.doc.?.positionFromDocbyte(pos), &char_arr);
@@ -397,6 +407,9 @@ fn cs(v: editor_core.SynHlColorScope) NodeCacheInfo {
     return .{ .color_scope = v };
 }
 fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize) editor_core.SynHlColorScope {
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
     return switch (cache) {
         .color_scope => |scope| scope,
         .special => |special| blk: {
@@ -441,6 +454,9 @@ fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize)
     };
 }
 fn getCacheForNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode) NodeCacheInfo {
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
     if (tree_sitter.ts_node_is_null(node)) return cs(.invalid);
     const node_info = hl.nodeSymbolToInfo(tree_sitter.ts_node_symbol(node));
 
