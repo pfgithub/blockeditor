@@ -428,6 +428,7 @@ pub const EditorView = struct {
 
         var line_to_render = render_start_pos;
         var line_pos: @Vector(2, f32) = .{ 10, 10 - self.scroll.offset };
+        var click_target: ?usize = 0;
         while (true) {
             if (line_pos[1] > (window_pos + window_size)[1]) break;
 
@@ -474,6 +475,21 @@ pub const EditorView = struct {
                     if (cursor_info.selected) {
                         draw_list.addRect(@floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 }), .{ portion_width, @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
                     }
+
+                    // click target problem
+                    // imagine the character "𒐫" <- this is composed of four bytes, so it will be split up into
+                    // [ ][ ][ ][ ]. then if we cut those in half that's [|][|][|][|]. so you will be clicking on the left side
+                    // of this four byte char for three out of the four cursor positions. only halfway through the last byte
+                    // will you click on the right.
+                    //
+                    // so for now let's just set the click target if >. later we can make it properly handle clicking halfway. somehow.
+                    // - some kind of thing about going left and right to the nearest stops, measuring their on-screen distances,
+                    //   and picking the one closer to the mouse x position. or something like that.
+
+                    const min = @floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 });
+                    if (@reduce(.And, beui.persistent.mouse_pos > min)) {
+                        click_target = docbyte;
+                    }
                 }
 
                 cursor_pos += item.advance;
@@ -494,8 +510,6 @@ pub const EditorView = struct {
 
         // var pos: @Vector(2, f32) = .{ 0, @floatCast(self.scroll.offset) };
         // var prev_char_advance: f32 = 0;
-        var click_target: ?usize = null;
-        _ = &click_target;
         // for (block.docbyteFromPosition(render_start_pos)..block.length() + 1) |i| {
         //     const cursor_info = cursor_positions.advanceAndRead(i);
         //     const char = syn_hl.znh.charAt(i);
