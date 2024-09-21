@@ -183,18 +183,153 @@ pub const Context = struct {
     // }
 };
 
+const TSNode = struct {
+    node: tree_sitter.TSNode,
+    pub fn startByte(self: TSNode) u32 {
+        return tree_sitter.ts_node_start_byte(self.node);
+    }
+    pub fn endByte(self: TSNode) u32 {
+        return tree_sitter.ts_node_end_byte(self.node);
+    }
+    pub fn docbyteInRange(self: TSNode, docbyte: u64) bool {
+        return docbyte >= self.startByte() and docbyte < self.endByte();
+    }
+    pub fn eq(self: TSNode, other: TSNode) bool {
+        return tree_sitter.ts_node_eq(self.node, other.node);
+    }
+};
+const TSTreeCursor = struct {
+    stack: std.ArrayList(TSNode),
+    cursor: tree_sitter.TSTreeCursor,
+
+    pub fn init(gpa: std.mem.Allocator, root_node: TSNode) TSTreeCursor {
+        var res_stack = std.ArrayList(TSNode).init(gpa);
+        res_stack.append(root_node) catch @panic("oom");
+        return .{ .stack = res_stack, .cursor = tree_sitter.ts_tree_cursor_new(root_node.node) };
+    }
+    pub fn deinit(self: *TSTreeCursor) void {
+        tree_sitter.ts_tree_cursor_delete(&self.cursor);
+        self.stack.deinit();
+    }
+    pub fn gotoFirstChild(self: *TSTreeCursor) bool {
+        if (tree_sitter.ts_tree_cursor_goto_first_child(&self.cursor)) {
+            self.stack.append(self._currentNode_raw()) catch @panic("oom");
+            return true;
+        } else return false;
+    }
+    pub fn gotoParent(self: *TSTreeCursor) bool {
+        if (tree_sitter.ts_tree_cursor_goto_parent(&self.cursor)) {
+            _ = self.stack.pop();
+            return true;
+        } else return false;
+    }
+    pub fn gotoNextSibling(self: *TSTreeCursor) bool {
+        if (tree_sitter.ts_tree_cursor_goto_next_sibling(&self.cursor)) {
+            _ = self.stack.pop();
+            self.stack.append(self._currentNode_raw()) catch @panic("oom");
+            return true;
+        } else return false;
+    }
+
+    pub fn goDeepLhs(self: *TSTreeCursor) void {
+        while (self.gotoFirstChild()) {}
+    }
+
+    pub fn _currentNode_raw(self: *TSTreeCursor) TSNode {
+        return .{ .node = tree_sitter.ts_tree_cursor_current_node(&self.cursor) };
+    }
+    pub fn currentNode(self: *TSTreeCursor) TSNode {
+        std.debug.assert(self.stack.getLast().eq(self._currentNode_raw()));
+        return self.stack.getLast();
+    }
+};
+
 pub const TreeSitterSyntaxHighlighter = struct {
-    root_node: tree_sitter.TSNode,
+    root_node: TSNode,
     znh: *ZigNodeHighlighter,
+    cursor: TSTreeCursor,
+    last_access: u64,
+    last_access_value: ?TSNode,
 
     pub fn init(znh: *ZigNodeHighlighter, root_node: tree_sitter.TSNode) TreeSitterSyntaxHighlighter {
+        var cursor: TSTreeCursor = .init(znh.alloc, .{ .node = root_node });
+        cursor.goDeepLhs();
+
         return .{
-            .root_node = root_node,
+            .root_node = .{ .node = root_node },
             .znh = znh,
+            .cursor = cursor,
+            .last_access = 0,
+            .last_access_value = null,
         };
     }
     pub fn deinit(self: *TreeSitterSyntaxHighlighter) void {
-        _ = self;
+        self.cursor.deinit();
+    }
+
+    fn advanceAndRead2(self: *TreeSitterSyntaxHighlighter, docbyte: u64) TSNode {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
+        if (self.last_access == docbyte) if (self.last_access_value) |v| return v;
+        if (docbyte < self.last_access) @panic("advanceAndRead must advance");
+        self.last_access = docbyte;
+        const res = self.advanceAndRead2_internal(docbyte);
+        self.last_access_value = res;
+        return res;
+    }
+    inline fn advanceAndRead2_internal(self: *TreeSitterSyntaxHighlighter, docbyte: u64) TSNode {
+        // first, advance if necessary
+        if (docbyte >= self.cursor.currentNode().endByte()) {
+            // need to advance
+            // 1. find the lowest node who's parent contains the current docbyte
+
+            while (true) {
+                if (self.cursor.stack.items.len < 2) return self.root_node;
+                const parent_node = self.cursor.stack.items[self.cursor.stack.items.len - 2];
+                if (parent_node.docbyteInRange(docbyte)) {
+                    // perfect node!
+                    break;
+                } else {
+                    // not wide enough, go up one
+                    std.debug.assert(self.cursor.gotoParent());
+                    continue;
+                }
+            }
+
+            // 2. advance next sibling until one covers our range
+            while (docbyte >= self.cursor.currentNode().endByte()) {
+                if (!self.cursor.gotoNextSibling()) {
+                    // cursor has no next sibling. go parent
+                    std.debug.assert(self.cursor.gotoParent());
+                    return self.cursor.currentNode(); // no more siblings, but parent is known to cover our range
+                }
+            }
+
+            // 3. goDeepLhs on final result, but skip by any nodes left of us
+            while (self.cursor.gotoFirstChild()) {
+                while (docbyte >= self.cursor.currentNode().endByte()) {
+                    std.debug.assert(self.cursor.gotoNextSibling());
+                }
+            }
+
+            std.debug.assert(docbyte < self.cursor.currentNode().endByte());
+        }
+
+        // then, find the node that contains the current docbyte
+        var current_node_i = self.cursor.stack.items.len - 1;
+        while (true) {
+            const current_node = self.cursor.stack.items[current_node_i];
+            if (current_node.docbyteInRange(docbyte)) {
+                // perfect node!
+                return current_node;
+            } else {
+                // not wide enough, go up one
+                if (current_node_i == 0) return self.root_node;
+                current_node_i -= 1;
+                continue;
+            }
+        }
     }
 
     pub fn advanceAndRead(syn_hl: *TreeSitterSyntaxHighlighter, idx: usize) editor_core.SynHlColorScope {
@@ -217,15 +352,7 @@ pub const TreeSitterSyntaxHighlighter = struct {
 
         if (false) return .punctuation_important;
 
-        const hl_node = blk: {
-            const tctx_ = tracy.traceNamed(@src(), "ts_node_descendant_for_byte_range");
-            defer tctx_.end();
-            break :blk tree_sitter.ts_node_descendant_for_byte_range(
-                syn_hl.root_node,
-                @intCast(idx),
-                @intCast(idx + 1),
-            );
-        };
+        const hl_node = syn_hl.advanceAndRead2(idx).node;
         return syn_hl.znh.highlightNode(hl_node, idx);
     }
 };
@@ -566,6 +693,9 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode) NodeCacheI
 // }
 
 fn testHighlight(context: *Context, expected_value: []const u8) !void {
+    return testHighlightOfsetted(context, 0, expected_value);
+}
+fn testHighlightOfsetted(context: *Context, offset: usize, expected_value: []const u8) !void {
     var hl = context.highlight();
     defer hl.deinit();
 
@@ -573,7 +703,7 @@ fn testHighlight(context: *Context, expected_value: []const u8) !void {
     defer actual.deinit();
 
     var prev_color_scope: editor_core.SynHlColorScope = .invalid;
-    for (0..context.document.value.length()) |i| {
+    for (offset..context.document.value.length()) |i| {
         const read_res = hl.advanceAndRead(i);
         const char = hl.znh.charAt(i);
 
@@ -615,6 +745,7 @@ test Context {
     defer ctx.deinit();
 
     try testHighlight(&ctx, "<keyword_storage>const <variable_constant>std <keyword>= @import<punctuation>(\"<literal_string>std<punctuation>\");");
+    try testHighlightOfsetted(&ctx, 19, "<punctuation>(\"<literal_string>std<punctuation>\");");
 
     src_component.applySimpleOperation(.{
         .position = src_component.value.positionFromDocbyte(0),
