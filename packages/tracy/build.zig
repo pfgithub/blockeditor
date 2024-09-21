@@ -224,6 +224,24 @@ pub fn build(b: *std.Build) !void {
                 .flags = profiler_flags,
             });
         },
+        .windows => {
+            tracy_exe.linkSystemLibrary("capstone");
+            tracy_exe.linkSystemLibrary("libzstd");
+            tracy_exe.addCSourceFiles(.{
+                .root = tracy_dep.path("."),
+                .files = &[_][]const u8{
+                    "nfd/nfd_win.cpp",
+                    "public/libbacktrace/elf.cpp",
+                },
+                .flags = profiler_flags,
+            });
+
+            // need to:
+            // - compile capstone ourself
+            // - compile zstd ourself
+            const fail_step = b.addFail("TODO support compiling tracy profiler for windows");
+            tracy_exe.step.dependOn(&fail_step.step);
+        },
         else => {
             const fail_step = b.addFail("TODO support compiling tracy profiler for target");
             tracy_exe.step.dependOn(&fail_step.step);
