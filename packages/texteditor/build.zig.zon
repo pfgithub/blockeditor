@@ -2,12 +2,9 @@
     .name = "texteditor",
     .version = "0.0.0",
     .dependencies = .{
-        .blocks = .{
-            .path = "../blocks",
-        },
-        .unicode_segmentation = .{
-            .path = "../unicode_segmentation",
-        },
+        .blocks = .{ .path = "../blocks" },
+        .unicode_segmentation = .{ .path = "../unicode_segmentation" },
+        .anywhere = .{ .path = "../anywhere" },
 
         .tree_sitter = .{
             .url = "https://github.com/tree-sitter/tree-sitter/archive/3c3699ba9057e9bc8c9d376a177fdf7547bee7b8.tar.gz",

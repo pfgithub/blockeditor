@@ -7,6 +7,7 @@ const draw_lists = beui_mod.draw_lists;
 const zglfw = @import("zglfw");
 const zgui = @import("zgui"); // zgui doesn't have everything! we should use cimgui + translate-c like we used to
 const beui_mod = @import("beui");
+const tracy = @import("anywhere").tracy;
 
 const ft = beui_mod.font_experiment.ft;
 const hb = beui_mod.font_experiment.hb;
@@ -156,6 +157,9 @@ pub const EditorView = struct {
 
     /// result pointer is valid until next layoutLine() call
     fn layoutLine(self: *EditorView, beui: *beui_mod.Beui, line_middle: editor_core.Position) LayoutInfo {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         std.debug.assert(self._layout_temp_al.items.len == 0);
         defer self._layout_temp_al.clearRetainingCapacity();
 
@@ -185,6 +189,9 @@ pub const EditorView = struct {
         return gpres.value_ptr.*;
     }
     fn layoutLine_internal(self: *EditorView, line_start_docbyte: u64, line_len: u64, layout_result_al: *std.ArrayList(LayoutItem)) LayoutInfo {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         // TODO: cache layouts. use an addUpdateListener handler to invalidate caches.
 
         const line_height: i32 = 16;
@@ -275,15 +282,22 @@ pub const EditorView = struct {
     }
 
     fn renderGlyph(self: *EditorView, glyph_id: u32, line_height: i32) GlyphCacheEntry {
-        if (self.glyph_cache.get(glyph_id)) |v| return v;
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
+        const gpres = self.glyph_cache.getOrPut(glyph_id) catch @panic("oom");
+        if (gpres.found_existing) return gpres.value_ptr.*;
         const result: GlyphCacheEntry = self.renderGlyph_nocache(glyph_id, line_height) catch |e| blk: {
             std.log.err("render glyph error: glyph={d}, err={s}", .{ glyph_id, @errorName(e) });
             break :blk .{ .size = .{ 0, 0 }, .region = null };
         };
-        self.glyph_cache.putNoClobber(glyph_id, result) catch @panic("oom");
+        gpres.value_ptr.* = result;
         return result;
     }
     fn renderGlyph_nocache(self: *EditorView, glyph_id: u32, line_height: i32) !GlyphCacheEntry {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         try self.font.?.ft_face.loadGlyph(glyph_id, .{ .render = true });
         const glyph = self.font.?.ft_face.glyph();
         const bitmap = glyph.bitmap();
@@ -307,6 +321,9 @@ pub const EditorView = struct {
     }
 
     pub fn gui(self: *EditorView, beui: *beui_mod.Beui, content_region_size: @Vector(2, f32)) void {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         if (self.glyphs_cache_full) {
             std.log.info("recreating glyph cache", .{});
             self.glyphs.clear();
@@ -453,6 +470,9 @@ pub const EditorView = struct {
 
         if (self.scroll.line_before_anchor != null) self.scroll.line_before_anchor = self.core.getLineStart(self.scroll.line_before_anchor.?);
         blk: {
+            const tctx_ = tracy.traceNamed(@src(), "handle scroll offsets");
+            defer tctx_.end();
+
             if (self.scroll.offset < 0) {
                 while (self.scroll.line_before_anchor != null and self.scroll.offset < 0) {
                     var prev_line: ?editor_core.Position = self.core.getPrevLineStart(self.scroll.line_before_anchor.?);
@@ -509,6 +529,9 @@ pub const EditorView = struct {
         var line_pos: @Vector(2, f32) = @floor(@Vector(2, f32){ 10, 10 - self.scroll.offset });
         var click_target: ?usize = 0;
         while (true) {
+            const tctx_ = tracy.traceNamed(@src(), "handle line");
+            defer tctx_.end();
+
             if (line_pos[1] > (window_pos + window_size)[1]) break;
 
             const layout_test = self.layoutLine(beui, line_to_render);
@@ -538,6 +561,9 @@ pub const EditorView = struct {
                 const item_offset = @round(item.offset);
 
                 if (replace_invisible_glyph_id) |invis_glyph| {
+                    const tctx__ = tracy.traceNamed(@src(), "render invisible glyph");
+                    defer tctx__.end();
+
                     // TODO: also show invisibles for trailing whitespace
                     if (start_docbyte_selected) {
                         const tint = DefaultTheme.synHlColor(.invisible);
@@ -558,6 +584,9 @@ pub const EditorView = struct {
                         }
                     }
                 } else {
+                    const tctx__ = tracy.traceNamed(@src(), "render glyph");
+                    defer tctx__.end();
+
                     const glyph_info = self.renderGlyph(item.glyph_id, layout_test.height);
                     if (glyph_info.region) |region| {
                         const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
@@ -578,6 +607,9 @@ pub const EditorView = struct {
                 const total_width: f32 = length_with_no_selection_render + item.advance[0];
                 // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions (when moving with .byte). Include them all.
                 for (0..@intCast(len)) |docbyte_offset| {
+                    const tctx__ = tracy.traceNamed(@src(), "render cursor and highlight");
+                    defer tctx__.end();
+
                     const docbyte = item_docbyte + docbyte_offset;
                     const cursor_info = cursor_positions.advanceAndRead(docbyte);
 

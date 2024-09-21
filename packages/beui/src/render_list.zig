@@ -1,4 +1,5 @@
 const std = @import("std");
+const tracy = @import("anywhere").tracy;
 
 // TODO:
 // - the whole result should end up in one vertex and index buffer.
@@ -58,6 +59,9 @@ pub const RenderList = struct {
     }
 
     fn getCmd(self: *RenderList, image: ?RenderListImage, min_remaining_vertices: usize) *RenderListCommand {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         // empty case: create a new command
         if (self.commands.items.len == 0) {
             return self.addCmd(image);
@@ -80,6 +84,9 @@ pub const RenderList = struct {
         return last;
     }
     fn addCmd(self: *RenderList, image: ?RenderListImage) *RenderListCommand {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         self.commands.append(.{
             .vertex_count = 0,
             .index_count = 0,
@@ -91,6 +98,9 @@ pub const RenderList = struct {
     }
 
     fn addVertices(self: *RenderList, image: ?RenderListImage, vertices: []const RenderListVertex, indices: []const RenderListIndex) void {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         var cmd = self.getCmd(image, vertices.len);
 
         const prev_vertices_len: u16 = @intCast(cmd.vertex_count); // vertices len can never be larger than (maxInt(u16) - vertices.len)
@@ -112,6 +122,9 @@ pub const RenderList = struct {
         image_size: u32,
         tint: @Vector(4, f32) = .{ 1, 1, 1, 1 },
     }) void {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         const uv = opts.region.calculateUV(opts.image_size);
         return self.addRect(opts.pos, opts.size, .{
             .uv_pos = .{ uv.x, uv.y },
@@ -126,6 +139,9 @@ pub const RenderList = struct {
         image: ?RenderListImage = null,
         tint: @Vector(4, f32) = .{ 1, 1, 1, 1 },
     }) void {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         var opts = opts_in;
         if (opts.image == null) {
             opts.uv_pos = .{ -1.0, -1.0 };

@@ -4,6 +4,7 @@ const editor_core = @import("editor_core.zig");
 const blocks_mod = @import("blocks");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
+const tracy = @import("anywhere").tracy;
 
 // TODO
 // https://github.com/tree-sitter/tree-sitter/issues/739
@@ -197,6 +198,9 @@ pub const TreeSitterSyntaxHighlighter = struct {
     }
 
     pub fn advanceAndRead(syn_hl: *TreeSitterSyntaxHighlighter, idx: usize) editor_core.SynHlColorScope {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         if (idx >= syn_hl.znh.doc.?.length()) return .invalid;
 
         // TODO:

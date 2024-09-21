@@ -7,6 +7,7 @@ const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
 const tree_sitter = @import("tree_sitter.zig");
+const tracy = @import("anywhere").tracy;
 
 pub const Position = bi.text_component.Position;
 pub const Selection = struct {
@@ -1144,6 +1145,9 @@ pub const CursorPositions = struct {
     }
 
     pub fn advanceAndRead(self: *CursorPositions, docbyte: u64) CursorPosRes {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         if (docbyte == self.last_query and self.last_query_result != null) return self.last_query_result.?;
         if (docbyte < self.last_query) @panic("advanceAndRead must advance");
         var left_cursor: CursorPosState = .none;

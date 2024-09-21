@@ -22,6 +22,10 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    const anywhere_dep = b.dependency("anywhere", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     const tree_sitter_dep = b.dependency("tree_sitter", .{ .target = target, .optimize = treesitter_target });
     const tree_sitter_root = b.addTranslateC(std.Build.Step.TranslateC.Options{
@@ -51,6 +55,7 @@ pub fn build(b: *std.Build) !void {
     });
     texteditor_mod.addImport("blocks", blocks_dep.module("blocks"));
     texteditor_mod.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
+    texteditor_mod.addImport("anywhere", anywhere_dep.module("anywhere"));
     texteditor_mod.addImport("tree-sitter", tree_sitter_module);
     texteditor_mod.linkLibrary(tree_sitter_zig_obj);
 
@@ -61,6 +66,7 @@ pub fn build(b: *std.Build) !void {
     });
     texteditor_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
     texteditor_test.root_module.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
+    texteditor_test.root_module.addImport("anywhere", anywhere_dep.module("anywhere"));
     texteditor_test.root_module.addImport("tree-sitter", tree_sitter_module);
     texteditor_test.root_module.linkLibrary(tree_sitter_zig_obj);
 

@@ -23,34 +23,19 @@ pub fn build(b: *std.Build) !void {
     });
     blockeditor_exe.step.dependOn(&format_step.step);
 
-    const blocks_dep = b.dependency("blocks", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
     blockeditor_exe.root_module.addImport("blocks", blocks_dep.module("blocks"));
 
-    const blocks_net_dep = b.dependency("blocks_net", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
     blockeditor_exe.root_module.addImport("blocks_net", blocks_net_dep.module("client"));
 
-    const texteditor_dep = b.dependency("texteditor", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
     blockeditor_exe.root_module.addImport("texteditor", texteditor_dep.module("texteditor"));
 
-    const beui_dep = b.dependency("beui", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
     blockeditor_exe.root_module.addImport("beui", beui_dep.module("beui"));
 
-    const anywhere_dep = b.dependency("anywhere", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
     blockeditor_exe.root_module.addImport("anywhere", anywhere_dep.module("anywhere"));
 
     const build_options = b.addOptions();
