@@ -142,7 +142,6 @@ pub const EditorView = struct {
             const key = self.layout_cache.keys()[i];
             const value = &self.layout_cache.values()[i];
             if (!value.ticked_last_frame and value.last_used < last_valid_time) {
-                std.log.info("removing dead item from layout cache", .{});
                 self.gpa.free(value.items);
                 // value pointer invalidates after this line
                 std.debug.assert(self.layout_cache.swapRemove(key));
