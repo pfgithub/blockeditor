@@ -42,6 +42,13 @@ Tasks:
 - [ ] text editor: up and down while in a selection do not work as expected. up should go up
   from the left of the selection (cursor or anchor) and down should go down from the right of
   the selection (cursor or anchor)
+- [ ] move tree sitter into its own package
+- [ ] update tree sitter
+- [ ] move tree sitter advanceAndRead logic into struct TreeCursor
+- [ ] text editor tree sitter: `"hi{a}"` highlights the brackets. and `"hi{{ }}` shows the
+  brackets as invalid. Check if an update fixes this
+- [ ] text editor tree sitter: add a button to copy dot graph of the current syntax tree to
+  clipboard
 
 future blocks:
 
