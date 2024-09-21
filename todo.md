@@ -32,6 +32,12 @@ Tasks:
 - [ ] text editor: position visible invisibles halfway through the original width they would have taken
 - [ ] text editor: fix kerning problems. `"vert"` has trouble between the v, e, and r
   - "type" has trouble between y and p
+- [ ] text editor: copying a single byte of a multi-byte codepoint and pasting it back pastes '?'. it should detect
+  that the pasted string is identical to the copied string and paste the original byte.
+- [ ] text editor: undo! depends on document implementation of 'replace' undo
+- [ ] document: merge multiple operations into one equivalent one
+- [ ] document: make id u128 and have it be generated randomly? reserve 64 bits for id of the current client? or
+  store all ids the current client has made so we know when we can extend.
 
 future blocks:
 
