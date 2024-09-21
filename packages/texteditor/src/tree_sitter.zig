@@ -1,19 +1,19 @@
 const std = @import("std");
-pub const tree_sitter = @import("tree-sitter");
 const editor_core = @import("editor_core.zig");
 const blocks_mod = @import("blocks");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const tracy = @import("anywhere").tracy;
 const zgui = @import("anywhere").zgui;
+pub const ts = @import("tree_sitter_bindings.zig");
 
 // TODO
 // https://github.com/tree-sitter/tree-sitter/issues/739
 
-extern fn tree_sitter_zig() ?*tree_sitter.TSLanguage;
+extern fn tree_sitter_zig() ?*ts.Language;
 
-fn addPoint(start_point: tree_sitter.TSPoint, src: []const u8) tree_sitter.TSPoint {
-    var result: tree_sitter.TSPoint = start_point;
+fn addPoint(start_point: ts.Point, src: []const u8) ts.Point {
+    var result: ts.Point = start_point;
     for (src) |char| {
         switch (char) {
             '\n' => {
@@ -28,29 +28,19 @@ fn addPoint(start_point: tree_sitter.TSPoint, src: []const u8) tree_sitter.TSPoi
     return result;
 }
 
-fn tsinputRead(data: ?*anyopaque, byte_offset: u32, _: tree_sitter.TSPoint, bytes_read: [*c]u32) callconv(.C) [*c]const u8 {
-    const block_val: *const bi.text_component.TextDocument = @ptrCast(@alignCast(data.?));
-    if (byte_offset >= block_val.length()) {
-        bytes_read.* = 0;
-        return "";
-    }
-    const res = block_val.read(block_val.positionFromDocbyte(byte_offset));
-    bytes_read.* = @intCast(res.len);
-    return res.ptr;
+fn tsinputRead(block_val: *const bi.text_component.TextDocument, byte_offset: u32, _: ts.Point) []const u8 {
+    if (byte_offset >= block_val.length()) return "";
+    return block_val.read(block_val.positionFromDocbyte(byte_offset));
 }
-fn textComponentToTsInput(block_val: *const bi.text_component.TextDocument) tree_sitter.TSInput {
-    return .{
-        .encoding = tree_sitter.TSInputEncodingUTF8,
-        .payload = @constCast(@ptrCast(@alignCast(block_val))),
-        .read = &tsinputRead,
-    };
+fn textComponentToTsInput(block_val: *const bi.text_component.TextDocument) ts.Input {
+    return .from(.utf8, block_val, tsinputRead);
 }
 
 pub const Context = struct {
     alloc: std.mem.Allocator,
-    parser: *tree_sitter.TSParser,
-    language: *tree_sitter.TSLanguage,
-    cached_tree: *tree_sitter.TSTree,
+    parser: ts.Parser,
+    language: *ts.Language,
+    cached_tree: ts.Tree,
     document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
     tree_needs_reparse: bool,
     znh: ZigNodeHighlighter,
@@ -62,18 +52,16 @@ pub const Context = struct {
         document.ref();
         errdefer document.unref();
 
-        const parser = tree_sitter.ts_parser_new().?;
-        errdefer tree_sitter.ts_parser_delete(parser);
+        const parser = ts.Parser.init();
+        errdefer parser.deinit();
 
         const lang = tree_sitter_zig().?;
-        if (!tree_sitter.ts_parser_set_language(parser, lang)) {
-            return error.IncompatibleLanguageVersion;
-        }
+        try parser.setLanguage(lang);
 
         self.document = document;
 
-        const tree = tree_sitter.ts_parser_parse(parser, null, textComponentToTsInput(document.value)).?;
-        errdefer tree_sitter.ts_tree_delete(tree);
+        const tree = parser.parse(null, textComponentToTsInput(document.value));
+        errdefer tree.deinit();
 
         self.* = .{
             .alloc = alloc,
@@ -97,8 +85,8 @@ pub const Context = struct {
     pub fn deinit(self: *Context) void {
         self.znh.deinit();
         self.old_slice.deinit();
-        tree_sitter.ts_tree_delete(self.cached_tree);
-        tree_sitter.ts_parser_delete(self.parser);
+        self.cached_tree.deinit();
+        self.parser.deinit();
         self.document.value.on_before_simple_operation.removeListener(.from(self, beforeUpdateCallback));
         self.document.unref();
     }
@@ -122,7 +110,7 @@ pub const Context = struct {
 
         const start_point = addPoint(.{ .row = 0, .column = 0 }, tmp_buf);
 
-        tree_sitter.ts_tree_edit(self.cached_tree, &.{
+        self.cached_tree.edit(.{
             .start_byte = @intCast(op.position),
             .old_end_byte = @intCast(op.position + op.delete_len),
             .new_end_byte = @intCast(op.position + op.insert_text.len),
@@ -133,18 +121,18 @@ pub const Context = struct {
     }
 
     // when we go to use the nodes, we need to update the tree
-    pub fn getTree(self: *Context) *tree_sitter.TSTree {
+    pub fn getTree(self: *Context) ts.Tree {
         if (self.tree_needs_reparse) {
             self.tree_needs_reparse = false;
 
-            self.cached_tree = tree_sitter.ts_parser_parse(self.parser, self.cached_tree, textComponentToTsInput(self.document.value)).?;
+            self.cached_tree = self.parser.parse(self.cached_tree, textComponentToTsInput(self.document.value));
         }
         return self.cached_tree;
     }
 
     pub fn highlight(self: *Context) TreeSitterSyntaxHighlighter {
         self.znh.beginFrame(self.document.value);
-        return TreeSitterSyntaxHighlighter.init(&self.znh, tree_sitter.ts_tree_root_node(self.getTree()));
+        return TreeSitterSyntaxHighlighter.init(&self.znh, self.getTree().rootNode());
     }
     pub fn endHighlight(self: *Context) void {
         // self.znh.clear(); // not needed
@@ -152,16 +140,16 @@ pub const Context = struct {
     }
 
     pub fn guiInspectNodeUnderCursor(self: *Context, cursor_left: u64, cursor_right: u64) void {
-        var cursor: TSTreeCursor = .init(self.alloc, .{ .node = tree_sitter.ts_tree_root_node(self.getTree()) });
+        var cursor: ts.TreeCursor = .init(self.alloc, self.getTree().rootNode());
         defer cursor.deinit();
 
         zgui.text("For range: {d}-{d}", .{ cursor_left, cursor_right });
 
-        var node: TSNode = .{ .node = tree_sitter.ts_node_descendant_for_byte_range(tree_sitter.ts_tree_root_node(self.getTree()), @intCast(cursor_left), @intCast(cursor_right)) };
-        while (true) {
-            zgui.text("{s}", .{std.mem.span(tree_sitter.ts_language_symbol_name(self.language, tree_sitter.ts_node_symbol(node.node)))});
+        var node: ts.Node = self.getTree().rootNode().descendantForByteRange(@intCast(cursor_left), @intCast(cursor_right));
+        while (!node.isNull()) {
+            zgui.text("{s}", .{self.language.symbolName(node.symbol())});
 
-            node = node.slowParent() orelse break;
+            node = node.slowParent();
         }
     }
 
@@ -200,87 +188,19 @@ pub const Context = struct {
     // }
 };
 
-const TSNode = struct {
-    node: tree_sitter.TSNode,
-    pub fn startByte(self: TSNode) u32 {
-        return tree_sitter.ts_node_start_byte(self.node);
-    }
-    pub fn endByte(self: TSNode) u32 {
-        return tree_sitter.ts_node_end_byte(self.node);
-    }
-    pub fn docbyteInRange(self: TSNode, docbyte: u64) bool {
-        return docbyte >= self.startByte() and docbyte < self.endByte();
-    }
-    pub fn eq(self: TSNode, other: TSNode) bool {
-        return tree_sitter.ts_node_eq(self.node, other.node);
-    }
-
-    /// do not use! slow!
-    pub fn slowParent(self: TSNode) ?TSNode {
-        const res = tree_sitter.ts_node_parent(self.node);
-        if (tree_sitter.ts_node_is_null(res)) return null;
-        return .{ .node = res };
-    }
-};
-const TSTreeCursor = struct {
-    stack: std.ArrayList(TSNode),
-    cursor: tree_sitter.TSTreeCursor,
-
-    pub fn init(gpa: std.mem.Allocator, root_node: TSNode) TSTreeCursor {
-        var res_stack = std.ArrayList(TSNode).init(gpa);
-        res_stack.append(root_node) catch @panic("oom");
-        return .{ .stack = res_stack, .cursor = tree_sitter.ts_tree_cursor_new(root_node.node) };
-    }
-    pub fn deinit(self: *TSTreeCursor) void {
-        tree_sitter.ts_tree_cursor_delete(&self.cursor);
-        self.stack.deinit();
-    }
-    pub fn gotoFirstChild(self: *TSTreeCursor) bool {
-        if (tree_sitter.ts_tree_cursor_goto_first_child(&self.cursor)) {
-            self.stack.append(self._currentNode_raw()) catch @panic("oom");
-            return true;
-        } else return false;
-    }
-    pub fn gotoParent(self: *TSTreeCursor) bool {
-        if (tree_sitter.ts_tree_cursor_goto_parent(&self.cursor)) {
-            _ = self.stack.pop();
-            return true;
-        } else return false;
-    }
-    pub fn gotoNextSibling(self: *TSTreeCursor) bool {
-        if (tree_sitter.ts_tree_cursor_goto_next_sibling(&self.cursor)) {
-            _ = self.stack.pop();
-            self.stack.append(self._currentNode_raw()) catch @panic("oom");
-            return true;
-        } else return false;
-    }
-
-    pub fn goDeepLhs(self: *TSTreeCursor) void {
-        while (self.gotoFirstChild()) {}
-    }
-
-    pub fn _currentNode_raw(self: *TSTreeCursor) TSNode {
-        return .{ .node = tree_sitter.ts_tree_cursor_current_node(&self.cursor) };
-    }
-    pub fn currentNode(self: *TSTreeCursor) TSNode {
-        std.debug.assert(self.stack.getLast().eq(self._currentNode_raw()));
-        return self.stack.getLast();
-    }
-};
-
 pub const TreeSitterSyntaxHighlighter = struct {
-    root_node: TSNode,
+    root_node: ts.Node,
     znh: *ZigNodeHighlighter,
-    cursor: TSTreeCursor,
+    cursor: ts.TreeCursor,
     last_access: u64,
-    last_access_value: ?TSNode,
+    last_access_value: ?ts.Node,
 
-    pub fn init(znh: *ZigNodeHighlighter, root_node: tree_sitter.TSNode) TreeSitterSyntaxHighlighter {
-        var cursor: TSTreeCursor = .init(znh.alloc, .{ .node = root_node });
+    pub fn init(znh: *ZigNodeHighlighter, root_node: ts.Node) TreeSitterSyntaxHighlighter {
+        var cursor: ts.TreeCursor = .init(znh.alloc, root_node);
         cursor.goDeepLhs();
 
         return .{
-            .root_node = .{ .node = root_node },
+            .root_node = root_node,
             .znh = znh,
             .cursor = cursor,
             .last_access = 0,
@@ -291,7 +211,7 @@ pub const TreeSitterSyntaxHighlighter = struct {
         self.cursor.deinit();
     }
 
-    fn advanceAndRead2(self: *TreeSitterSyntaxHighlighter, docbyte: u64) TSNode {
+    fn advanceAndRead2(self: *TreeSitterSyntaxHighlighter, docbyte: u64) ts.Node {
         const tctx = tracy.trace(@src());
         defer tctx.end();
 
@@ -302,7 +222,7 @@ pub const TreeSitterSyntaxHighlighter = struct {
         self.last_access_value = res;
         return res;
     }
-    inline fn advanceAndRead2_internal(self: *TreeSitterSyntaxHighlighter, docbyte: u64) TSNode {
+    inline fn advanceAndRead2_internal(self: *TreeSitterSyntaxHighlighter, docbyte: u64) ts.Node {
         // first, advance if necessary
         if (docbyte >= self.cursor.currentNode().endByte()) {
             // need to advance
@@ -376,7 +296,7 @@ pub const TreeSitterSyntaxHighlighter = struct {
 
         if (false) return .punctuation_important;
 
-        const hl_node = syn_hl.advanceAndRead2(idx).node;
+        const hl_node = syn_hl.advanceAndRead2(idx);
         return syn_hl.znh.highlightNode(hl_node, idx);
     }
 };
@@ -478,7 +398,7 @@ const NodeCacheInfo = union(enum) {
     },
 };
 const LastNodeCache = struct {
-    node: tree_sitter.TSNode,
+    node: ts.Node,
     cache: NodeCacheInfo,
 };
 
@@ -486,15 +406,15 @@ const ZigNodeHighlighter = struct {
     // why does this thing hold .buffer in it? probably not the right place for that
     doc: ?*bi.text_component.TextDocument,
     node_id_to_enum_id_map: []const NodeInfo,
-    fn_call_id: tree_sitter.TSFieldId,
+    fn_call_id: ts.FieldId,
     alloc: std.mem.Allocator,
 
     last_node_cache: ?LastNodeCache = null,
 
-    pub fn init(self: *ZigNodeHighlighter, alloc: std.mem.Allocator, language: *const tree_sitter.TSLanguage) void {
-        const node_id_to_enum_id_map = alloc.alloc(NodeInfo, tree_sitter.ts_language_symbol_count(language)) catch @panic("oom");
+    pub fn init(self: *ZigNodeHighlighter, alloc: std.mem.Allocator, language: *ts.Language) void {
+        const node_id_to_enum_id_map = alloc.alloc(NodeInfo, language.symbolCount()) catch @panic("oom");
         for (node_id_to_enum_id_map, 0..) |*item, i| {
-            const item_str = std.mem.span(tree_sitter.ts_language_symbol_name(language, @intCast(i)));
+            const item_str = language.symbolName(@intCast(i));
 
             item.* = if (std.meta.stringToEnum(NodeTag, item_str)) |node_tag| ( //
                 .{ .other = node_tag } //
@@ -506,11 +426,10 @@ const ZigNodeHighlighter = struct {
                 ._none //
             );
         }
-        const fn_call_name: []const u8 = "function_call";
         self.* = .{
             .doc = null,
             .node_id_to_enum_id_map = node_id_to_enum_id_map,
-            .fn_call_id = tree_sitter.ts_language_field_id_for_name(language, fn_call_name.ptr, @intCast(fn_call_name.len)),
+            .fn_call_id = language.fieldIdForName("function_call"),
             .alloc = alloc,
         };
     }
@@ -530,12 +449,12 @@ const ZigNodeHighlighter = struct {
         return hl.node_id_to_enum_id_map[info];
     }
 
-    pub fn highlightNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode, byte_index: usize) editor_core.SynHlColorScope {
+    pub fn highlightNode(hl: *ZigNodeHighlighter, node: ts.Node, byte_index: usize) editor_core.SynHlColorScope {
         const tctx = tracy.trace(@src());
         defer tctx.end();
 
         if (hl.last_node_cache) |cache| {
-            if (tree_sitter.ts_node_eq(cache.node, node)) {
+            if (cache.node.eq(node)) {
                 return renderCache(hl, cache.cache, byte_index);
             }
         }
@@ -604,12 +523,12 @@ fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize)
         },
     };
 }
-fn getCacheForNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode) NodeCacheInfo {
+fn getCacheForNode(hl: *ZigNodeHighlighter, node: ts.Node) NodeCacheInfo {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
-    if (tree_sitter.ts_node_is_null(node)) return cs(.invalid);
-    const node_info = hl.nodeSymbolToInfo(tree_sitter.ts_node_symbol(node));
+    if (node.isNull()) return cs(.invalid);
+    const node_info = hl.nodeSymbolToInfo(node.symbol());
 
     switch (node_info) {
         ._none => return cs(.invalid),
@@ -618,30 +537,30 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode) NodeCacheI
             .@"const", .@"var" => return cs(.keyword_storage),
             .@".?", .@".*" => return {
                 return .{ .special = .{
-                    .start_byte = tree_sitter.ts_node_start_byte(node),
+                    .start_byte = node.startByte(),
                     .kind = .dot,
                 } };
             },
             .EscapeSequence => {
                 return .{ .special = .{
-                    .start_byte = tree_sitter.ts_node_start_byte(node),
+                    .start_byte = node.startByte(),
                     .kind = .escape_sequence,
                 } };
             },
             .line_comment => {
                 return .{ .special = .{
-                    .start_byte = tree_sitter.ts_node_start_byte(node),
+                    .start_byte = node.startByte(),
                     .kind = .line_comment,
                 } };
             },
             .doc_comment => {
                 return .{ .special = .{
-                    .start_byte = tree_sitter.ts_node_start_byte(node),
+                    .start_byte = node.startByte(),
                     .kind = .doc_comment,
                 } };
             },
             .INTEGER, .FLOAT => {
-                const start_byte = tree_sitter.ts_node_start_byte(node);
+                const start_byte = node.startByte();
                 const c1 = hl.charAt(start_byte);
                 return switch (c1) {
                     'x', 'o', 'b' => .{ .special = .{
@@ -652,17 +571,19 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode) NodeCacheI
                 };
             },
             .IDENTIFIER => {
-                const parent_node = tree_sitter.ts_node_parent(node);
-                if (tree_sitter.ts_node_is_null(parent_node)) return cs(.invalid);
-                const parent_node_info = hl.nodeSymbolToInfo(tree_sitter.ts_node_symbol(parent_node));
+                // TODO: calling parent is bad! instead, parent should get passed into this fn
+                // advanceAndRead2() knows it, so it can return it. it could return index into stack and let its caller figure it out
+                const parent_node = node.slowParent();
+                if (parent_node.isNull()) return cs(.invalid);
+                const parent_node_info = hl.nodeSymbolToInfo(parent_node.symbol());
                 if (parent_node_info != .other) return cs(.variable);
                 switch (parent_node_info.other) {
                     .ContainerField => return cs(.variable_constant),
                     .FnProto => return cs(.variable_function),
                     .VarDecl => {
-                        const first_child = tree_sitter.ts_node_child(parent_node, 0);
-                        if (tree_sitter.ts_node_is_null(first_child)) return cs(.invalid);
-                        const first_child_info = hl.nodeSymbolToInfo(tree_sitter.ts_node_symbol(first_child));
+                        const first_child = parent_node.slowChild(0);
+                        if (first_child.isNull()) return cs(.invalid);
+                        const first_child_info = hl.nodeSymbolToInfo(first_child.symbol());
                         if (first_child_info == .other) {
                             return switch (first_child_info.other) {
                                 .@"var" => return cs(.punctuation_important),
@@ -674,10 +595,7 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: tree_sitter.TSNode) NodeCacheI
                     },
                     .ParamDecl => return cs(.variable_parameter),
                     .FieldOrFnCall => {
-                        if (tree_sitter.ts_node_eq(
-                            tree_sitter.ts_node_child_by_field_id(parent_node, hl.fn_call_id),
-                            node,
-                        )) {
+                        if (parent_node.slowChildByFieldId(hl.fn_call_id).eq(node)) {
                             return cs(.variable_function);
                         }
                         return cs(.variable);

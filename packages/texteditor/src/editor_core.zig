@@ -806,18 +806,14 @@ pub const EditorCore = struct {
                     const curr_pos_len = self.selectionToPosLen(sel_curr);
 
                     const tree = self.syn_hl_ctx.getTree();
-                    const min_node = tree_sitter.tree_sitter.ts_node_descendant_for_byte_range(
-                        tree_sitter.tree_sitter.ts_tree_root_node(tree),
-                        @intCast(start_pos_len.left_docbyte),
-                        @intCast(start_pos_len.right_docbyte),
-                    );
+                    const min_node = tree.rootNode().descendantForByteRange(@intCast(start_pos_len.left_docbyte), @intCast(start_pos_len.right_docbyte));
 
                     var curr_node = min_node;
-                    var prev_node: tree_sitter.tree_sitter.TSNode = .{};
+                    var prev_node: tree_sitter.ts.Node = .{};
 
-                    while (!tree_sitter.tree_sitter.ts_node_is_null(curr_node)) {
-                        const node_start = tree_sitter.tree_sitter.ts_node_start_byte(curr_node);
-                        const node_end = tree_sitter.tree_sitter.ts_node_end_byte(curr_node);
+                    while (!curr_node.isNull()) {
+                        const node_start = curr_node.startByte();
+                        const node_end = curr_node.endByte();
 
                         //  za[bc]de
                         //  za[bc]de
@@ -832,7 +828,7 @@ pub const EditorCore = struct {
                         }
 
                         prev_node = curr_node;
-                        curr_node = tree_sitter.tree_sitter.ts_node_parent(curr_node);
+                        curr_node = curr_node.slowParent();
                     }
 
                     const target_node = switch (ts_sel.direction) {
@@ -840,7 +836,7 @@ pub const EditorCore = struct {
                         .child => prev_node,
                     };
 
-                    if (tree_sitter.tree_sitter.ts_node_is_null(target_node)) switch (ts_sel.direction) {
+                    if (target_node.isNull()) switch (ts_sel.direction) {
                         .parent => {
                             // select all
                             cursor_position.* = .{
@@ -859,11 +855,8 @@ pub const EditorCore = struct {
                         },
                     };
 
-                    const target_start = tree_sitter.tree_sitter.ts_node_start_byte(target_node);
-                    const target_end = tree_sitter.tree_sitter.ts_node_end_byte(target_node);
-
                     cursor_position.* = .{
-                        .pos = .range(block.positionFromDocbyte(target_start), block.positionFromDocbyte(target_end)),
+                        .pos = .range(block.positionFromDocbyte(target_node.startByte()), block.positionFromDocbyte(target_node.endByte())),
                         .node_select_start = sel_start,
                     };
                 }
@@ -1026,15 +1019,11 @@ pub const EditorCore = struct {
             const pos_len = self.selectionToPosLen(sel_start);
 
             const tree = self.syn_hl_ctx.getTree();
-            const min_node = tree_sitter.tree_sitter.ts_node_descendant_for_byte_range(
-                tree_sitter.tree_sitter.ts_tree_root_node(tree),
-                @intCast(pos_len.left_docbyte),
-                @intCast(pos_len.right_docbyte),
-            );
+            const min_node = tree.rootNode().descendantForByteRange(@intCast(pos_len.left_docbyte), @intCast(pos_len.right_docbyte));
 
-            const is_null = tree_sitter.tree_sitter.ts_node_is_null(min_node);
-            const target_start = if (is_null) 0 else tree_sitter.tree_sitter.ts_node_start_byte(min_node);
-            const target_end = if (is_null) block.length() else tree_sitter.tree_sitter.ts_node_end_byte(min_node);
+            const is_null = min_node.isNull();
+            const target_start = if (is_null) 0 else min_node.startByte();
+            const target_end = if (is_null) block.length() else min_node.endByte();
 
             cursor.* = .{
                 .pos = switch (pos_len.is_right) {

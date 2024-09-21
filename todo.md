@@ -38,6 +38,7 @@ Tasks:
 - [ ] document: merge multiple operations into one equivalent one
 - [ ] document: make id u128 and have it be generated randomly? reserve 64 bits for id of the current client? or
   store all ids the current client has made so we know when we can extend.
+- [ ] fix bug where scrolling in zgui scrolls the editor
 
 future blocks:
 
