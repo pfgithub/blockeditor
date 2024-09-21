@@ -434,7 +434,7 @@ pub const EditorView = struct {
             const layout_test = self.layoutLine(line_to_render);
             var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
             for (layout_test.items, 0..) |item, i| {
-                const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) block.length() else layout_test.items[i + 1].docbyte;
+                const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) break else layout_test.items[i + 1].docbyte;
 
                 const glyph_info = self.renderGlyph(item.glyph_id, layout_test.height);
                 if (glyph_info.region) |region| {
@@ -451,6 +451,7 @@ pub const EditorView = struct {
                     });
                 }
 
+                const len = next_glyph_docbyte - item.docbyte;
                 var cursor_render_docbyte = item.docbyte;
                 // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions. Include them all.
                 while (cursor_render_docbyte < next_glyph_docbyte) : (cursor_render_docbyte += 1) {
@@ -459,6 +460,8 @@ pub const EditorView = struct {
                     //     draw_list.addRect(@floor(line_pos + cursor_pos), .{ item.advance[0], @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
                     // }
                     // TODO add 1/n based on the length of the thingy
+                    _ = len;
+                    // const portion = (cursor_render_docbyte - item.docbyte) / len;
                     draw_list.addRect(@floor(line_pos + cursor_pos) + @Vector(2, f32){ 0, -1 }, .{ 2, @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.cursor_color) });
                 }
 
