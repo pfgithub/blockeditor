@@ -39,6 +39,9 @@ Tasks:
 - [ ] document: make id u128 and have it be generated randomly? reserve 64 bits for id of the current client? or
   store all ids the current client has made so we know when we can extend.
 - [ ] fix bug where scrolling in zgui scrolls the editor
+- [ ] text editor: up and down while in a selection do not work as expected. up should go up
+  from the left of the selection (cursor or anchor) and down should go down from the right of
+  the selection (cursor or anchor)
 
 future blocks:
 

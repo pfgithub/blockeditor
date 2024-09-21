@@ -145,11 +145,11 @@ pub const Context = struct {
 
         zgui.text("For range: {d}-{d}", .{ cursor_left, cursor_right });
 
-        var node: ts.Node = self.getTree().rootNode().descendantForByteRange(@intCast(cursor_left), @intCast(cursor_right));
-        while (!node.isNull()) {
-            zgui.text("{s}", .{self.language.symbolName(node.symbol())});
+        var node: ?ts.Node = self.getTree().rootNode().descendantForByteRange(@intCast(cursor_left), @intCast(cursor_right));
+        while (node != null) {
+            zgui.text("{s}", .{self.language.symbolName(node.?.symbol())});
 
-            node = node.slowParent();
+            node = node.?.slowParent();
         }
     }
 
@@ -527,7 +527,6 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: ts.Node) NodeCacheInfo {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
-    if (node.isNull()) return cs(.invalid);
     const node_info = hl.nodeSymbolToInfo(node.symbol());
 
     switch (node_info) {
@@ -573,16 +572,14 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: ts.Node) NodeCacheInfo {
             .IDENTIFIER => {
                 // TODO: calling parent is bad! instead, parent should get passed into this fn
                 // advanceAndRead2() knows it, so it can return it. it could return index into stack and let its caller figure it out
-                const parent_node = node.slowParent();
-                if (parent_node.isNull()) return cs(.invalid);
+                const parent_node = node.slowParent() orelse return cs(.invalid);
                 const parent_node_info = hl.nodeSymbolToInfo(parent_node.symbol());
                 if (parent_node_info != .other) return cs(.variable);
                 switch (parent_node_info.other) {
                     .ContainerField => return cs(.variable_constant),
                     .FnProto => return cs(.variable_function),
                     .VarDecl => {
-                        const first_child = parent_node.slowChild(0);
-                        if (first_child.isNull()) return cs(.invalid);
+                        const first_child = parent_node.slowChild(0) orelse return cs(.invalid);
                         const first_child_info = hl.nodeSymbolToInfo(first_child.symbol());
                         if (first_child_info == .other) {
                             return switch (first_child_info.other) {
@@ -595,7 +592,7 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: ts.Node) NodeCacheInfo {
                     },
                     .ParamDecl => return cs(.variable_parameter),
                     .FieldOrFnCall => {
-                        if (parent_node.slowChildByFieldId(hl.fn_call_id).eq(node)) {
+                        if (ts.Node.eq(parent_node.slowChildByFieldId(hl.fn_call_id), node)) {
                             return cs(.variable_function);
                         }
                         return cs(.variable);

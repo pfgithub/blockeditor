@@ -51,7 +51,7 @@ pub const Tree = struct {
         tree_sitter.ts_tree_edit(self.tree, &edit_val);
     }
     pub inline fn rootNode(self: Tree) Node {
-        return .{ .node = tree_sitter.ts_tree_root_node(self.tree) };
+        return Node.from(tree_sitter.ts_tree_root_node(self.tree)).?;
     }
 };
 pub const InputEdit = tree_sitter.TSInputEdit;
@@ -78,40 +78,42 @@ pub const Node = struct {
     // and rename `node: ` to `node_not_null: ` to catch all initializaitons.
     // remove `.isNull()`
 
-    node: tree_sitter.TSNode = .{},
+    node_not_null: tree_sitter.TSNode,
+    pub inline fn from(node: tree_sitter.TSNode) ?Node {
+        if (tree_sitter.ts_node_is_null(node)) return null;
+        return .{ .node_not_null = node };
+    }
     pub inline fn startByte(self: Node) u32 {
-        return tree_sitter.ts_node_start_byte(self.node);
+        return tree_sitter.ts_node_start_byte(self.node_not_null);
     }
     pub inline fn endByte(self: Node) u32 {
-        return tree_sitter.ts_node_end_byte(self.node);
+        return tree_sitter.ts_node_end_byte(self.node_not_null);
     }
     pub inline fn docbyteInRange(self: Node, docbyte: u64) bool {
         return docbyte >= self.startByte() and docbyte < self.endByte();
     }
-    pub inline fn eq(self: Node, other: Node) bool {
-        return tree_sitter.ts_node_eq(self.node, other.node);
+    pub inline fn eq(self: ?Node, other: ?Node) bool {
+        if (self == null or other == null) return self == null and other == null;
+        return tree_sitter.ts_node_eq(self.?.node_not_null, other.?.node_not_null);
     }
 
     pub inline fn symbol(self: Node) Symbol {
-        return tree_sitter.ts_node_symbol(self.node);
+        return tree_sitter.ts_node_symbol(self.node_not_null);
     }
-    pub inline fn descendantForByteRange(self: Node, left: u32, right: u32) Node {
-        return .{ .node = tree_sitter.ts_node_descendant_for_byte_range(self.node, left, right) };
+    pub inline fn descendantForByteRange(self: Node, left: u32, right: u32) ?Node {
+        return .from(tree_sitter.ts_node_descendant_for_byte_range(self.node_not_null, left, right));
     }
     /// do not use! slow! also may be broken and in need of a tree sitter update
-    pub inline fn slowParent(self: Node) Node {
-        return .{ .node = tree_sitter.ts_node_parent(self.node) };
+    pub inline fn slowParent(self: Node) ?Node {
+        return .from(tree_sitter.ts_node_parent(self.node_not_null));
     }
     /// do not use! slow! internally calls parent()!
-    pub inline fn slowChild(self: Node, child_index: u32) Node {
-        return .{ .node = tree_sitter.ts_node_child(self.node, child_index) };
+    pub inline fn slowChild(self: Node, child_index: u32) ?Node {
+        return .from(tree_sitter.ts_node_child(self.node_not_null, child_index));
     }
     /// probably don't use this!
-    pub inline fn slowChildByFieldId(self: Node, field_id: FieldId) Node {
-        return .{ .node = tree_sitter.ts_node_child_by_field_id(self.node, field_id) };
-    }
-    pub inline fn isNull(self: Node) bool {
-        return tree_sitter.ts_node_is_null(self.node);
+    pub inline fn slowChildByFieldId(self: Node, field_id: FieldId) ?Node {
+        return .from(tree_sitter.ts_node_child_by_field_id(self.node_not_null, field_id));
     }
 };
 pub const TreeCursor = struct {
@@ -121,7 +123,7 @@ pub const TreeCursor = struct {
     pub inline fn init(gpa: std.mem.Allocator, root_node: Node) TreeCursor {
         var res_stack = std.ArrayList(Node).init(gpa);
         res_stack.append(root_node) catch @panic("oom");
-        return .{ .stack = res_stack, .cursor = tree_sitter.ts_tree_cursor_new(root_node.node) };
+        return .{ .stack = res_stack, .cursor = tree_sitter.ts_tree_cursor_new(root_node.node_not_null) };
     }
     pub inline fn deinit(self: *TreeCursor) void {
         tree_sitter.ts_tree_cursor_delete(&self.cursor);
@@ -152,7 +154,7 @@ pub const TreeCursor = struct {
     }
 
     pub inline fn _currentNode_raw(self: *TreeCursor) Node {
-        return .{ .node = tree_sitter.ts_tree_cursor_current_node(&self.cursor) };
+        return Node.from(tree_sitter.ts_tree_cursor_current_node(&self.cursor)).?;
     }
     pub inline fn currentNode(self: *TreeCursor) Node {
         std.debug.assert(self.stack.getLast().eq(self._currentNode_raw()));

@@ -808,10 +808,10 @@ pub const EditorCore = struct {
                     const tree = self.syn_hl_ctx.getTree();
                     const min_node = tree.rootNode().descendantForByteRange(@intCast(start_pos_len.left_docbyte), @intCast(start_pos_len.right_docbyte));
 
-                    var curr_node = min_node;
-                    var prev_node: tree_sitter.ts.Node = .{};
+                    var curr_node_v = min_node;
+                    var prev_node: ?tree_sitter.ts.Node = null;
 
-                    while (!curr_node.isNull()) {
+                    while (curr_node_v) |curr_node| {
                         const node_start = curr_node.startByte();
                         const node_end = curr_node.endByte();
 
@@ -828,15 +828,15 @@ pub const EditorCore = struct {
                         }
 
                         prev_node = curr_node;
-                        curr_node = curr_node.slowParent();
+                        curr_node_v = curr_node.slowParent();
                     }
 
                     const target_node = switch (ts_sel.direction) {
-                        .parent => curr_node,
+                        .parent => curr_node_v,
                         .child => prev_node,
                     };
 
-                    if (target_node.isNull()) switch (ts_sel.direction) {
+                    if (target_node == null) switch (ts_sel.direction) {
                         .parent => {
                             // select all
                             cursor_position.* = .{
@@ -856,7 +856,7 @@ pub const EditorCore = struct {
                     };
 
                     cursor_position.* = .{
-                        .pos = .range(block.positionFromDocbyte(target_node.startByte()), block.positionFromDocbyte(target_node.endByte())),
+                        .pos = .range(block.positionFromDocbyte(target_node.?.startByte()), block.positionFromDocbyte(target_node.?.endByte())),
                         .node_select_start = sel_start,
                     };
                 }
@@ -1021,9 +1021,8 @@ pub const EditorCore = struct {
             const tree = self.syn_hl_ctx.getTree();
             const min_node = tree.rootNode().descendantForByteRange(@intCast(pos_len.left_docbyte), @intCast(pos_len.right_docbyte));
 
-            const is_null = min_node.isNull();
-            const target_start = if (is_null) 0 else min_node.startByte();
-            const target_end = if (is_null) block.length() else min_node.endByte();
+            const target_start = if (min_node) |m| m.startByte() else 0;
+            const target_end = if (min_node) |m| m.endByte() else block.length();
 
             cursor.* = .{
                 .pos = switch (pos_len.is_right) {
