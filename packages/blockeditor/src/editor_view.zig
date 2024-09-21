@@ -17,7 +17,8 @@ const editor_core = @import("texteditor").core;
 pub const LayoutItem = struct {
     docbyte: u64,
     glyph_id: u32,
-    pos: @Vector(2, f32),
+    offset: @Vector(2, f32),
+    advance: @Vector(2, f32),
 };
 pub const LayoutInfo = struct {
     height: i32,
@@ -159,7 +160,6 @@ pub const EditorView = struct {
         self._layout_result_temp_al.clearRetainingCapacity();
 
         var start_offset: usize = 0;
-        var cursor_pos: @Vector(2, i64) = .{ 0, 0 };
         for (segments) |segment| {
             const buf: hb.Buffer = hb.Buffer.init() orelse @panic("oom");
             defer buf.deinit();
@@ -182,13 +182,13 @@ pub const EditorView = struct {
                 const glyph_flags = glyph_info.getFlags();
 
                 const glyph_offset: @Vector(2, i64) = .{ glyph_relative_pos.x_offset, glyph_relative_pos.y_offset };
-                const glyph_pos = cursor_pos + glyph_offset;
-                cursor_pos += .{ glyph_relative_pos.x_advance, glyph_relative_pos.y_advance };
+                const glyph_advance: @Vector(2, i64) = .{ glyph_relative_pos.x_advance, glyph_relative_pos.y_advance };
 
                 self._layout_result_temp_al.append(.{
                     .glyph_id = glyph_id,
                     .docbyte = glyph_docbyte,
-                    .pos = @as(@Vector(2, f32), @floatFromInt(glyph_pos)) / @as(@Vector(2, f32), @splat(64.0)),
+                    .offset = @as(@Vector(2, f32), @floatFromInt(glyph_offset)) / @as(@Vector(2, f32), @splat(64.0)),
+                    .advance = @as(@Vector(2, f32), @floatFromInt(glyph_advance)) / @as(@Vector(2, f32), @splat(64.0)),
                 }) catch @panic("oom");
 
                 _ = glyph_flags;
@@ -227,7 +227,7 @@ pub const EditorView = struct {
         self.glyphs.set(region, bitmap.buffer().?);
 
         return .{
-            .offset = .{ glyph.bitmapLeft(), line_height - glyph.bitmapTop() },
+            .offset = .{ glyph.bitmapLeft(), (line_height - 4) - glyph.bitmapTop() },
             .size = .{ bitmap.width(), bitmap.rows() },
             .region = region,
         };
@@ -432,14 +432,17 @@ pub const EditorView = struct {
             if (line_pos[1] > (window_pos + window_size)[1]) break;
 
             const layout_test = self.layoutLine(line_to_render);
-            for (layout_test.items) |item| {
+            var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
+            for (layout_test.items, 0..) |item, i| {
+                const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) block.length() else layout_test.items[i + 1].docbyte;
+
                 const glyph_info = self.renderGlyph(item.glyph_id, layout_test.height);
                 if (glyph_info.region) |region| {
                     const syn_hl_info = syn_hl.advanceAndRead(item.docbyte);
                     const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
                     const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
                     draw_list.addRegion(.{
-                        .pos = @floor(line_pos + item.pos + glyph_offset),
+                        .pos = @floor(line_pos + cursor_pos + item.offset + glyph_offset),
                         .size = glyph_size,
                         .region = region,
                         .image = if (true) .editor_view_glyphs else null,
@@ -447,6 +450,20 @@ pub const EditorView = struct {
                         .tint = hexToFloat(DefaultTheme.synHlColor(syn_hl_info)),
                     });
                 }
+
+                var cursor_render_docbyte = item.docbyte;
+                // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions. Include them all.
+                while (cursor_render_docbyte < next_glyph_docbyte) : (cursor_render_docbyte += 1) {
+                    // const cursor_info = cursor_positions.advanceAndRead(cursor_render_docbyte);
+                    // if (cursor_info.selected) {
+                    //     draw_list.addRect(@floor(line_pos + cursor_pos), .{ item.advance[0], @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
+                    // }
+                    // TODO add 1/n based on the length of the thingy
+                    draw_list.addRect(@floor(line_pos + cursor_pos) + @Vector(2, f32){ 0, -1 }, .{ 2, @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.cursor_color) });
+                }
+
+                cursor_pos += item.advance;
+                cursor_pos = @floor(cursor_pos);
             }
             line_pos[1] += @floatFromInt(layout_test.height);
 
@@ -595,6 +612,7 @@ const DefaultTheme = struct {
     // we can make this a simple json file with {"editor_bg": "#mycolor"}
     pub const editor_bg: u32 = 0x1d252c;
     pub const selection_color: u32 = 0x28323a;
+    pub const cursor_color = 0x5EC4FF;
 
     pub fn synHlColor(syn_hl_color: editor_core.SynHlColorScope) u32 {
         return switch (syn_hl_color) {
