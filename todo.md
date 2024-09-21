@@ -24,6 +24,10 @@ Tasks:
 - [x] text editor: impl scroll algorithm described in editor_view.zig
 - [ ] text editor: cache harfbuzz layout results
 - [ ] text editor: use sheen_bidi for bidi & script run splitting (and maybe glyph mirroring, if required?)
+- [ ] text editor: to get the cursor position for a click:
+  - given the mouse x, prev stop location, and next stop location, use the location nearest to mouse x
+  - eg for `.{.stop = .word, .select = false}`: clicking `hell|o` there should put the cursor at `hello|` there
+- [ ] beui_impl: remove `if in.uv.x == -1234.0 { return premultiply(in.tint); }`. instead, use `-1` on uv x, and make the sampler return vec4(1, 1, 1, 1) for borders.
 
 future blocks:
 
