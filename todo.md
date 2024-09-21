@@ -27,6 +27,7 @@ Tasks:
 - [ ] text editor: to get the cursor position for a click:
   - given the mouse x, prev stop location, and next stop location, use the location nearest to mouse x
   - eg for `.{.stop = .word, .select = false}`: clicking `hell|o` there should put the cursor at `hello|` there
+- [ ] text editor: show invisibles in selection & any spaces before a newline (ie `abcd efg  ` the last two spaces should show)
 
 future blocks:
 

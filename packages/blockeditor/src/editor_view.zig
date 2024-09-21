@@ -426,6 +426,13 @@ pub const EditorView = struct {
         var syn_hl = self.core.syn_hl_ctx.highlight();
         defer syn_hl.deinit();
 
+        const replace_space = self.font.?.ft_face.getCharIndex('·');
+        const replace_tab = self.font.?.ft_face.getCharIndex('→');
+        const replace_newline = self.font.?.ft_face.getCharIndex('⏎'); // '␊'?
+        _ = replace_space;
+        _ = replace_tab;
+        _ = replace_newline;
+
         var line_to_render = render_start_pos;
         var line_pos: @Vector(2, f32) = .{ 10, 10 - self.scroll.offset };
         var click_target: ?usize = 0;
