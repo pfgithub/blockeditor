@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const treesitter_optimize: std.builtin.OptimizeMode = .ReleaseSafe;
 
-    const enable_tracy = b.option(bool, "enable_tracy", "Enable tracy?") orelse false;
+    const enable_tracy = b.option(bool, "tracy", "Enable tracy?") orelse false;
 
     const format_step = b.addFmt(.{
         .paths = &.{ "src", "build.zig", "build.zig.zon" },
@@ -47,6 +47,16 @@ pub fn build(b: *std.Build) !void {
     });
     blockeditor_exe.root_module.addImport("beui", beui_dep.module("beui"));
 
+    const anywhere_dep = b.dependency("anywhere", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    blockeditor_exe.root_module.addImport("anywhere", anywhere_dep.module("anywhere"));
+
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "enable_tracy", enable_tracy);
+    blockeditor_exe.root_module.addImport("build_options", build_options.createModule());
+
     // tree sitter stuff
     {
         const tree_sitter_dep = b.dependency("tree_sitter", .{ .target = target, .optimize = treesitter_optimize });
@@ -80,9 +90,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
 
-        blockeditor_exe.linkLibrary(tracy_dep.artifact("tracy_client"));
-
-        b.installArtifact(tracy_dep.artifact("tracy_profiler"));
+        blockeditor_exe.root_module.addImport("tracy__impl", tracy_dep.module("tracy"));
     }
 
     {

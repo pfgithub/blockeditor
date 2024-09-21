@@ -6,6 +6,9 @@ const db = blocks_mod.blockdb;
 const text_editor_view = @import("editor_view.zig");
 const beui_mod = @import("beui");
 const blocks_net = @import("blocks_net");
+const anywhere = @import("anywhere");
+const tracy = anywhere.tracy;
+const build_options = @import("build_options");
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
@@ -20,8 +23,11 @@ const zgui = @import("zgui");
 const zm = @import("zmath");
 const zstbi = @import("zstbi");
 
-const content_dir = @import("build_options").content_dir;
 const window_title = "zig-gamedev: textured quad (wgpu)";
+
+pub const anywhere_cfg: anywhere.AnywhereCfg = .{
+    .tracy = if (build_options.enable_tracy) @import("tracy__impl") else null,
+};
 
 const wgsl_common = (
     \\  @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -758,6 +764,8 @@ pub fn main() !void {
     zgui.getStyle().scaleAllSizes(scale_factor);
 
     while (!window.shouldClose() and window.getKey(.escape) != .press) {
+        tracy.frameMark();
+
         _ = arena_state.reset(.retain_capacity);
 
         interface.tickBegin();

@@ -4,12 +4,14 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const enable_tracy = b.option(bool, "tracy", "Enable tracy?") orelse false;
+
     const fmt_all = b.addFmt(.{ .paths = &.{ "packages", "build.zig", "build.zig.zon" }, .check = b.option(bool, "ci", "") orelse false });
     b.getInstallStep().dependOn(&fmt_all.step);
 
     const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
-    const blockeditor_dep = b.dependency("blockeditor", .{ .target = target, .optimize = optimize });
+    const blockeditor_dep = b.dependency("blockeditor", .{ .target = target, .optimize = optimize, .tracy = enable_tracy });
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
     const loadimage_dep = b.dependency("loadimage", .{ .target = target, .optimize = optimize });
@@ -21,7 +23,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(blockeditor_dep.artifact("blockeditor"));
     b.installArtifact(blocks_net_dep.artifact("server"));
     b.installArtifact(texteditor_dep.artifact("zls"));
-    if (false) b.installArtifact(tracy_dep.artifact("tracy")); // tracy exe has system dependencies and cannot be compiled for all targets
+    if (enable_tracy) b.installArtifact(tracy_dep.artifact("tracy")); // tracy exe has system dependencies and cannot be compiled for all targets
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());

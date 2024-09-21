@@ -5,21 +5,16 @@
         "",
     },
     .dependencies = .{
+        .blocks = .{ .path = "../blocks" },
+        .blocks_net = .{ .path = "../blocks_net" },
+        .texteditor = .{ .path = "../texteditor" },
+        .beui = .{ .path = "../beui" },
+        .tracy = .{ .path = "../tracy" },
+        .anywhere = .{ .path = "../anywhere" },
+
         .zig_gamedev = .{
             .url = "https://github.com/zig-gamedev/zig-gamedev/archive/b24a1bf4e7d984a24aadb6e5bd4c5f8e725e7d41.tar.gz",
             .hash = "12201370922902304aac560f7904509e01b06ce31fb6a941916caca6fe43aeb9b605",
-        },
-        .blocks = .{
-            .path = "../blocks",
-        },
-        .blocks_net = .{
-            .path = "../blocks_net",
-        },
-        .texteditor = .{
-            .path = "../texteditor",
-        },
-        .beui = .{
-            .path = "../beui",
         },
 
         .tree_sitter = .{
@@ -29,11 +24,6 @@
         .tree_sitter_zig = .{
             .url = "https://github.com/maxxnino/tree-sitter-zig/archive/0d08703e4c3f426ec61695d7617415fff97029bd.tar.gz",
             .hash = "1220dd9604971e00571f9484632e98529e2464025939850765b9fe9c8b4852352873",
-        },
-        .tracy = .{
-            // ztracy doesn't build the app, just the client lib
-            .url = "https://github.com/pfgithub/zig-tracy/archive/7823ea9a7d1952deadf771dc5601d1401470108d.tar.gz",
-            .hash = "1220d378fd32de8533ecfbe8058e7b6fa710faeb17b5103359228c21c4c68a9be575",
         },
     },
 }
