@@ -166,7 +166,7 @@ pub inline fn messageCopy(msg: []const u8) void {
     ___tracy_emit_message(msg.ptr, msg.len, if (enable_callstack) callstack_depth else 0);
 }
 
-pub inline fn messageColorCopy(msg: [:0]const u8, color: u32) void {
+pub inline fn messageColorCopy(msg: []const u8, color: u32) void {
     ___tracy_emit_messageC(msg.ptr, msg.len, color, if (enable_callstack) callstack_depth else 0);
 }
 
