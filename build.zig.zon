@@ -13,6 +13,7 @@
         .loadimage = .{ .path = "packages/loadimage" },
         .sheen_bidi = .{ .path = "packages/sheen_bidi" },
         .texteditor = .{ .path = "packages/texteditor" },
+        .tracy = .{ .path = "packages/tracy" },
         .unicode_segmentation = .{ .path = "packages/unicode_segmentation" },
     },
 }

@@ -15,11 +15,13 @@ pub fn build(b: *std.Build) void {
     const loadimage_dep = b.dependency("loadimage", .{ .target = target, .optimize = optimize });
     const sheen_bidi_dep = b.dependency("sheen_bidi", .{ .target = target, .optimize = optimize });
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
+    const tracy_dep = b.dependency("tracy", .{ .target = target, .optimize = optimize });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
 
     b.installArtifact(blockeditor_dep.artifact("blockeditor"));
     b.installArtifact(blocks_net_dep.artifact("server"));
     b.installArtifact(texteditor_dep.artifact("zls"));
+    if (false) b.installArtifact(tracy_dep.artifact("tracy")); // tracy exe has system dependencies and cannot be compiled for all targets
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
@@ -43,4 +45,10 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| run_server.addArgs(args);
     const run_server_step = b.step("server", "Run server");
     run_server_step.dependOn(&run_server.step);
+
+    const run_tracy = b.addRunArtifact(tracy_dep.artifact("tracy"));
+    run_tracy.step.dependOn(b.getInstallStep());
+    if (b.args) |args| run_tracy.addArgs(args);
+    const run_tracy_step = b.step("tracy", "Run tracy");
+    run_tracy_step.dependOn(&run_tracy.step);
 }

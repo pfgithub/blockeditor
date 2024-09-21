@@ -1,0 +1,15 @@
+.{
+    .name = "tracy",
+    .version = "0.0.0",
+    .paths = .{""},
+    .dependencies = .{
+        .tracy = .{
+            .url = "https://github.com/wolfpld/tracy/archive/dcb383701aad7b09dc1ae062d3f4d5f14ad37345.tar.gz",
+            .hash = "1220b2b5b1ad5c8209495bbed3eb4a6e28aac51ca651376e4693a33199b5ff903c67",
+        },
+        .glfw = .{
+            .url = "https://pkg.machengine.org/glfw/e6f377baed70a7bef9fa08d808f40b64c5136bf6.tar.gz",
+            .hash = "1220c15e66c13f9633fcfd50b5ed265f74f2950c98b1f1defd66298fa027765e0190",
+        },
+    },
+}
