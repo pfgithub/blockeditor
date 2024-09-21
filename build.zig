@@ -7,6 +7,7 @@ pub fn build(b: *std.Build) void {
     const fmt_all = b.addFmt(.{ .paths = &.{ "packages", "build.zig", "build.zig.zon" }, .check = b.option(bool, "ci", "") orelse false });
     b.getInstallStep().dependOn(&fmt_all.step);
 
+    const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
     const blockeditor_dep = b.dependency("blockeditor", .{ .target = target, .optimize = optimize });
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
@@ -22,6 +23,7 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
+    test_step.dependOn(&b.addRunArtifact(anywhere_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(beui_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(blocks_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(blocks_net_dep.artifact("test")).step);

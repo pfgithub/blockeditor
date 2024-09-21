@@ -5,6 +5,7 @@
         "",
     },
     .dependencies = .{
+        .anywhere = .{ .path = "packages/anywhere" },
         .beui = .{ .path = "packages/beui" },
         .blockeditor = .{ .path = "packages/blockeditor" },
         .blocks = .{ .path = "packages/blocks" },
