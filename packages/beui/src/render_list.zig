@@ -121,14 +121,14 @@ pub const RenderList = struct {
         });
     }
     pub fn addRect(self: *RenderList, pos: @Vector(2, f32), size: @Vector(2, f32), opts_in: struct {
-        uv_pos: @Vector(2, f32) = .{ -1234.0, -1234.0 },
+        uv_pos: @Vector(2, f32) = .{ -1.0, -1.0 },
         uv_size: @Vector(2, f32) = .{ 0, 0 },
         image: ?RenderListImage = null,
         tint: @Vector(4, f32) = .{ 1, 1, 1, 1 },
     }) void {
         var opts = opts_in;
         if (opts.image == null) {
-            opts.uv_pos = .{ -1234.0, -1234.0 };
+            opts.uv_pos = .{ -1.0, -1.0 };
             opts.uv_size = .{ 0, 0 };
         }
 
