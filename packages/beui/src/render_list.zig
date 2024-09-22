@@ -23,7 +23,7 @@ pub const RenderListIndex = u16;
 pub const RenderListVertex = struct {
     pos: @Vector(2, f32),
     uv: @Vector(2, f32),
-    tint: @Vector(4, f32),
+    tint: @Vector(4, u8),
     // TODO: rounding, shadow
 };
 pub const RenderListCommand = struct {
@@ -160,13 +160,11 @@ pub const RenderList = struct {
         const uv_bl = opts.uv_pos + @Vector(2, f32){ 0, opts.uv_size[1] };
         const uv_br = opts.uv_pos + opts.uv_size;
 
-        const tint_vec = opts.tint.toVec4f();
-
         self.addVertices(opts.image, &.{
-            .{ .pos = ul, .uv = uv_ul, .tint = tint_vec },
-            .{ .pos = ur, .uv = uv_ur, .tint = tint_vec },
-            .{ .pos = bl, .uv = uv_bl, .tint = tint_vec },
-            .{ .pos = br, .uv = uv_br, .tint = tint_vec },
+            .{ .pos = ul, .uv = uv_ul, .tint = opts.tint.value },
+            .{ .pos = ur, .uv = uv_ur, .tint = opts.tint.value },
+            .{ .pos = bl, .uv = uv_bl, .tint = opts.tint.value },
+            .{ .pos = br, .uv = uv_br, .tint = opts.tint.value },
         }, &.{
             0, 1, 3,
             0, 3, 2,

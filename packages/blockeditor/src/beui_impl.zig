@@ -38,13 +38,21 @@ const wgsl_common = (
     \\      @location(0) uv: vec2<f32>,
     \\      @location(1) tint: vec4<f32>,
     \\  }
+    \\  fn unpack_color(color: vec4<u32>) -> vec4<f32> {
+    \\      return vec4<f32>(
+    \\          f32(color.r) / 255.0,
+    \\          f32(color.g) / 255.0,
+    \\          f32(color.b) / 255.0,
+    \\          f32(color.a) / 255.0
+    \\      );
+    \\  }
     \\  @vertex fn vert(in: VertexIn) -> VertexOut {
     \\      var p = (in.pos / uniforms.screen_size) * vec2(2.0) - vec2(1.0);
     \\      p = vec2(p.x, -p.y);
     \\      var output: VertexOut;
     \\      output.position_clip = vec4(p, 0.0, 1.0);
     \\      output.uv = in.uv;
-    \\      output.tint = in.tint;
+    \\      output.tint = unpack_color(in.tint);
     \\      return output;
     \\  }
     \\
@@ -102,7 +110,8 @@ fn genSub(comptime Src: type) struct { format: wgpu.VertexFormat, type_str: []co
         @Vector(2, f32) => .{ .format = .float32x2, .type_str = "vec2<f32>" },
         @Vector(3, f32) => .{ .format = .float32x3, .type_str = "vec3<f32>" },
         @Vector(4, f32) => .{ .format = .float32x4, .type_str = "vec4<f32>" },
-        else => @compileError("TODO"),
+        @Vector(4, u8) => .{ .format = .uint8x4, .type_str = "vec4<u32>" },
+        else => @compileError("TODO: " ++ @typeName(Src)),
     };
 }
 fn genAttributes(comptime Src: type) type {
