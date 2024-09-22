@@ -1,21 +1,100 @@
 pub const default_image = @embedFile("font.rgba"); // 97x161, 255 = white / 0 = black
 pub const draw_lists = @import("render_list.zig");
-pub const texpack = @import("texpack.zig");
+pub const Texpack = @import("Texpack.zig");
 pub const font_experiment = @import("font_experiment.zig");
 
-// TODO:
-// - [ ] beui needs to be able to render render_list
-// - [ ] we need to make a function to render chars from default_image to render_list
+const Beui = @This();
+
+frame: FrameEv = .{},
+persistent: PersistentEv = .{},
+
+pub fn newFrame(self: *Beui, cfg: FrameCfg) void {
+    self.frame = .{ .frame_cfg = cfg };
+}
+pub fn endFrame(self: *Beui) void {
+    self.frame.frame_cfg = null;
+}
+
+pub fn textInput(self: *Beui) ?[]const u8 {
+    const res = self.frame.text_input;
+    if (res.len == 0) return null;
+    self.frame.text_input = "";
+    return res;
+}
+pub fn hotkey(self: *Beui, comptime mods: HotkeyMods, comptime key_opts: []const Key) ?HotkeyResult(mods, key_opts) {
+    const ctrl_down = self.persistent.held_keys.get(.left_control) or self.persistent.held_keys.get(.right_control);
+    const cmd_down = self.persistent.held_keys.get(.left_super) or self.persistent.held_keys.get(.right_super);
+    const shift_down = self.persistent.held_keys.get(.left_shift) or self.persistent.held_keys.get(.right_shift);
+    const alt_down = self.persistent.held_keys.get(.left_alt) or self.persistent.held_keys.get(.right_alt);
+    const mods_eql = mods.shift.eql(shift_down) and mods.ctrl_or_cmd.eql(ctrl_down != cmd_down) and mods.alt.eql(alt_down);
+
+    if (!mods_eql) return null;
+    const key = for (key_opts) |key| {
+        if (self.isKeyPressed(key)) break key;
+    } else return null;
+
+    return .{
+        .ctrl_or_cmd = if (mods.ctrl_or_cmd == .maybe) ctrl_down or cmd_down else {},
+        .alt = if (mods.alt == .maybe) alt_down else {},
+        .shift = if (mods.shift == .maybe) shift_down else {},
+        .key = @enumFromInt(@intFromEnum(key)),
+    };
+}
+
+pub fn isKeyPressed(self: *Beui, key: Key) bool {
+    return self.frame.pressed_keys.get(key) or self.frame.repeated_keys.get(key);
+}
+pub fn isKeyHeld(self: *Beui, key: Key) bool {
+    return self.persistent.held_keys.get(key);
+}
+pub fn leftMouseClickedCount(self: *Beui) usize {
+    self._maybeResetLeftClick(self.frame.frame_cfg.?.now_ms);
+    return self.persistent.left_mouse_dblclick_info.count;
+}
+
+pub fn arena(self: *Beui) std.mem.Allocator {
+    return self.frame.frame_cfg.?.arena;
+}
+pub fn draw(self: *Beui) *draw_lists.RenderList {
+    return self.frame.frame_cfg.?.draw_list;
+}
+
+pub fn setClipboard(self: *Beui, text_utf8: [:0]const u8) void {
+    const cfg = &self.frame.frame_cfg.?;
+    std.debug.assert(std.unicode.utf8ValidateSlice(text_utf8));
+    std.debug.assert(std.mem.indexOfScalar(u8, text_utf8, '\x00') == null);
+    cfg.vtable.set_clipboard(cfg, text_utf8);
+}
+pub fn getClipboard(self: *Beui, value: *std.ArrayList(u8)) void {
+    const cfg = &self.frame.frame_cfg.?;
+    cfg.vtable.get_clipboard(cfg, value);
+}
+
+fn _maybeResetLeftClick(self: *Beui, now: i64) void {
+    const dist_vec = self.persistent.mouse_pos - self.persistent.left_mouse_dblclick_info.last_click_pos;
+    const dist_sca = std.math.hypot(dist_vec[0], dist_vec[1]);
+    if ((self.persistent.left_mouse_dblclick_info.last_click_time <= now - self.persistent.config.dbl_click_time) //
+    or dist_sca > self.persistent.config.dbl_click_dist) {
+        self.persistent.left_mouse_dblclick_info = .{};
+    }
+}
+pub fn _leftClickNow(self: *Beui) void {
+    const now = std.time.milliTimestamp();
+    self._maybeResetLeftClick(now);
+    self.persistent.left_mouse_dblclick_info.count += 1;
+    self.persistent.left_mouse_dblclick_info.last_click_time = now;
+    self.persistent.left_mouse_dblclick_info.last_click_pos = self.persistent.mouse_pos;
+}
 
 const std = @import("std");
 const math = std.math;
 
-pub const BeuiHotkeyModOption = enum {
+pub const HotkeyModOption = enum {
     no,
     maybe,
     yes,
 
-    pub fn eql(self: BeuiHotkeyModOption, v: bool) bool {
+    pub fn eql(self: HotkeyModOption, v: bool) bool {
         return switch (self) {
             .no => v == false,
             .maybe => true,
@@ -23,17 +102,13 @@ pub const BeuiHotkeyModOption = enum {
         };
     }
 };
-pub const BeuiHotkeyMods = struct {
-    ctrl_or_cmd: BeuiHotkeyModOption = .no,
-    alt: BeuiHotkeyModOption = .no,
-    shift: BeuiHotkeyModOption = .no,
-
-    // pub fn parse(str: []const u8) BeuiHotkey {
-
-    // }
+pub const HotkeyMods = struct {
+    ctrl_or_cmd: HotkeyModOption = .no,
+    alt: HotkeyModOption = .no,
+    shift: HotkeyModOption = .no,
 };
 
-fn HotkeyResult(mods: BeuiHotkeyMods, key_opts: []const BeuiKey) type {
+fn HotkeyResult(mods: HotkeyMods, key_opts: []const Key) type {
     var fields: []const std.builtin.Type.EnumField = &.{};
     for (key_opts) |ko| {
         fields = fields ++ &[_]std.builtin.Type.EnumField{.{
@@ -42,7 +117,7 @@ fn HotkeyResult(mods: BeuiHotkeyMods, key_opts: []const BeuiKey) type {
         }};
     }
     const ti: std.builtin.Type = .{ .@"enum" = .{
-        .tag_type = @typeInfo(BeuiKey).@"enum".tag_type,
+        .tag_type = @typeInfo(Key).@"enum".tag_type,
         .fields = fields,
         .decls = &.{},
         .is_exhaustive = true,
@@ -56,100 +131,6 @@ fn HotkeyResult(mods: BeuiHotkeyMods, key_opts: []const BeuiKey) type {
     };
 }
 
-// BeUI:
-// - if we make draw lists go front to back, then draw order is in the
-//   same order as events. the first thing to see and capture an event
-//   can take it - items behind it are also visually behind it
-// - front to back is unusual but seems fine
-// - we will still need ids for state
-//   - if a button is active, it needs to store that and be the only
-//     one to capture mouse events
-//   - if an input is active, it needs to store that and be the only
-//     reciever for text_input events
-//   - need to support tab, shift+tab for inputs
-// - ids are :/
-pub const Beui = struct {
-    frame: BeuiFrameEv = .{},
-    persistent: BeuiPersistentEv = .{},
-
-    pub fn newFrame(self: *Beui, cfg: BeuiFrameCfg) void {
-        self.frame = .{ .frame_cfg = cfg };
-    }
-    pub fn endFrame(self: *Beui) void {
-        self.frame.frame_cfg = null;
-    }
-
-    pub fn textInput(self: *Beui) ?[]const u8 {
-        const res = self.frame.text_input;
-        if (res.len == 0) return null;
-        self.frame.text_input = "";
-        return res;
-    }
-    pub fn hotkey(self: *Beui, comptime mods: BeuiHotkeyMods, comptime key_opts: []const BeuiKey) ?HotkeyResult(mods, key_opts) {
-        const ctrl_down = self.persistent.held_keys.get(.left_control) or self.persistent.held_keys.get(.right_control);
-        const cmd_down = self.persistent.held_keys.get(.left_super) or self.persistent.held_keys.get(.right_super);
-        const shift_down = self.persistent.held_keys.get(.left_shift) or self.persistent.held_keys.get(.right_shift);
-        const alt_down = self.persistent.held_keys.get(.left_alt) or self.persistent.held_keys.get(.right_alt);
-        const mods_eql = mods.shift.eql(shift_down) and mods.ctrl_or_cmd.eql(ctrl_down != cmd_down) and mods.alt.eql(alt_down);
-
-        if (!mods_eql) return null;
-        const key = for (key_opts) |key| {
-            if (self.isKeyPressed(key)) break key;
-        } else return null;
-
-        return .{
-            .ctrl_or_cmd = if (mods.ctrl_or_cmd == .maybe) ctrl_down or cmd_down else {},
-            .alt = if (mods.alt == .maybe) alt_down else {},
-            .shift = if (mods.shift == .maybe) shift_down else {},
-            .key = @enumFromInt(@intFromEnum(key)),
-        };
-    }
-
-    pub fn isKeyPressed(self: *Beui, key: BeuiKey) bool {
-        return self.frame.pressed_keys.get(key) or self.frame.repeated_keys.get(key);
-    }
-    pub fn isKeyHeld(self: *Beui, key: BeuiKey) bool {
-        return self.persistent.held_keys.get(key);
-    }
-    pub fn leftMouseClickedCount(self: *Beui) usize {
-        self._maybeResetLeftClick(self.frame.frame_cfg.?.now_ms);
-        return self.persistent.left_mouse_dblclick_info.count;
-    }
-
-    pub fn arena(self: *Beui) std.mem.Allocator {
-        return self.frame.frame_cfg.?.arena;
-    }
-    pub fn draw(self: *Beui) *draw_lists.RenderList {
-        return self.frame.frame_cfg.?.draw_list;
-    }
-
-    pub fn setClipboard(self: *Beui, text_utf8: [:0]const u8) void {
-        const cfg = &self.frame.frame_cfg.?;
-        std.debug.assert(std.unicode.utf8ValidateSlice(text_utf8));
-        std.debug.assert(std.mem.indexOfScalar(u8, text_utf8, '\x00') == null);
-        cfg.vtable.set_clipboard(cfg, text_utf8);
-    }
-    pub fn getClipboard(self: *Beui, value: *std.ArrayList(u8)) void {
-        const cfg = &self.frame.frame_cfg.?;
-        cfg.vtable.get_clipboard(cfg, value);
-    }
-
-    fn _maybeResetLeftClick(self: *Beui, now: i64) void {
-        const dist_vec = self.persistent.mouse_pos - self.persistent.left_mouse_dblclick_info.last_click_pos;
-        const dist_sca = std.math.hypot(dist_vec[0], dist_vec[1]);
-        if ((self.persistent.left_mouse_dblclick_info.last_click_time <= now - self.persistent.config.dbl_click_time) //
-        or dist_sca > self.persistent.config.dbl_click_dist) {
-            self.persistent.left_mouse_dblclick_info = .{};
-        }
-    }
-    pub fn _leftClickNow(self: *Beui) void {
-        const now = std.time.milliTimestamp();
-        self._maybeResetLeftClick(now);
-        self.persistent.left_mouse_dblclick_info.count += 1;
-        self.persistent.left_mouse_dblclick_info.last_click_time = now;
-        self.persistent.left_mouse_dblclick_info.last_click_pos = self.persistent.mouse_pos;
-    }
-};
 pub fn EnumArray(comptime Enum: type, comptime Value: type) type {
     const count = blk: {
         const enum_ti = @typeInfo(Enum);
@@ -183,7 +164,7 @@ pub fn EnumArray(comptime Enum: type, comptime Value: type) type {
         }
     };
 }
-pub const BeuiFrameCfg = struct {
+pub const FrameCfg = struct {
     can_capture_keyboard: bool,
     can_capture_mouse: bool,
     arena: std.mem.Allocator,
@@ -191,24 +172,24 @@ pub const BeuiFrameCfg = struct {
     now_ms: i64,
 
     user_data: *const anyopaque,
-    vtable: *const BeuiFrameCfgVtable,
+    vtable: *const FrameCfgVtable,
 
-    pub fn castUserData(self: *const BeuiFrameCfg, comptime T: type) *T {
+    pub fn castUserData(self: *const FrameCfg, comptime T: type) *T {
         std.debug.assert(@typeName(T) == self.vtable.type_id);
         return @ptrCast(@alignCast(@constCast(self.vtable)));
     }
 };
-pub const BeuiFrameCfgVtable = struct {
+pub const FrameCfgVtable = struct {
     type_id: [*:0]const u8,
-    set_clipboard: *const fn (frame_cfg: *const BeuiFrameCfg, text_utf8: [:0]const u8) void,
-    get_clipboard: *const fn (frame_cfg: *const BeuiFrameCfg, clipboard_contents: *std.ArrayList(u8)) void,
+    set_clipboard: *const fn (frame_cfg: *const FrameCfg, text_utf8: [:0]const u8) void,
+    get_clipboard: *const fn (frame_cfg: *const FrameCfg, clipboard_contents: *std.ArrayList(u8)) void,
 };
-const BeuiPersistentEv = struct {
+const PersistentEv = struct {
     config: struct {
         dbl_click_time: i64 = 500,
         dbl_click_dist: f32 = 10.0,
     } = .{},
-    held_keys: EnumArray(BeuiKey, bool) = .init(false),
+    held_keys: EnumArray(Key, bool) = .init(false),
     mouse_pos: @Vector(2, f32) = .{ 0, 0 },
     left_mouse_dblclick_info: struct {
         count: usize = 0,
@@ -216,15 +197,15 @@ const BeuiPersistentEv = struct {
         last_click_pos: @Vector(2, f32) = .{ 0.0, 0.0 },
     } = .{},
 };
-const BeuiFrameEv = struct {
-    pressed_keys: EnumArray(BeuiKey, bool) = .init(false),
-    repeated_keys: EnumArray(BeuiKey, bool) = .init(false),
-    released_keys: EnumArray(BeuiKey, bool) = .init(false),
+const FrameEv = struct {
+    pressed_keys: EnumArray(Key, bool) = .init(false),
+    repeated_keys: EnumArray(Key, bool) = .init(false),
+    released_keys: EnumArray(Key, bool) = .init(false),
     text_input: []const u8 = "",
-    frame_cfg: ?BeuiFrameCfg = null,
+    frame_cfg: ?FrameCfg = null,
     scroll_px: @Vector(2, f32) = .{ 0, 0 },
 };
-pub const BeuiKey = enum(u32) {
+pub const Key = enum(u32) {
     mouse_left = 1,
     mouse_right = 2,
     mouse_middle = 3,
@@ -358,10 +339,10 @@ pub const BeuiKey = enum(u32) {
     _,
     pub const count = 400;
 };
-pub const BeuiColor = struct {
+pub const Color = struct {
     value: @Vector(4, u8),
 
-    pub fn fromHexRgb(hex: u24) BeuiColor {
+    pub fn fromHexRgb(hex: u24) Color {
         return .{ .value = .{
             @truncate(hex >> 16),
             @truncate(hex >> 8),
@@ -370,7 +351,7 @@ pub const BeuiColor = struct {
         } };
     }
 
-    pub fn toVec4f(self: BeuiColor) @Vector(4, f32) {
+    pub fn toVec4f(self: Color) @Vector(4, f32) {
         var res: @Vector(4, f32) = @floatFromInt(self.value);
         res /= @splat(255.0);
         return res;
@@ -380,5 +361,5 @@ pub const BeuiColor = struct {
 test {
     _ = @import("font_experiment.zig");
     _ = @import("render_list.zig");
-    _ = @import("texpack.zig");
+    _ = @import("Texpack.zig");
 }

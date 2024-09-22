@@ -1,5 +1,5 @@
 const std = @import("std");
-const editor_core = @import("editor_core.zig");
+const Core = @import("Core.zig");
 const blocks_mod = @import("blocks");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
@@ -268,7 +268,7 @@ pub const TreeSitterSyntaxHighlighter = struct {
         }
     }
 
-    pub fn advanceAndRead(syn_hl: *TreeSitterSyntaxHighlighter, idx: usize) editor_core.SynHlColorScope {
+    pub fn advanceAndRead(syn_hl: *TreeSitterSyntaxHighlighter, idx: usize) Core.SynHlColorScope {
         const tctx = tracy.trace(@src());
         defer tctx.end();
 
@@ -310,7 +310,7 @@ fn genKeywordLexemes() []const keyword_lexeme {
 
 const fallback_keyword_map = std.StaticStringMap(void).initComptime(genKeywordLexemes());
 
-const simple_map = std.StaticStringMap(editor_core.SynHlColorScope).initComptime(.{
+const simple_map = std.StaticStringMap(Core.SynHlColorScope).initComptime(.{
     // keyword
     .{ "BUILTINIDENTIFIER", .keyword },
     .{ "@", .keyword },
@@ -351,7 +351,7 @@ const simple_map = std.StaticStringMap(editor_core.SynHlColorScope).initComptime
     .{ "LINESTRING", .literal_string },
 });
 
-const identifier_parents_map = std.StaticStringMap(editor_core.SynHlColorScope).initComptime(.{});
+const identifier_parents_map = std.StaticStringMap(Core.SynHlColorScope).initComptime(.{});
 
 // this function is slow unfortunately
 // we might need to cache syntax highlight results :/
@@ -379,12 +379,12 @@ const NodeTag = enum {
 };
 const NodeInfo = union(enum) {
     _none,
-    map_to_color_scope: editor_core.SynHlColorScope,
+    map_to_color_scope: Core.SynHlColorScope,
     other: NodeTag,
 };
 
 const NodeCacheInfo = union(enum) {
-    color_scope: editor_core.SynHlColorScope,
+    color_scope: Core.SynHlColorScope,
     special: struct {
         start_byte: usize,
         kind: enum { dot, number_with_prefix, escape_sequence, line_comment, doc_comment },
@@ -442,7 +442,7 @@ const ZigNodeHighlighter = struct {
         return hl.node_id_to_enum_id_map[info];
     }
 
-    pub fn highlightNode(hl: *ZigNodeHighlighter, node: ts.Node, byte_index: usize) editor_core.SynHlColorScope {
+    pub fn highlightNode(hl: *ZigNodeHighlighter, node: ts.Node, byte_index: usize) Core.SynHlColorScope {
         const tctx = tracy.trace(@src());
         defer tctx.end();
 
@@ -466,10 +466,10 @@ const ZigNodeHighlighter = struct {
     }
 };
 
-fn cs(v: editor_core.SynHlColorScope) NodeCacheInfo {
+fn cs(v: Core.SynHlColorScope) NodeCacheInfo {
     return .{ .color_scope = v };
 }
-fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize) editor_core.SynHlColorScope {
+fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize) Core.SynHlColorScope {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
@@ -634,7 +634,7 @@ fn testHighlightOfsetted(context: *Context, offset: usize, expected_value: []con
     var actual = std.ArrayList(u8).init(std.testing.allocator);
     defer actual.deinit();
 
-    var prev_color_scope: editor_core.SynHlColorScope = .invalid;
+    var prev_color_scope: Core.SynHlColorScope = .invalid;
     for (offset..context.document.value.length()) |i| {
         const read_res = hl.advanceAndRead(i);
         const char = hl.znh.charAt(i);

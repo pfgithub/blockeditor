@@ -49,7 +49,7 @@ pub fn build(b: *std.Build) void {
     const harfbuzz_mod = mach_freetype_dep.module("mach-harfbuzz");
 
     const beui_mod = b.addModule("beui", .{
-        .root_source_file = b.path("src/beui.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) void {
     beui_mod.addImport("NotoSansMono[wght].ttf", notosansmono_wght_mod);
 
     const beui_test = b.addTest(.{
-        .root_source_file = b.path("src/beui.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });

@@ -1,6 +1,6 @@
 const std = @import("std");
 const tracy = @import("anywhere").tracy;
-const beui = @import("beui.zig");
+const Beui = @import("Beui.zig");
 
 // TODO:
 // - the whole result should end up in one vertex and index buffer.
@@ -118,10 +118,10 @@ pub const RenderList = struct {
     pub fn addRegion(self: *RenderList, opts: struct {
         pos: @Vector(2, f32),
         size: @Vector(2, f32),
-        region: @import("texpack.zig").Region,
+        region: @import("Texpack.zig").Region,
         image: ?RenderListImage,
         image_size: u32,
-        tint: beui.BeuiColor = .fromHexRgb(0xFFFFFF),
+        tint: Beui.Color = .fromHexRgb(0xFFFFFF),
     }) void {
         const tctx = tracy.trace(@src());
         defer tctx.end();
@@ -138,7 +138,7 @@ pub const RenderList = struct {
         uv_pos: @Vector(2, f32) = .{ -1.0, -1.0 },
         uv_size: @Vector(2, f32) = .{ 0, 0 },
         image: ?RenderListImage = null,
-        tint: beui.BeuiColor = .fromHexRgb(0xFFFFFF),
+        tint: Beui.Color = .fromHexRgb(0xFFFFFF),
     }) void {
         const tctx = tracy.trace(@src());
         defer tctx.end();
@@ -171,7 +171,7 @@ pub const RenderList = struct {
         });
     }
 
-    pub fn addChar(self: *RenderList, char: u8, pos: @Vector(2, f32), color: beui.BeuiColor) void {
+    pub fn addChar(self: *RenderList, char: u8, pos: @Vector(2, f32), color: Beui.Color) void {
         const conv: @Vector(2, u4) = @bitCast(char);
         const tile_id: @Vector(2, f32) = .{ @floatFromInt(conv[0]), @floatFromInt(conv[1]) };
         const tile_pos: @Vector(2, f32) = tile_id * @Vector(2, f32){ 6, 10 } + @Vector(2, f32){ 1, 1 };

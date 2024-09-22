@@ -1,10 +1,10 @@
-const default_image = beui_mod.default_image; // 97x161, 255 = white / 0 = black
-const draw_lists = beui_mod.draw_lists;
+const default_image = Beui.default_image; // 97x161, 255 = white / 0 = black
+const draw_lists = Beui.draw_lists;
 const blocks_mod = @import("blocks");
 const bi = blocks_mod.blockinterface2;
 const db = blocks_mod.blockdb;
 const text_editor = @import("texteditor");
-const beui_mod = @import("beui");
+const Beui = @import("beui").Beui;
 const blocks_net = @import("blocks_net");
 const anywhere = @import("anywhere");
 const tracy = anywhere.tracy;
@@ -327,7 +327,7 @@ fn update(demo: *DemoState) void {
     _ = zgui.DockSpaceOverViewport(0, zgui.getMainViewport(), .{ .passthru_central_node = true });
 }
 
-fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *beui_mod.texpack) void {
+fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beui.Texpack) void {
     const gctx = demo.gctx;
     const fb_width = gctx.swapchain_descriptor.width;
     const fb_height = gctx.swapchain_descriptor.height;
@@ -511,11 +511,11 @@ pub fn renderCounter(counter: db.TypedComponentRef(bi.CounterComponent)) void {
     }
 }
 
-fn zglfwKeyToBeuiKey(key: zglfw.Key) ?beui_mod.BeuiKey {
+fn zglfwKeyToBeuiKey(key: zglfw.Key) ?Beui.Key {
     const val: i32 = @intFromEnum(key);
     switch (val) {
         -1 => return null, // 'unknown'
-        0...beui_mod.BeuiKey.count => {
+        0...Beui.Key.count => {
             return @enumFromInt(@as(u32, @intCast(val)));
         },
         else => {
@@ -524,7 +524,7 @@ fn zglfwKeyToBeuiKey(key: zglfw.Key) ?beui_mod.BeuiKey {
         },
     }
 }
-fn zglfwButtonToBeuiKey(button: zglfw.MouseButton) ?beui_mod.BeuiKey {
+fn zglfwButtonToBeuiKey(button: zglfw.MouseButton) ?Beui.Key {
     return switch (button) {
         .left => .mouse_left,
         .right => .mouse_right,
@@ -538,7 +538,7 @@ fn zglfwButtonToBeuiKey(button: zglfw.MouseButton) ?beui_mod.BeuiKey {
 }
 
 const callbacks = struct {
-    fn handleKeyWithAction(beui: *beui_mod.Beui, key: beui_mod.BeuiKey, action: zglfw.Action) void {
+    fn handleKeyWithAction(beui: *Beui, key: Beui.Key, action: zglfw.Action) void {
         switch (action) {
             .press => {
                 beui.persistent.held_keys.set(key, true);
@@ -556,7 +556,7 @@ const callbacks = struct {
     }
 
     fn keyCallback(window: *zglfw.Window, key: zglfw.Key, scancode: i32, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
-        const beui = window.getUserPointer(beui_mod.Beui).?;
+        const beui = window.getUserPointer(Beui).?;
 
         if (action != .release) {
             if (beui.frame.frame_cfg == null) return;
@@ -569,7 +569,7 @@ const callbacks = struct {
         handleKeyWithAction(beui, beui_key, action);
     }
     fn charCallback(window: *zglfw.Window, codepoint: u32) callconv(.C) void {
-        const beui = window.getUserPointer(beui_mod.Beui).?;
+        const beui = window.getUserPointer(Beui).?;
         const codepoint_u21 = std.math.cast(u21, codepoint) orelse {
             std.log.warn("charCallback codepoint out of range: {d}", .{codepoint});
             return;
@@ -579,12 +579,12 @@ const callbacks = struct {
     }
 
     fn scrollCallback(window: *zglfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
-        const beui = window.getUserPointer(beui_mod.Beui).?;
+        const beui = window.getUserPointer(Beui).?;
         if (!beui.frame.frame_cfg.?.can_capture_mouse) return;
         beui.frame.scroll_px += @floatCast(@Vector(2, f64){ xoffset, yoffset } * @Vector(2, f64){ 48, 48 });
     }
     fn cursorPosCallback(window: *zglfw.Window, xpos: f64, ypos: f64) callconv(.C) void {
-        const beui = window.getUserPointer(beui_mod.Beui).?;
+        const beui = window.getUserPointer(Beui).?;
         if (!beui.frame.frame_cfg.?.can_capture_mouse) {
             // TODO: mouse_pos = null
             // TODO: if can_capture_mouse becomes false but no new cursorPosCallback is
@@ -603,7 +603,7 @@ const callbacks = struct {
         }
     }
     fn mouseButtonCallback(window: *zglfw.Window, button: zglfw.MouseButton, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
-        const beui = window.getUserPointer(beui_mod.Beui).?;
+        const beui = window.getUserPointer(Beui).?;
 
         if (action != .release) {
             if (!beui.frame.frame_cfg.?.can_capture_mouse) return;
@@ -623,15 +623,15 @@ const callbacks = struct {
 
 const BeuiVtable = struct {
     window: *zglfw.Window,
-    fn setClipboard(cfg: *const beui_mod.BeuiFrameCfg, text_utf8: [:0]const u8) void {
+    fn setClipboard(cfg: *const Beui.FrameCfg, text_utf8: [:0]const u8) void {
         const self = cfg.castUserData(BeuiVtable);
         self.window.setClipboardString(text_utf8);
     }
-    fn getClipboard(cfg: *const beui_mod.BeuiFrameCfg, clipboard_contents: *std.ArrayList(u8)) void {
+    fn getClipboard(cfg: *const Beui.FrameCfg, clipboard_contents: *std.ArrayList(u8)) void {
         const self = cfg.castUserData(BeuiVtable);
         clipboard_contents.appendSlice(self.window.getClipboardString() orelse "") catch @panic("oom");
     }
-    pub const vtable: *const beui_mod.BeuiFrameCfgVtable = &.{
+    pub const vtable: *const Beui.FrameCfgVtable = &.{
         .type_id = @typeName(BeuiVtable),
         .set_clipboard = &setClipboard,
         .get_clipboard = &getClipboard,
@@ -671,7 +671,7 @@ pub fn main() !void {
     const my_text_component = my_text.typedComponent(bi.TextDocumentBlock).?; // .? asserts it's loaded which isn't what we want. we want to wait to init until it's loaded.
     defer my_text_component.unref();
 
-    var my_text_editor: text_editor.view.EditorView = undefined;
+    var my_text_editor: text_editor.View = undefined;
     my_text_editor.initFromDoc(gpa, my_text_component);
     defer my_text_editor.deinit();
 
@@ -695,7 +695,7 @@ pub fn main() !void {
     defer window.destroy();
     window.setSizeLimits(-1, -1, -1, -1);
 
-    var beui: beui_mod.Beui = .{};
+    var beui: Beui = .{};
     window.setUserPointer(@ptrCast(@alignCast(&beui)));
 
     _ = window.setPosCallback(null);

@@ -9,6 +9,817 @@ const util = blocks_mod.util;
 const tree_sitter = @import("tree_sitter.zig");
 const tracy = @import("anywhere").tracy;
 
+const Core = @This();
+
+gpa: std.mem.Allocator,
+document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
+syn_hl_ctx: tree_sitter.Context,
+clipboard_cache: ?struct {
+    /// owned by self.gpa
+    contents: []const []const u8,
+    /// true only if every line copied had selection .len == 0
+    paste_in_new_line: bool,
+    /// Wyhash of copied string
+    copied_str_hash: u64,
+},
+undo: TextStack,
+redo: TextStack,
+
+cursor_positions: std.ArrayList(CursorPosition),
+
+config: EditorConfig = .{
+    .indent_with = .{ .spaces = 4 },
+},
+
+/// refs document
+pub fn initFromDoc(self: *Core, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
+    self.* = .{
+        .gpa = gpa,
+        .document = document,
+        .syn_hl_ctx = undefined,
+        .clipboard_cache = null,
+        .undo = .init(gpa),
+        .redo = .init(gpa),
+
+        .cursor_positions = .init(gpa),
+    };
+    document.ref();
+    document.addUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit)); // to keep the language server up to date
+
+    self.syn_hl_ctx.init(self.document, gpa) catch {
+        @panic("TODO handle syn_hl_ctx init failure");
+    };
+}
+pub fn deinit(self: *Core) void {
+    self.undo.deinit();
+    self.redo.deinit();
+    if (self.clipboard_cache) |*v| {
+        for (v.contents) |c| self.gpa.free(c);
+        self.gpa.free(v.contents);
+    }
+    self.syn_hl_ctx.deinit();
+    self.cursor_positions.deinit();
+    self.document.removeUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit));
+    self.document.unref();
+}
+
+fn cb_onEdit(self: *Core, edit: bi.text_component.TextDocument.SimpleOperation) void {
+    // TODO: keep tree-sitter updated
+    _ = self;
+    _ = edit;
+}
+
+pub fn getLineStart(self: *Core, pos: Position) Position {
+    const block = self.document.value;
+    var lyncol = block.lynColFromPosition(pos);
+    lyncol.col = 0;
+    return block.positionFromLynCol(lyncol).?;
+}
+pub fn getPrevLineStart(self: *Core, pos: Position) Position {
+    const block = self.document.value;
+    var lyncol = block.lynColFromPosition(pos);
+    lyncol.col = 0;
+    if (lyncol.lyn > 0) lyncol.lyn -= 1;
+    return block.positionFromLynCol(lyncol).?;
+}
+pub fn getThisLineEnd(self: *Core, prev_line_start: Position) Position {
+    const block = self.document.value;
+    const next_line_start = self.getNextLineStart(prev_line_start);
+    const next_line_start_byte = block.docbyteFromPosition(next_line_start);
+    const prev_line_start_byte = block.docbyteFromPosition(prev_line_start);
+
+    if (prev_line_start_byte == next_line_start_byte) return prev_line_start;
+    if (next_line_start_byte == block.length()) return block.positionFromDocbyte(next_line_start_byte);
+    std.debug.assert(next_line_start_byte > prev_line_start_byte);
+    return block.positionFromDocbyte(next_line_start_byte - 1);
+}
+pub fn getNextLineStartMaybeInsertNewline(self: *Core, pos: Position) Position {
+    if (self.document.value.docbyteFromPosition(pos) == self.document.value.length()) {
+        self.replaceRange(.{ .position = .end, .delete_len = 0, .insert_text = "\n" });
+        return .end;
+    }
+    return self.getNextLineStart(pos);
+}
+pub fn getNextLineStart(self: *Core, prev_line: Position) Position {
+    const block = self.document.value;
+    var lyncol = block.lynColFromPosition(prev_line);
+    lyncol.col = 0;
+    lyncol.lyn += 1;
+    return block.positionFromLynCol(lyncol) orelse {
+        return .end;
+    };
+}
+fn measureIndent(self: *Core, line_start_pos: Position) struct { indents: u64, chars: u64 } {
+    var indent_segments: u64 = 0;
+    var chars: u64 = 0;
+
+    const block = self.document.value;
+    var index: u64 = block.docbyteFromPosition(line_start_pos);
+    const len = block.length();
+    while (index < len) : (index += 1) {
+        if (index >= len) continue; // to keep readSlice in bounds
+        var byte: [1]u8 = undefined;
+        block.readSlice(block.positionFromDocbyte(index), &byte);
+        switch (byte[0]) {
+            ' ' => indent_segments += 1,
+            '\t' => indent_segments += self.config.indent_with.count(),
+            else => break,
+        }
+        chars += 1;
+    }
+
+    return .{
+        .indents = std.math.divCeil(u64, indent_segments, self.config.indent_with.count()) catch unreachable,
+        .chars = chars,
+    };
+}
+
+fn toWordBoundary(self: *Core, pos: Position, direction: LRDirection, stop: CursorLeftRightStop, mode: enum { left, right, select }, nomove: enum { must_move, may_move }) Position {
+    const block = self.document.value;
+    var docdoc = DocumentDocument{ .text_doc = block };
+    const gendoc = docdoc.doc();
+
+    const src_index = block.docbyteFromPosition(pos);
+    var index: u64 = src_index;
+    const len = block.length();
+    while (switch (direction) {
+        .left => index > 0,
+        .right => index < len,
+    }) : ({
+        if (nomove == .may_move) switch (direction) {
+            .left => index -= 1,
+            .right => index += 1,
+        };
+    }) {
+        if (nomove == .must_move) switch (direction) {
+            .left => index -= 1,
+            .right => index += 1,
+        };
+        if (index <= 0 or index >= len) break; // readSlice will go out of range
+        const marker = hasStop(gendoc, index, stop) orelse continue;
+        switch (mode) {
+            .left => switch (marker) {
+                .left_or_select, .both => break,
+                .right_or_select, .right_only => {},
+            },
+            .right => switch (marker) {
+                .right_or_select, .right_only, .both => break,
+                .left_or_select => {},
+            },
+            .select => switch (marker) {
+                .left_or_select, .right_or_select, .both => break,
+                .right_only => {},
+            },
+        }
+    }
+    return block.positionFromDocbyte(index);
+}
+
+pub fn selectionToPosLen(self: *Core, selection: Selection) PosLen {
+    const block = self.document.value;
+
+    const bufbyte_1 = block.docbyteFromPosition(selection.anchor);
+    const bufbyte_2 = block.docbyteFromPosition(selection.focus);
+
+    const min = @min(bufbyte_1, bufbyte_2);
+    const max = @max(bufbyte_1, bufbyte_2);
+
+    return .{
+        .pos = block.positionFromDocbyte(min),
+        .left_docbyte = min,
+        .right = block.positionFromDocbyte(max),
+        .right_docbyte = max,
+        .len = max - min,
+        .is_right = min == bufbyte_1,
+    };
+}
+pub fn normalizePosition(self: *Core, pos: Position) Position {
+    const block = self.document.value;
+    return block.positionFromDocbyte(block.docbyteFromPosition(pos));
+}
+/// makes sure cursors are:
+/// - on live spans, not deleted ones `hello ` `5|` `world` -> `hello `5` `|world`
+/// - not overlapping `he[llo[ wor|ld|` -> `he[llo world|`
+/// - in left-to-right order ``
+pub fn normalizeCursors(self: *Core) void {
+    const block = self.document.value;
+
+    var positions = self.getCursorPositions();
+    defer positions.deinit();
+
+    var uncommitted_start: ?u64 = null;
+
+    const len_start = self.cursor_positions.items.len;
+    self.cursor_positions.clearRetainingCapacity();
+    for (positions.positions.items) |pos| {
+        const prev_selected = positions.count > 0;
+        if (positions.idx >= positions.positions.items.len) break;
+        if (positions.positions.items[positions.idx].docbyte > pos.docbyte) continue;
+        const sel_info = positions.advanceAndRead(pos.docbyte);
+        const next_selected = sel_info.selected;
+
+        var res_cursor = sel_info.left_cursor_extra.?;
+        if (prev_selected and next_selected) {
+            // don't put a cursor
+            continue;
+        } else if (!prev_selected and next_selected) {
+            uncommitted_start = pos.docbyte;
+        } else if (prev_selected and !next_selected) {
+            // commit
+            std.debug.assert(uncommitted_start != null);
+            if (sel_info.left_cursor == .focus) {
+                res_cursor.pos = .range(
+                    block.positionFromDocbyte(uncommitted_start.?),
+                    block.positionFromDocbyte(pos.docbyte),
+                );
+            } else {
+                res_cursor.pos = .range(
+                    block.positionFromDocbyte(pos.docbyte),
+                    block.positionFromDocbyte(uncommitted_start.?),
+                );
+            }
+            self.cursor_positions.appendAssumeCapacity(res_cursor);
+            uncommitted_start = null;
+        } else if (!prev_selected and !next_selected) {
+            // commit
+            std.debug.assert(uncommitted_start == null);
+            res_cursor.pos = .at(
+                block.positionFromDocbyte(pos.docbyte),
+            );
+            self.cursor_positions.appendAssumeCapacity(res_cursor);
+        } else unreachable;
+    }
+    std.debug.assert(uncommitted_start == null);
+    const len_end = self.cursor_positions.items.len;
+    std.debug.assert(len_end <= len_start);
+}
+pub fn select(self: *Core, selection: Selection) void {
+    self.cursor_positions.clearRetainingCapacity();
+    self.cursor_positions.append(.{
+        .pos = selection,
+    }) catch @panic("oom");
+}
+fn measureMetric(self: *Core, pos: Position, metric: CursorHorizontalPositionMetric) u64 {
+    const block = self.document.value;
+    const this_line_start = self.getLineStart(pos);
+    return switch (metric) {
+        .byte => block.docbyteFromPosition(pos) - block.docbyteFromPosition(this_line_start),
+        else => @panic("TODO support metric"),
+    };
+}
+fn applyMetric(self: *Core, new_line_start: Position, metric: CursorHorizontalPositionMetric, metric_value: u64) Position {
+    const block = self.document.value;
+
+    const new_line_start_pos = block.docbyteFromPosition(new_line_start);
+    const new_line_end_pos = block.docbyteFromPosition(self.getThisLineEnd(new_line_start));
+    const new_line_len = new_line_end_pos - new_line_start_pos;
+    return switch (metric) {
+        .byte => block.positionFromDocbyte(new_line_start_pos + @min(new_line_len, metric_value)),
+        else => @panic("TODO support metric"),
+    };
+}
+pub fn executeCommand(self: *Core, command: EditorCommand) void {
+    const block = self.document.value;
+
+    self.normalizeCursors();
+    defer self.normalizeCursors();
+
+    switch (command) {
+        .set_cursor_pos => |sc_op| {
+            self.select(.at(sc_op.position));
+        },
+        .select_all => {
+            self.cursor_positions.clearRetainingCapacity();
+            self.cursor_positions.append(.{
+                .pos = .{
+                    .anchor = block.positionFromDocbyte(0),
+                    .focus = block.positionFromDocbyte(block.length()), // same as Position.end
+                },
+            }) catch @panic("oom");
+        },
+        .insert_text => |text_op| {
+            for (self.cursor_positions.items) |*cursor_position| {
+                const pos_len = self.selectionToPosLen(cursor_position.pos);
+
+                self.replaceRange(.{
+                    .position = pos_len.pos,
+                    .delete_len = pos_len.len,
+                    .insert_text = text_op.text,
+                });
+                const res_pos = pos_len.pos;
+
+                cursor_position.* = .{ .pos = .{
+                    .anchor = res_pos,
+                    .focus = res_pos,
+                } };
+            }
+        },
+        .paste => |paste_op| {
+            self.paste(paste_op.text);
+        },
+        .move_cursor_up_down => |ud_cmd| {
+            const orig_len = self.cursor_positions.items.len;
+            for (0..orig_len) |i| {
+                const cursor_position = &self.cursor_positions.items[i];
+                switch (ud_cmd.metric) {
+                    .byte => {},
+                    else => @panic("TODO impl ud_cmd metric"),
+                }
+                const this_line_start = self.getLineStart(cursor_position.pos.focus);
+                var target_pos: Position = cursor_position.vertical_move_start orelse cursor_position.pos.focus;
+                _ = &target_pos; // works around a miscompilation where target_pos changes values after writing to cursor_position :/
+                const target = self.measureMetric(target_pos, ud_cmd.metric);
+
+                const new_line_start = switch (ud_cmd.direction) {
+                    .up => self.getPrevLineStart(this_line_start),
+                    .down => self.getNextLineStart(this_line_start),
+                };
+
+                // special-case first and last lines
+                const res_pos = if (ud_cmd.direction == .up and block.docbyteFromPosition(this_line_start) == 0) blk: {
+                    break :blk new_line_start;
+                } else if (ud_cmd.direction == .down and block.docbyteFromPosition(self.getThisLineEnd(this_line_start)) == block.length()) blk: {
+                    break :blk self.getThisLineEnd(new_line_start);
+                } else blk: {
+                    break :blk self.applyMetric(new_line_start, ud_cmd.metric, target);
+                };
+
+                switch (ud_cmd.mode) {
+                    .move => {
+                        cursor_position.* = .{ .pos = .at(res_pos), .vertical_move_start = target_pos };
+                        cursor_position.vertical_move_start = target_pos;
+                    },
+                    .select => cursor_position.* = .{ .pos = .range(cursor_position.pos.anchor, res_pos), .vertical_move_start = target_pos },
+                    .duplicate => {
+                        self.cursor_positions.append(.{ .pos = .at(res_pos), .vertical_move_start = target_pos }) catch @panic("oom");
+                    },
+                }
+                // cursor_position pointer is invalidated
+            }
+        },
+        .move_cursor_left_right => |lr_cmd| {
+            for (self.cursor_positions.items) |*cursor_position| {
+                const current_pos = self.selectionToPosLen(cursor_position.pos);
+                if (current_pos.len > 0 and lr_cmd.mode == .move) {
+                    cursor_position.* = switch (lr_cmd.direction) {
+                        .left => .at(current_pos.pos),
+                        .right => .at(current_pos.right),
+                    };
+                    continue;
+                }
+
+                const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
+                    .left => .left,
+                    .right => .right,
+                }, .must_move);
+
+                switch (lr_cmd.mode) {
+                    .move => {
+                        cursor_position.* = .at(moved);
+                    },
+                    .select => {
+                        cursor_position.* = .range(cursor_position.pos.anchor, moved);
+                    },
+                }
+            }
+        },
+        .delete => |lr_cmd| {
+            for (self.cursor_positions.items) |*cursor_position| {
+                const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
+                    .left => .left,
+                    .right => .right,
+                }, .must_move);
+
+                // if there is a selection, delete the selection
+                // if there is no selection, delete from the focus in the direction to the stop
+                var pos_len = self.selectionToPosLen(cursor_position.pos);
+                if (pos_len.len == 0) {
+                    pos_len = self.selectionToPosLen(.{ .anchor = cursor_position.pos.focus, .focus = moved });
+                }
+                self.replaceRange(.{
+                    .position = pos_len.pos,
+                    .delete_len = pos_len.len,
+                    .insert_text = "",
+                });
+                const res_pos = pos_len.pos;
+
+                cursor_position.* = .at(res_pos);
+            }
+        },
+        .newline => {
+            for (self.cursor_positions.items) |*cursor_position| {
+                const pos_len = self.selectionToPosLen(cursor_position.pos);
+
+                const line_start = self.getLineStart(pos_len.pos);
+
+                var temp_insert_slice = std.ArrayList(u8).init(self.gpa);
+                defer temp_insert_slice.deinit();
+
+                const line_indent_count = self.measureIndent(line_start);
+                const dist = pos_len.left_docbyte - block.docbyteFromPosition(line_start);
+                const order = line_indent_count.chars <= dist;
+
+                if (order) temp_insert_slice.append('\n') catch @panic("oom");
+                temp_insert_slice.appendNTimes(self.config.indent_with.char(), usi(self.config.indent_with.count() * line_indent_count.indents)) catch @panic("oom");
+                if (!order) temp_insert_slice.append('\n') catch @panic("oom");
+
+                self.replaceRange(.{
+                    .position = pos_len.pos,
+                    .delete_len = pos_len.len,
+                    .insert_text = temp_insert_slice.items,
+                });
+            }
+        },
+        .insert_line => |cmd| {
+            switch (cmd.direction) {
+                .up => {
+                    self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .line, .direction = .left } });
+                    self.executeCommand(.newline);
+                    self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .unicode_grapheme_cluster, .direction = .left } });
+                },
+                .down => {
+                    self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .line, .direction = .right } });
+                    self.executeCommand(.newline);
+                },
+            }
+        },
+        .indent_selection => |indent_cmd| {
+            for (self.cursor_positions.items) |*cursor_position| {
+                const pos_len = self.selectionToPosLen(cursor_position.pos);
+                const end_pos = block.positionFromDocbyte(block.docbyteFromPosition(pos_len.pos) + pos_len.len);
+                var line_start = self.getLineStart(pos_len.pos);
+                while (true) {
+                    const next_line_start = self.getNextLineStart(line_start);
+                    defer line_start = next_line_start;
+                    const end = block.docbyteFromPosition(next_line_start) >= block.docbyteFromPosition(end_pos);
+                    const line_indent_count = self.measureIndent(line_start);
+                    const new_indent_count: u64 = switch (indent_cmd.direction) {
+                        .left => std.math.sub(u64, line_indent_count.indents, 1) catch 0,
+                        .right => line_indent_count.indents + 1,
+                    };
+
+                    var temp_insert_slice = std.ArrayList(u8).init(self.gpa);
+                    defer temp_insert_slice.deinit();
+                    temp_insert_slice.appendNTimes(self.config.indent_with.char(), usi(self.config.indent_with.count() * new_indent_count)) catch @panic("oom");
+
+                    self.replaceRange(.{
+                        .position = line_start,
+                        .delete_len = line_indent_count.chars,
+                        .insert_text = temp_insert_slice.items,
+                    });
+                    if (end) break;
+                }
+            }
+        },
+        .duplicate_line => |dupe_cmd| {
+            for (self.cursor_positions.items) |*cursor_position| {
+                const pos_len = self.selectionToPosLen(cursor_position.pos);
+
+                const start_line = self.getLineStart(pos_len.pos);
+                const end_line = self.getThisLineEnd(pos_len.right);
+
+                const start_byte = block.docbyteFromPosition(start_line);
+                const end_byte = block.docbyteFromPosition(end_line);
+
+                var dupe_al: std.ArrayList(u8) = .init(self.gpa);
+                defer dupe_al.deinit();
+                block.readSlice(start_line, dupe_al.addManyAsSlice(end_byte - start_byte) catch @panic("oom"));
+                switch (dupe_cmd.direction) {
+                    .down => {
+                        if (dupe_al.items.len == 0 or dupe_al.items[dupe_al.items.len - 1] != '\n') {
+                            dupe_al.append('\n') catch @panic("oom");
+                        }
+                    },
+                    .up => {
+                        if (dupe_al.items.len != 0 and dupe_al.items[dupe_al.items.len - 1] == '\n') {
+                            _ = dupe_al.pop();
+                        }
+                        dupe_al.insertSlice(0, &.{'\n'}) catch @panic("oom");
+                    },
+                }
+
+                self.replaceRange(.{
+                    .position = switch (dupe_cmd.direction) {
+                        .down => start_line,
+                        .up => end_line,
+                    },
+                    .delete_len = 0,
+                    .insert_text = dupe_al.items,
+                });
+
+                // handle case where cursor is at the end of the line when duplicating up
+                if (dupe_cmd.direction == .up) {
+                    const target = block.docbyteFromPosition(end_line);
+                    for (&[_]*Position{ &cursor_position.pos.anchor, &cursor_position.pos.focus }) |pos| {
+                        const pos_int = block.docbyteFromPosition(pos.*);
+                        if (pos_int == target) {
+                            pos.* = block.positionFromDocbyte(pos_int - dupe_al.items.len);
+                        }
+                    }
+                }
+            }
+        },
+        .ts_select_node => |ts_sel| {
+            for (self.cursor_positions.items) |*cursor_position| {
+                var sel_start = cursor_position.node_select_start orelse cursor_position.pos;
+                _ = &sel_start; // work around zig bug. sel_start should be 'const' but it mutates if it is
+                const start_pos_len = self.selectionToPosLen(sel_start);
+                const sel_curr = cursor_position.pos;
+                const curr_pos_len = self.selectionToPosLen(sel_curr);
+
+                const tree = self.syn_hl_ctx.getTree();
+                const min_node = tree.rootNode().descendantForByteRange(@intCast(start_pos_len.left_docbyte), @intCast(start_pos_len.right_docbyte));
+
+                var curr_node_v = min_node;
+                var prev_node: ?tree_sitter.ts.Node = null;
+
+                while (curr_node_v) |curr_node| {
+                    const node_start = curr_node.startByte();
+                    const node_end = curr_node.endByte();
+
+                    //  za[bc]de
+                    //  za[bc]de
+                    const db = node_start <= curr_pos_len.left_docbyte and node_end >= curr_pos_len.right_docbyte;
+                    if (ts_sel.direction == .child and db) {
+                        // on down: select previous node
+                        break;
+                    }
+                    if (ts_sel.direction == .parent and db and (node_start < curr_pos_len.left_docbyte or node_end > curr_pos_len.right_docbyte)) {
+                        // on up: select this node
+                        break;
+                    }
+
+                    prev_node = curr_node;
+                    curr_node_v = curr_node.slowParent();
+                }
+
+                const target_node = switch (ts_sel.direction) {
+                    .parent => curr_node_v,
+                    .child => prev_node,
+                };
+
+                if (target_node == null) switch (ts_sel.direction) {
+                    .parent => {
+                        // select all
+                        cursor_position.* = .{
+                            .pos = .range(block.positionFromDocbyte(0), .end),
+                            .node_select_start = sel_start,
+                        };
+                        continue;
+                    },
+                    .child => {
+                        // select min
+                        cursor_position.* = .{
+                            .pos = sel_start,
+                            .node_select_start = sel_start,
+                        };
+                        continue;
+                    },
+                };
+
+                cursor_position.* = .{
+                    .pos = .range(block.positionFromDocbyte(target_node.?.startByte()), block.positionFromDocbyte(target_node.?.endByte())),
+                    .node_select_start = sel_start,
+                };
+            }
+        },
+        .undo => {
+            // const undo_op = self.undo_list.popOrNull() orelse return;
+            // _ = undo_op;
+            @panic("TODO undo");
+        },
+        .redo => {
+            // const redo_op = self.redo_list.popOrNull() orelse return;
+            // _ = redo_op;
+            @panic("TODO redo");
+        },
+        .click => |click_op| {
+            self.onClick(click_op.pos, click_op.mode, click_op.extend, click_op.select_ts_node);
+        },
+        .drag => |drag_op| {
+            self.onDrag(drag_op.pos);
+        },
+    }
+}
+pub const CopyMode = enum { copy, cut };
+/// returned string is utf-8 encoded. caller owns the returned string and must copy it to the clipboard
+pub fn copyAllocUtf8(self: *Core, alloc: std.mem.Allocator, mode: CopyMode) []const u8 {
+    var result_str = std.ArrayList(u8).init(alloc);
+    defer result_str.deinit();
+
+    self.copyArrayListUtf8(&result_str, mode);
+
+    return result_str.toOwnedSlice() catch @panic("oom");
+}
+/// written string is utf-8 encoded and does not include any null bytes
+pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: CopyMode) void {
+    self.normalizeCursors();
+    defer self.normalizeCursors();
+
+    const stored_buf = self.gpa.alloc([]const u8, self.cursor_positions.items.len) catch @panic("oom");
+    var paste_in_new_line = true;
+    var this_needs_newline = false;
+    for (self.cursor_positions.items, stored_buf) |*cursor, *stored| {
+        var pos_range = self.selectionToPosLen(cursor.pos);
+        var next_needs_newline = true;
+        defer this_needs_newline = next_needs_newline;
+        if (pos_range.len == 0) {
+            pos_range = self.selectionToPosLen(.range(self.getLineStart(pos_range.pos), self.getNextLineStartMaybeInsertNewline(pos_range.pos)));
+            next_needs_newline = false;
+        } else {
+            paste_in_new_line = false;
+        }
+        const slice = self.gpa.alloc(u8, pos_range.len) catch @panic("oom");
+        self.document.value.readSlice(pos_range.pos, slice);
+        stored.* = slice;
+
+        if (this_needs_newline) result_str.appendSlice("\n") catch @panic("oom");
+        result_str.appendSlice(slice) catch @panic("oom");
+
+        if (mode == .cut) {
+            self.replaceRange(.{ .position = pos_range.pos, .delete_len = pos_range.len, .insert_text = "" });
+        }
+    }
+    self.clipboard_cache = .{
+        .contents = stored_buf,
+        .copied_str_hash = std.hash.Wyhash.hash(0, result_str.items),
+        .paste_in_new_line = paste_in_new_line,
+    };
+
+    seg_dep.replaceInvalidUtf8(result_str.items);
+}
+fn paste(self: *Core, clipboard_contents: []const u8) void {
+    self.normalizeCursors();
+    defer self.normalizeCursors();
+
+    defer {
+        if (self.clipboard_cache) |*v| {
+            for (v.contents) |c| self.gpa.free(c);
+            self.gpa.free(v.contents);
+        }
+        self.clipboard_cache = null;
+    }
+
+    var clip_contents: []const []const u8 = &.{clipboard_contents};
+    var paste_in_new_line = false;
+    if (self.clipboard_cache) |*c| if (c.copied_str_hash == std.hash.Wyhash.hash(0, clipboard_contents)) {
+        clip_contents = c.contents;
+        paste_in_new_line = c.paste_in_new_line;
+    };
+
+    if (clip_contents.len == self.cursor_positions.items.len) {
+        for (clip_contents, self.cursor_positions.items) |text, *cursor_pos| {
+            self.pasteInternal(cursor_pos, text, paste_in_new_line);
+        }
+    } else {
+        for (clip_contents) |text| for (self.cursor_positions.items) |*cursor_pos| {
+            self.pasteInternal(cursor_pos, text, paste_in_new_line);
+        };
+    }
+}
+fn pasteInternal(self: *Core, cursor_pos: *const CursorPosition, text: []const u8, paste_in_new_line: bool) void {
+    var pos_range = self.selectionToPosLen(cursor_pos.pos);
+    var add_newline = false;
+    if (pos_range.len == 0 and paste_in_new_line) {
+        pos_range = self.selectionToPosLen(.at(self.getLineStart(pos_range.pos)));
+        add_newline = true;
+    }
+
+    self.replaceRange(.{
+        .position = pos_range.pos,
+        .delete_len = pos_range.len,
+        .insert_text = text,
+    });
+}
+fn getEnsureOneCursor(self: *Core, default_pos: Position) *CursorPosition {
+    if (self.cursor_positions.items.len == 0) {
+        self.select(.at(default_pos));
+    } else if (self.cursor_positions.items.len > 1) {
+        self.cursor_positions.items.len = 1;
+    }
+    return &self.cursor_positions.items[0];
+}
+// change to sel_mode: DragSelectionMode, shift_held: bool?
+// make this an EditorCommand?
+fn onClick(self: *Core, pos: Position, sel_mode: DragSelectionMode, shift_held: bool, ctrl_or_alt_held: bool) void {
+    const cursor = self.getEnsureOneCursor(pos);
+
+    if (shift_held) {
+        if (cursor.drag_info == null) {
+            cursor.drag_info = .{
+                .start_pos = cursor.pos.focus,
+                .sel_mode = sel_mode,
+                .select_ts_node = ctrl_or_alt_held,
+            };
+        }
+        if (sel_mode.select) cursor.drag_info.?.sel_mode = sel_mode;
+    } else {
+        cursor.drag_info = .{
+            .start_pos = pos,
+            .sel_mode = sel_mode,
+            .select_ts_node = ctrl_or_alt_held,
+        };
+    }
+    self.onDrag(pos);
+}
+fn onDrag(self: *Core, pos: Position) void {
+    const block = self.document.value;
+
+    // TODO: support tree_sitter selection when holding ctrl|alt:
+    // - given (drag_start, drag_end):
+    //   - find node for range (start, end)
+    //   - select from node left to node right
+    // should allow for easy selection within brackets: ctrl+drag a little bit and you're done
+    const cursor = self.getEnsureOneCursor(pos);
+    if (cursor.drag_info == null) return;
+
+    const drag_info = cursor.drag_info.?;
+    const stop = drag_info.sel_mode.stop;
+    const anchor_pos = drag_info.start_pos;
+    if (drag_info.select_ts_node) {
+        const sel_start: Selection = .range(anchor_pos, pos);
+        const pos_len = self.selectionToPosLen(sel_start);
+
+        const tree = self.syn_hl_ctx.getTree();
+        const min_node = tree.rootNode().descendantForByteRange(@intCast(pos_len.left_docbyte), @intCast(pos_len.right_docbyte));
+
+        const target_start = if (min_node) |m| m.startByte() else 0;
+        const target_end = if (min_node) |m| m.endByte() else block.length();
+
+        cursor.* = .{
+            .pos = switch (pos_len.is_right) {
+                false => .range(block.positionFromDocbyte(target_end), block.positionFromDocbyte(target_start)),
+                true => .range(block.positionFromDocbyte(target_start), block.positionFromDocbyte(target_end)),
+            },
+            .node_select_start = sel_start,
+            .drag_info = drag_info,
+        };
+        return;
+    }
+    const anchor_l = self.toWordBoundary(anchor_pos, .left, stop, .select, .may_move);
+    const focus_l = self.toWordBoundary(pos, .left, stop, .select, .may_move);
+    if (drag_info.sel_mode.select) {
+        const anchor_r = self.toWordBoundary(anchor_pos, .right, stop, .select, .must_move);
+        const focus_r = self.toWordBoundary(pos, .right, stop, .select, .must_move);
+
+        // now:
+        // we select from @min(all) to @max(all) and put the cursor on (focus_l < anchor_l ? left : right)
+
+        const anchor_l_docbyte = block.docbyteFromPosition(anchor_l);
+        const anchor_r_docbyte = block.docbyteFromPosition(anchor_r);
+        const focus_l_docbyte = block.docbyteFromPosition(focus_l);
+        const focus_r_docbyte = block.docbyteFromPosition(focus_r);
+
+        const min_docbyte = @min(@min(anchor_l_docbyte, anchor_r_docbyte), @min(focus_l_docbyte, focus_r_docbyte));
+        const max_docbyte = @max(@max(anchor_l_docbyte, anchor_r_docbyte), @max(focus_l_docbyte, focus_r_docbyte));
+        const min_pos = block.positionFromDocbyte(min_docbyte);
+        const max_pos = block.positionFromDocbyte(max_docbyte);
+
+        if (focus_l_docbyte < anchor_l_docbyte) {
+            cursor.* = .{
+                .pos = .range(max_pos, min_pos),
+                .drag_info = drag_info,
+            };
+        } else {
+            cursor.* = .{
+                .pos = .range(min_pos, max_pos),
+                .drag_info = drag_info,
+            };
+        }
+    } else {
+        cursor.* = .{
+            .pos = .range(anchor_l, focus_l),
+            .drag_info = drag_info,
+        };
+    }
+}
+
+pub fn replaceRange(self: *Core, operation: bi.text_component.TextDocument.SimpleOperation) void {
+    self.redo.clear();
+    if (false) {
+        const ub = self.undo.begin();
+        self.document.applySimpleOperation(operation, ub.al);
+        self.undo.end(ub) catch @panic("oom");
+    } else {
+        self.document.applySimpleOperation(operation, null);
+    }
+}
+
+pub fn getCursorPositions(self: *Core) CursorPositions {
+    const block = self.document.value;
+
+    var positions: CursorPositions = .init(self.gpa);
+    for (self.cursor_positions.items) |cursor| {
+        const anchor = block.docbyteFromPosition(cursor.pos.anchor);
+        const focus = block.docbyteFromPosition(cursor.pos.focus);
+
+        positions.add(anchor, focus, cursor);
+    }
+    positions.sort();
+
+    return positions;
+}
+
 pub const Position = bi.text_component.Position;
 pub const Selection = struct {
     anchor: Position,
@@ -367,822 +1178,6 @@ test TextStack {
     try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
 }
 
-// const History = struct { history: csdjlkncdsjkncsdjkacnjckdnddcjkasacdjacsdcasdcnakjlsdnlkcajds };
-
-// we would like EditorCore to edit any TextDocument component
-// in order to apply operations to the document, we need to be able to wrap an operation
-// with whatever is needed to target the right document
-pub const EditorCore = struct {
-    gpa: std.mem.Allocator,
-    document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
-    syn_hl_ctx: tree_sitter.Context,
-    clipboard_cache: ?struct {
-        /// owned by self.gpa
-        contents: []const []const u8,
-        /// true only if every line copied had selection .len == 0
-        paste_in_new_line: bool,
-        /// Wyhash of copied string
-        copied_str_hash: u64,
-    },
-    undo: TextStack,
-    redo: TextStack,
-
-    cursor_positions: std.ArrayList(CursorPosition),
-
-    config: EditorConfig = .{
-        .indent_with = .{ .spaces = 4 },
-    },
-
-    /// refs document
-    pub fn initFromDoc(self: *EditorCore, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
-        self.* = .{
-            .gpa = gpa,
-            .document = document,
-            .syn_hl_ctx = undefined,
-            .clipboard_cache = null,
-            .undo = .init(gpa),
-            .redo = .init(gpa),
-
-            .cursor_positions = .init(gpa),
-        };
-        document.ref();
-        document.addUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit)); // to keep the language server up to date
-
-        self.syn_hl_ctx.init(self.document, gpa) catch {
-            @panic("TODO handle syn_hl_ctx init failure");
-        };
-    }
-    pub fn deinit(self: *EditorCore) void {
-        self.undo.deinit();
-        self.redo.deinit();
-        if (self.clipboard_cache) |*v| {
-            for (v.contents) |c| self.gpa.free(c);
-            self.gpa.free(v.contents);
-        }
-        self.syn_hl_ctx.deinit();
-        self.cursor_positions.deinit();
-        self.document.removeUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit));
-        self.document.unref();
-    }
-
-    fn cb_onEdit(self: *EditorCore, edit: bi.text_component.TextDocument.SimpleOperation) void {
-        // TODO: keep tree-sitter updated
-        _ = self;
-        _ = edit;
-    }
-
-    pub fn getLineStart(self: *EditorCore, pos: Position) Position {
-        const block = self.document.value;
-        var lyncol = block.lynColFromPosition(pos);
-        lyncol.col = 0;
-        return block.positionFromLynCol(lyncol).?;
-    }
-    pub fn getPrevLineStart(self: *EditorCore, pos: Position) Position {
-        const block = self.document.value;
-        var lyncol = block.lynColFromPosition(pos);
-        lyncol.col = 0;
-        if (lyncol.lyn > 0) lyncol.lyn -= 1;
-        return block.positionFromLynCol(lyncol).?;
-    }
-    pub fn getThisLineEnd(self: *EditorCore, prev_line_start: Position) Position {
-        const block = self.document.value;
-        const next_line_start = self.getNextLineStart(prev_line_start);
-        const next_line_start_byte = block.docbyteFromPosition(next_line_start);
-        const prev_line_start_byte = block.docbyteFromPosition(prev_line_start);
-
-        if (prev_line_start_byte == next_line_start_byte) return prev_line_start;
-        if (next_line_start_byte == block.length()) return block.positionFromDocbyte(next_line_start_byte);
-        std.debug.assert(next_line_start_byte > prev_line_start_byte);
-        return block.positionFromDocbyte(next_line_start_byte - 1);
-    }
-    pub fn getNextLineStartMaybeInsertNewline(self: *EditorCore, pos: Position) Position {
-        if (self.document.value.docbyteFromPosition(pos) == self.document.value.length()) {
-            self.replaceRange(.{ .position = .end, .delete_len = 0, .insert_text = "\n" });
-            return .end;
-        }
-        return self.getNextLineStart(pos);
-    }
-    pub fn getNextLineStart(self: *EditorCore, prev_line: Position) Position {
-        const block = self.document.value;
-        var lyncol = block.lynColFromPosition(prev_line);
-        lyncol.col = 0;
-        lyncol.lyn += 1;
-        return block.positionFromLynCol(lyncol) orelse {
-            return .end;
-        };
-    }
-    fn measureIndent(self: *EditorCore, line_start_pos: Position) struct { indents: u64, chars: u64 } {
-        var indent_segments: u64 = 0;
-        var chars: u64 = 0;
-
-        const block = self.document.value;
-        var index: u64 = block.docbyteFromPosition(line_start_pos);
-        const len = block.length();
-        while (index < len) : (index += 1) {
-            if (index >= len) continue; // to keep readSlice in bounds
-            var byte: [1]u8 = undefined;
-            block.readSlice(block.positionFromDocbyte(index), &byte);
-            switch (byte[0]) {
-                ' ' => indent_segments += 1,
-                '\t' => indent_segments += self.config.indent_with.count(),
-                else => break,
-            }
-            chars += 1;
-        }
-
-        return .{
-            .indents = std.math.divCeil(u64, indent_segments, self.config.indent_with.count()) catch unreachable,
-            .chars = chars,
-        };
-    }
-
-    fn toWordBoundary(self: *EditorCore, pos: Position, direction: LRDirection, stop: CursorLeftRightStop, mode: enum { left, right, select }, nomove: enum { must_move, may_move }) Position {
-        const block = self.document.value;
-        var docdoc = DocumentDocument{ .text_doc = block };
-        const gendoc = docdoc.doc();
-
-        const src_index = block.docbyteFromPosition(pos);
-        var index: u64 = src_index;
-        const len = block.length();
-        while (switch (direction) {
-            .left => index > 0,
-            .right => index < len,
-        }) : ({
-            if (nomove == .may_move) switch (direction) {
-                .left => index -= 1,
-                .right => index += 1,
-            };
-        }) {
-            if (nomove == .must_move) switch (direction) {
-                .left => index -= 1,
-                .right => index += 1,
-            };
-            if (index <= 0 or index >= len) break; // readSlice will go out of range
-            const marker = hasStop(gendoc, index, stop) orelse continue;
-            switch (mode) {
-                .left => switch (marker) {
-                    .left_or_select, .both => break,
-                    .right_or_select, .right_only => {},
-                },
-                .right => switch (marker) {
-                    .right_or_select, .right_only, .both => break,
-                    .left_or_select => {},
-                },
-                .select => switch (marker) {
-                    .left_or_select, .right_or_select, .both => break,
-                    .right_only => {},
-                },
-            }
-        }
-        return block.positionFromDocbyte(index);
-    }
-
-    pub fn selectionToPosLen(self: *EditorCore, selection: Selection) PosLen {
-        const block = self.document.value;
-
-        const bufbyte_1 = block.docbyteFromPosition(selection.anchor);
-        const bufbyte_2 = block.docbyteFromPosition(selection.focus);
-
-        const min = @min(bufbyte_1, bufbyte_2);
-        const max = @max(bufbyte_1, bufbyte_2);
-
-        return .{
-            .pos = block.positionFromDocbyte(min),
-            .left_docbyte = min,
-            .right = block.positionFromDocbyte(max),
-            .right_docbyte = max,
-            .len = max - min,
-            .is_right = min == bufbyte_1,
-        };
-    }
-    pub fn normalizePosition(self: *EditorCore, pos: Position) Position {
-        const block = self.document.value;
-        return block.positionFromDocbyte(block.docbyteFromPosition(pos));
-    }
-    /// makes sure cursors are:
-    /// - on live spans, not deleted ones `hello ` `5|` `world` -> `hello `5` `|world`
-    /// - not overlapping `he[llo[ wor|ld|` -> `he[llo world|`
-    /// - in left-to-right order ``
-    pub fn normalizeCursors(self: *EditorCore) void {
-        const block = self.document.value;
-
-        var positions = self.getCursorPositions();
-        defer positions.deinit();
-
-        var uncommitted_start: ?u64 = null;
-
-        const len_start = self.cursor_positions.items.len;
-        self.cursor_positions.clearRetainingCapacity();
-        for (positions.positions.items) |pos| {
-            const prev_selected = positions.count > 0;
-            if (positions.idx >= positions.positions.items.len) break;
-            if (positions.positions.items[positions.idx].docbyte > pos.docbyte) continue;
-            const sel_info = positions.advanceAndRead(pos.docbyte);
-            const next_selected = sel_info.selected;
-
-            var res_cursor = sel_info.left_cursor_extra.?;
-            if (prev_selected and next_selected) {
-                // don't put a cursor
-                continue;
-            } else if (!prev_selected and next_selected) {
-                uncommitted_start = pos.docbyte;
-            } else if (prev_selected and !next_selected) {
-                // commit
-                std.debug.assert(uncommitted_start != null);
-                if (sel_info.left_cursor == .focus) {
-                    res_cursor.pos = .range(
-                        block.positionFromDocbyte(uncommitted_start.?),
-                        block.positionFromDocbyte(pos.docbyte),
-                    );
-                } else {
-                    res_cursor.pos = .range(
-                        block.positionFromDocbyte(pos.docbyte),
-                        block.positionFromDocbyte(uncommitted_start.?),
-                    );
-                }
-                self.cursor_positions.appendAssumeCapacity(res_cursor);
-                uncommitted_start = null;
-            } else if (!prev_selected and !next_selected) {
-                // commit
-                std.debug.assert(uncommitted_start == null);
-                res_cursor.pos = .at(
-                    block.positionFromDocbyte(pos.docbyte),
-                );
-                self.cursor_positions.appendAssumeCapacity(res_cursor);
-            } else unreachable;
-        }
-        std.debug.assert(uncommitted_start == null);
-        const len_end = self.cursor_positions.items.len;
-        std.debug.assert(len_end <= len_start);
-    }
-    pub fn select(self: *EditorCore, selection: Selection) void {
-        self.cursor_positions.clearRetainingCapacity();
-        self.cursor_positions.append(.{
-            .pos = selection,
-        }) catch @panic("oom");
-    }
-    fn measureMetric(self: *EditorCore, pos: Position, metric: CursorHorizontalPositionMetric) u64 {
-        const block = self.document.value;
-        const this_line_start = self.getLineStart(pos);
-        return switch (metric) {
-            .byte => block.docbyteFromPosition(pos) - block.docbyteFromPosition(this_line_start),
-            else => @panic("TODO support metric"),
-        };
-    }
-    fn applyMetric(self: *EditorCore, new_line_start: Position, metric: CursorHorizontalPositionMetric, metric_value: u64) Position {
-        const block = self.document.value;
-
-        const new_line_start_pos = block.docbyteFromPosition(new_line_start);
-        const new_line_end_pos = block.docbyteFromPosition(self.getThisLineEnd(new_line_start));
-        const new_line_len = new_line_end_pos - new_line_start_pos;
-        return switch (metric) {
-            .byte => block.positionFromDocbyte(new_line_start_pos + @min(new_line_len, metric_value)),
-            else => @panic("TODO support metric"),
-        };
-    }
-    pub fn executeCommand(self: *EditorCore, command: EditorCommand) void {
-        const block = self.document.value;
-
-        self.normalizeCursors();
-        defer self.normalizeCursors();
-
-        switch (command) {
-            .set_cursor_pos => |sc_op| {
-                self.select(.at(sc_op.position));
-            },
-            .select_all => {
-                self.cursor_positions.clearRetainingCapacity();
-                self.cursor_positions.append(.{
-                    .pos = .{
-                        .anchor = block.positionFromDocbyte(0),
-                        .focus = block.positionFromDocbyte(block.length()), // same as Position.end
-                    },
-                }) catch @panic("oom");
-            },
-            .insert_text => |text_op| {
-                for (self.cursor_positions.items) |*cursor_position| {
-                    const pos_len = self.selectionToPosLen(cursor_position.pos);
-
-                    self.replaceRange(.{
-                        .position = pos_len.pos,
-                        .delete_len = pos_len.len,
-                        .insert_text = text_op.text,
-                    });
-                    const res_pos = pos_len.pos;
-
-                    cursor_position.* = .{ .pos = .{
-                        .anchor = res_pos,
-                        .focus = res_pos,
-                    } };
-                }
-            },
-            .paste => |paste_op| {
-                self.paste(paste_op.text);
-            },
-            .move_cursor_up_down => |ud_cmd| {
-                const orig_len = self.cursor_positions.items.len;
-                for (0..orig_len) |i| {
-                    const cursor_position = &self.cursor_positions.items[i];
-                    switch (ud_cmd.metric) {
-                        .byte => {},
-                        else => @panic("TODO impl ud_cmd metric"),
-                    }
-                    const this_line_start = self.getLineStart(cursor_position.pos.focus);
-                    var target_pos: Position = cursor_position.vertical_move_start orelse cursor_position.pos.focus;
-                    _ = &target_pos; // works around a miscompilation where target_pos changes values after writing to cursor_position :/
-                    const target = self.measureMetric(target_pos, ud_cmd.metric);
-
-                    const new_line_start = switch (ud_cmd.direction) {
-                        .up => self.getPrevLineStart(this_line_start),
-                        .down => self.getNextLineStart(this_line_start),
-                    };
-
-                    // special-case first and last lines
-                    const res_pos = if (ud_cmd.direction == .up and block.docbyteFromPosition(this_line_start) == 0) blk: {
-                        break :blk new_line_start;
-                    } else if (ud_cmd.direction == .down and block.docbyteFromPosition(self.getThisLineEnd(this_line_start)) == block.length()) blk: {
-                        break :blk self.getThisLineEnd(new_line_start);
-                    } else blk: {
-                        break :blk self.applyMetric(new_line_start, ud_cmd.metric, target);
-                    };
-
-                    switch (ud_cmd.mode) {
-                        .move => {
-                            cursor_position.* = .{ .pos = .at(res_pos), .vertical_move_start = target_pos };
-                            cursor_position.vertical_move_start = target_pos;
-                        },
-                        .select => cursor_position.* = .{ .pos = .range(cursor_position.pos.anchor, res_pos), .vertical_move_start = target_pos },
-                        .duplicate => {
-                            self.cursor_positions.append(.{ .pos = .at(res_pos), .vertical_move_start = target_pos }) catch @panic("oom");
-                        },
-                    }
-                    // cursor_position pointer is invalidated
-                }
-            },
-            .move_cursor_left_right => |lr_cmd| {
-                for (self.cursor_positions.items) |*cursor_position| {
-                    const current_pos = self.selectionToPosLen(cursor_position.pos);
-                    if (current_pos.len > 0 and lr_cmd.mode == .move) {
-                        cursor_position.* = switch (lr_cmd.direction) {
-                            .left => .at(current_pos.pos),
-                            .right => .at(current_pos.right),
-                        };
-                        continue;
-                    }
-
-                    const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
-                        .left => .left,
-                        .right => .right,
-                    }, .must_move);
-
-                    switch (lr_cmd.mode) {
-                        .move => {
-                            cursor_position.* = .at(moved);
-                        },
-                        .select => {
-                            cursor_position.* = .range(cursor_position.pos.anchor, moved);
-                        },
-                    }
-                }
-            },
-            .delete => |lr_cmd| {
-                for (self.cursor_positions.items) |*cursor_position| {
-                    const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
-                        .left => .left,
-                        .right => .right,
-                    }, .must_move);
-
-                    // if there is a selection, delete the selection
-                    // if there is no selection, delete from the focus in the direction to the stop
-                    var pos_len = self.selectionToPosLen(cursor_position.pos);
-                    if (pos_len.len == 0) {
-                        pos_len = self.selectionToPosLen(.{ .anchor = cursor_position.pos.focus, .focus = moved });
-                    }
-                    self.replaceRange(.{
-                        .position = pos_len.pos,
-                        .delete_len = pos_len.len,
-                        .insert_text = "",
-                    });
-                    const res_pos = pos_len.pos;
-
-                    cursor_position.* = .at(res_pos);
-                }
-            },
-            .newline => {
-                for (self.cursor_positions.items) |*cursor_position| {
-                    const pos_len = self.selectionToPosLen(cursor_position.pos);
-
-                    const line_start = self.getLineStart(pos_len.pos);
-
-                    var temp_insert_slice = std.ArrayList(u8).init(self.gpa);
-                    defer temp_insert_slice.deinit();
-
-                    const line_indent_count = self.measureIndent(line_start);
-                    const dist = pos_len.left_docbyte - block.docbyteFromPosition(line_start);
-                    const order = line_indent_count.chars <= dist;
-
-                    if (order) temp_insert_slice.append('\n') catch @panic("oom");
-                    temp_insert_slice.appendNTimes(self.config.indent_with.char(), usi(self.config.indent_with.count() * line_indent_count.indents)) catch @panic("oom");
-                    if (!order) temp_insert_slice.append('\n') catch @panic("oom");
-
-                    self.replaceRange(.{
-                        .position = pos_len.pos,
-                        .delete_len = pos_len.len,
-                        .insert_text = temp_insert_slice.items,
-                    });
-                }
-            },
-            .insert_line => |cmd| {
-                switch (cmd.direction) {
-                    .up => {
-                        self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .line, .direction = .left } });
-                        self.executeCommand(.newline);
-                        self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .unicode_grapheme_cluster, .direction = .left } });
-                    },
-                    .down => {
-                        self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .line, .direction = .right } });
-                        self.executeCommand(.newline);
-                    },
-                }
-            },
-            .indent_selection => |indent_cmd| {
-                for (self.cursor_positions.items) |*cursor_position| {
-                    const pos_len = self.selectionToPosLen(cursor_position.pos);
-                    const end_pos = block.positionFromDocbyte(block.docbyteFromPosition(pos_len.pos) + pos_len.len);
-                    var line_start = self.getLineStart(pos_len.pos);
-                    while (true) {
-                        const next_line_start = self.getNextLineStart(line_start);
-                        defer line_start = next_line_start;
-                        const end = block.docbyteFromPosition(next_line_start) >= block.docbyteFromPosition(end_pos);
-                        const line_indent_count = self.measureIndent(line_start);
-                        const new_indent_count: u64 = switch (indent_cmd.direction) {
-                            .left => std.math.sub(u64, line_indent_count.indents, 1) catch 0,
-                            .right => line_indent_count.indents + 1,
-                        };
-
-                        var temp_insert_slice = std.ArrayList(u8).init(self.gpa);
-                        defer temp_insert_slice.deinit();
-                        temp_insert_slice.appendNTimes(self.config.indent_with.char(), usi(self.config.indent_with.count() * new_indent_count)) catch @panic("oom");
-
-                        self.replaceRange(.{
-                            .position = line_start,
-                            .delete_len = line_indent_count.chars,
-                            .insert_text = temp_insert_slice.items,
-                        });
-                        if (end) break;
-                    }
-                }
-            },
-            .duplicate_line => |dupe_cmd| {
-                for (self.cursor_positions.items) |*cursor_position| {
-                    const pos_len = self.selectionToPosLen(cursor_position.pos);
-
-                    const start_line = self.getLineStart(pos_len.pos);
-                    const end_line = self.getThisLineEnd(pos_len.right);
-
-                    const start_byte = block.docbyteFromPosition(start_line);
-                    const end_byte = block.docbyteFromPosition(end_line);
-
-                    var dupe_al: std.ArrayList(u8) = .init(self.gpa);
-                    defer dupe_al.deinit();
-                    block.readSlice(start_line, dupe_al.addManyAsSlice(end_byte - start_byte) catch @panic("oom"));
-                    switch (dupe_cmd.direction) {
-                        .down => {
-                            if (dupe_al.items.len == 0 or dupe_al.items[dupe_al.items.len - 1] != '\n') {
-                                dupe_al.append('\n') catch @panic("oom");
-                            }
-                        },
-                        .up => {
-                            if (dupe_al.items.len != 0 and dupe_al.items[dupe_al.items.len - 1] == '\n') {
-                                _ = dupe_al.pop();
-                            }
-                            dupe_al.insertSlice(0, &.{'\n'}) catch @panic("oom");
-                        },
-                    }
-
-                    self.replaceRange(.{
-                        .position = switch (dupe_cmd.direction) {
-                            .down => start_line,
-                            .up => end_line,
-                        },
-                        .delete_len = 0,
-                        .insert_text = dupe_al.items,
-                    });
-
-                    // handle case where cursor is at the end of the line when duplicating up
-                    if (dupe_cmd.direction == .up) {
-                        const target = block.docbyteFromPosition(end_line);
-                        for (&[_]*Position{ &cursor_position.pos.anchor, &cursor_position.pos.focus }) |pos| {
-                            const pos_int = block.docbyteFromPosition(pos.*);
-                            if (pos_int == target) {
-                                pos.* = block.positionFromDocbyte(pos_int - dupe_al.items.len);
-                            }
-                        }
-                    }
-                }
-            },
-            .ts_select_node => |ts_sel| {
-                for (self.cursor_positions.items) |*cursor_position| {
-                    var sel_start = cursor_position.node_select_start orelse cursor_position.pos;
-                    _ = &sel_start; // work around zig bug. sel_start should be 'const' but it mutates if it is
-                    const start_pos_len = self.selectionToPosLen(sel_start);
-                    const sel_curr = cursor_position.pos;
-                    const curr_pos_len = self.selectionToPosLen(sel_curr);
-
-                    const tree = self.syn_hl_ctx.getTree();
-                    const min_node = tree.rootNode().descendantForByteRange(@intCast(start_pos_len.left_docbyte), @intCast(start_pos_len.right_docbyte));
-
-                    var curr_node_v = min_node;
-                    var prev_node: ?tree_sitter.ts.Node = null;
-
-                    while (curr_node_v) |curr_node| {
-                        const node_start = curr_node.startByte();
-                        const node_end = curr_node.endByte();
-
-                        //  za[bc]de
-                        //  za[bc]de
-                        const db = node_start <= curr_pos_len.left_docbyte and node_end >= curr_pos_len.right_docbyte;
-                        if (ts_sel.direction == .child and db) {
-                            // on down: select previous node
-                            break;
-                        }
-                        if (ts_sel.direction == .parent and db and (node_start < curr_pos_len.left_docbyte or node_end > curr_pos_len.right_docbyte)) {
-                            // on up: select this node
-                            break;
-                        }
-
-                        prev_node = curr_node;
-                        curr_node_v = curr_node.slowParent();
-                    }
-
-                    const target_node = switch (ts_sel.direction) {
-                        .parent => curr_node_v,
-                        .child => prev_node,
-                    };
-
-                    if (target_node == null) switch (ts_sel.direction) {
-                        .parent => {
-                            // select all
-                            cursor_position.* = .{
-                                .pos = .range(block.positionFromDocbyte(0), .end),
-                                .node_select_start = sel_start,
-                            };
-                            continue;
-                        },
-                        .child => {
-                            // select min
-                            cursor_position.* = .{
-                                .pos = sel_start,
-                                .node_select_start = sel_start,
-                            };
-                            continue;
-                        },
-                    };
-
-                    cursor_position.* = .{
-                        .pos = .range(block.positionFromDocbyte(target_node.?.startByte()), block.positionFromDocbyte(target_node.?.endByte())),
-                        .node_select_start = sel_start,
-                    };
-                }
-            },
-            .undo => {
-                // const undo_op = self.undo_list.popOrNull() orelse return;
-                // _ = undo_op;
-                @panic("TODO undo");
-            },
-            .redo => {
-                // const redo_op = self.redo_list.popOrNull() orelse return;
-                // _ = redo_op;
-                @panic("TODO redo");
-            },
-            .click => |click_op| {
-                self.onClick(click_op.pos, click_op.mode, click_op.extend, click_op.select_ts_node);
-            },
-            .drag => |drag_op| {
-                self.onDrag(drag_op.pos);
-            },
-        }
-    }
-    pub const CopyMode = enum { copy, cut };
-    /// returned string is utf-8 encoded. caller owns the returned string and must copy it to the clipboard
-    pub fn copyAllocUtf8(self: *EditorCore, alloc: std.mem.Allocator, mode: CopyMode) []const u8 {
-        var result_str = std.ArrayList(u8).init(alloc);
-        defer result_str.deinit();
-
-        self.copyArrayListUtf8(&result_str, mode);
-
-        return result_str.toOwnedSlice() catch @panic("oom");
-    }
-    /// written string is utf-8 encoded and does not include any null bytes
-    pub fn copyArrayListUtf8(self: *EditorCore, result_str: *std.ArrayList(u8), mode: CopyMode) void {
-        self.normalizeCursors();
-        defer self.normalizeCursors();
-
-        const stored_buf = self.gpa.alloc([]const u8, self.cursor_positions.items.len) catch @panic("oom");
-        var paste_in_new_line = true;
-        var this_needs_newline = false;
-        for (self.cursor_positions.items, stored_buf) |*cursor, *stored| {
-            var pos_range = self.selectionToPosLen(cursor.pos);
-            var next_needs_newline = true;
-            defer this_needs_newline = next_needs_newline;
-            if (pos_range.len == 0) {
-                pos_range = self.selectionToPosLen(.range(self.getLineStart(pos_range.pos), self.getNextLineStartMaybeInsertNewline(pos_range.pos)));
-                next_needs_newline = false;
-            } else {
-                paste_in_new_line = false;
-            }
-            const slice = self.gpa.alloc(u8, pos_range.len) catch @panic("oom");
-            self.document.value.readSlice(pos_range.pos, slice);
-            stored.* = slice;
-
-            if (this_needs_newline) result_str.appendSlice("\n") catch @panic("oom");
-            result_str.appendSlice(slice) catch @panic("oom");
-
-            if (mode == .cut) {
-                self.replaceRange(.{ .position = pos_range.pos, .delete_len = pos_range.len, .insert_text = "" });
-            }
-        }
-        self.clipboard_cache = .{
-            .contents = stored_buf,
-            .copied_str_hash = std.hash.Wyhash.hash(0, result_str.items),
-            .paste_in_new_line = paste_in_new_line,
-        };
-
-        seg_dep.replaceInvalidUtf8(result_str.items);
-    }
-    fn paste(self: *EditorCore, clipboard_contents: []const u8) void {
-        self.normalizeCursors();
-        defer self.normalizeCursors();
-
-        defer {
-            if (self.clipboard_cache) |*v| {
-                for (v.contents) |c| self.gpa.free(c);
-                self.gpa.free(v.contents);
-            }
-            self.clipboard_cache = null;
-        }
-
-        var clip_contents: []const []const u8 = &.{clipboard_contents};
-        var paste_in_new_line = false;
-        if (self.clipboard_cache) |*c| if (c.copied_str_hash == std.hash.Wyhash.hash(0, clipboard_contents)) {
-            clip_contents = c.contents;
-            paste_in_new_line = c.paste_in_new_line;
-        };
-
-        if (clip_contents.len == self.cursor_positions.items.len) {
-            for (clip_contents, self.cursor_positions.items) |text, *cursor_pos| {
-                self.pasteInternal(cursor_pos, text, paste_in_new_line);
-            }
-        } else {
-            for (clip_contents) |text| for (self.cursor_positions.items) |*cursor_pos| {
-                self.pasteInternal(cursor_pos, text, paste_in_new_line);
-            };
-        }
-    }
-    fn pasteInternal(self: *EditorCore, cursor_pos: *const CursorPosition, text: []const u8, paste_in_new_line: bool) void {
-        var pos_range = self.selectionToPosLen(cursor_pos.pos);
-        var add_newline = false;
-        if (pos_range.len == 0 and paste_in_new_line) {
-            pos_range = self.selectionToPosLen(.at(self.getLineStart(pos_range.pos)));
-            add_newline = true;
-        }
-
-        self.replaceRange(.{
-            .position = pos_range.pos,
-            .delete_len = pos_range.len,
-            .insert_text = text,
-        });
-    }
-    fn getEnsureOneCursor(self: *EditorCore, default_pos: Position) *CursorPosition {
-        if (self.cursor_positions.items.len == 0) {
-            self.select(.at(default_pos));
-        } else if (self.cursor_positions.items.len > 1) {
-            self.cursor_positions.items.len = 1;
-        }
-        return &self.cursor_positions.items[0];
-    }
-    // change to sel_mode: DragSelectionMode, shift_held: bool?
-    // make this an EditorCommand?
-    fn onClick(self: *EditorCore, pos: Position, sel_mode: DragSelectionMode, shift_held: bool, ctrl_or_alt_held: bool) void {
-        const cursor = self.getEnsureOneCursor(pos);
-
-        if (shift_held) {
-            if (cursor.drag_info == null) {
-                cursor.drag_info = .{
-                    .start_pos = cursor.pos.focus,
-                    .sel_mode = sel_mode,
-                    .select_ts_node = ctrl_or_alt_held,
-                };
-            }
-            if (sel_mode.select) cursor.drag_info.?.sel_mode = sel_mode;
-        } else {
-            cursor.drag_info = .{
-                .start_pos = pos,
-                .sel_mode = sel_mode,
-                .select_ts_node = ctrl_or_alt_held,
-            };
-        }
-        self.onDrag(pos);
-    }
-    fn onDrag(self: *EditorCore, pos: Position) void {
-        const block = self.document.value;
-
-        // TODO: support tree_sitter selection when holding ctrl|alt:
-        // - given (drag_start, drag_end):
-        //   - find node for range (start, end)
-        //   - select from node left to node right
-        // should allow for easy selection within brackets: ctrl+drag a little bit and you're done
-        const cursor = self.getEnsureOneCursor(pos);
-        if (cursor.drag_info == null) return;
-
-        const drag_info = cursor.drag_info.?;
-        const stop = drag_info.sel_mode.stop;
-        const anchor_pos = drag_info.start_pos;
-        if (drag_info.select_ts_node) {
-            const sel_start: Selection = .range(anchor_pos, pos);
-            const pos_len = self.selectionToPosLen(sel_start);
-
-            const tree = self.syn_hl_ctx.getTree();
-            const min_node = tree.rootNode().descendantForByteRange(@intCast(pos_len.left_docbyte), @intCast(pos_len.right_docbyte));
-
-            const target_start = if (min_node) |m| m.startByte() else 0;
-            const target_end = if (min_node) |m| m.endByte() else block.length();
-
-            cursor.* = .{
-                .pos = switch (pos_len.is_right) {
-                    false => .range(block.positionFromDocbyte(target_end), block.positionFromDocbyte(target_start)),
-                    true => .range(block.positionFromDocbyte(target_start), block.positionFromDocbyte(target_end)),
-                },
-                .node_select_start = sel_start,
-                .drag_info = drag_info,
-            };
-            return;
-        }
-        const anchor_l = self.toWordBoundary(anchor_pos, .left, stop, .select, .may_move);
-        const focus_l = self.toWordBoundary(pos, .left, stop, .select, .may_move);
-        if (drag_info.sel_mode.select) {
-            const anchor_r = self.toWordBoundary(anchor_pos, .right, stop, .select, .must_move);
-            const focus_r = self.toWordBoundary(pos, .right, stop, .select, .must_move);
-
-            // now:
-            // we select from @min(all) to @max(all) and put the cursor on (focus_l < anchor_l ? left : right)
-
-            const anchor_l_docbyte = block.docbyteFromPosition(anchor_l);
-            const anchor_r_docbyte = block.docbyteFromPosition(anchor_r);
-            const focus_l_docbyte = block.docbyteFromPosition(focus_l);
-            const focus_r_docbyte = block.docbyteFromPosition(focus_r);
-
-            const min_docbyte = @min(@min(anchor_l_docbyte, anchor_r_docbyte), @min(focus_l_docbyte, focus_r_docbyte));
-            const max_docbyte = @max(@max(anchor_l_docbyte, anchor_r_docbyte), @max(focus_l_docbyte, focus_r_docbyte));
-            const min_pos = block.positionFromDocbyte(min_docbyte);
-            const max_pos = block.positionFromDocbyte(max_docbyte);
-
-            if (focus_l_docbyte < anchor_l_docbyte) {
-                cursor.* = .{
-                    .pos = .range(max_pos, min_pos),
-                    .drag_info = drag_info,
-                };
-            } else {
-                cursor.* = .{
-                    .pos = .range(min_pos, max_pos),
-                    .drag_info = drag_info,
-                };
-            }
-        } else {
-            cursor.* = .{
-                .pos = .range(anchor_l, focus_l),
-                .drag_info = drag_info,
-            };
-        }
-    }
-
-    pub fn replaceRange(self: *EditorCore, operation: bi.text_component.TextDocument.SimpleOperation) void {
-        self.redo.clear();
-        if (false) {
-            const ub = self.undo.begin();
-            self.document.applySimpleOperation(operation, ub.al);
-            self.undo.end(ub) catch @panic("oom");
-        } else {
-            self.document.applySimpleOperation(operation, null);
-        }
-    }
-
-    pub fn getCursorPositions(self: *EditorCore) CursorPositions {
-        const block = self.document.value;
-
-        var positions: CursorPositions = .init(self.gpa);
-        for (self.cursor_positions.items) |cursor| {
-            const anchor = block.docbyteFromPosition(cursor.pos.anchor);
-            const focus = block.docbyteFromPosition(cursor.pos.focus);
-
-            positions.add(anchor, focus, cursor);
-        }
-        positions.sort();
-
-        return positions;
-    }
-};
-
 const PositionItem = struct {
     docbyte: u64,
     mode: enum { start, end },
@@ -1263,7 +1258,7 @@ pub const CursorPositions = struct {
     }
 };
 
-fn testEditorContent(expected: []const u8, editor: *EditorCore) !void {
+fn testEditorContent(expected: []const u8, editor: *Core) !void {
     const actual = &editor.document;
     const gpa = std.testing.allocator;
     var rendered = std.ArrayList(u8).init(gpa);
@@ -1297,7 +1292,7 @@ const EditorTester = struct {
     my_db: db_mod.BlockDB,
     src_block: *db_mod.BlockRef,
     src_component: db_mod.TypedComponentRef(bi.TextDocumentBlock.Child),
-    editor: EditorCore,
+    editor: Core,
 
     pub fn init(res: *EditorTester, gpa: std.mem.Allocator, initial_text: []const u8) void {
         res.* = .{
@@ -1406,7 +1401,7 @@ test hasStop {
     }
 }
 
-test EditorCore {
+test Core {
     var tester: EditorTester = undefined;
     tester.init(std.testing.allocator, "hello!");
     defer tester.deinit();

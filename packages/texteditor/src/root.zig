@@ -1,8 +1,8 @@
-pub const core = @import("editor_core.zig");
-pub const view = @import("editor_view.zig");
+pub const Core = @import("Core.zig");
+pub const View = @import("View.zig");
 
 test {
-    _ = core;
-    _ = view;
+    _ = Core;
+    _ = View;
     _ = @import("tree_sitter.zig");
 }

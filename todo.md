@@ -62,6 +62,8 @@ Tasks:
 
 wishlist:
 
+- [ ] packages/texteditor should not contain View. Instead, it should be part of beui, and
+  beui should depend on texteditor.
 - [ ] change beui_mod.Beui -> Beui, text_editor.core.EditorCore -> text_editor.Core,
   text_editor.view.EditorView -> text_editor.EditorView
 - [ ] create virtual scroll view. create text component. text editor rendering then becomes:
