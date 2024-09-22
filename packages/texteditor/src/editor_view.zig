@@ -715,9 +715,7 @@ pub const EditorView = struct {
         if (zgui.beginWindow("Editor Debug", .{})) {
             defer zgui.endWindow();
 
-            zgui.text("draw_list items: {d} / {d}", .{ draw_list.vertices.items.len, draw_list.indices.items.len });
             zgui.text("click_target: {?d}", .{click_target});
-            zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
 
             zgui.checkbox("Syntax Highlighting", &self.config.syntax_highlighting);
 

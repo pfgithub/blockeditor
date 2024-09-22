@@ -316,23 +316,6 @@ fn update(demo: *DemoState) void {
     );
 
     _ = zgui.DockSpaceOverViewport(0, zgui.getMainViewport(), .{ .passthru_central_node = true });
-
-    zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .first_use_ever });
-    zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
-
-    if (zgui.begin("Demo Settings", .{})) {
-        zgui.bulletText(
-            "Average : {d:.3} ms/frame ({d:.1} fps)",
-            .{ demo.gctx.stats.average_cpu_time, demo.gctx.stats.fps },
-        );
-        zgui.spacing();
-        _ = zgui.sliderInt("Mipmap Level", .{
-            .v = &demo.mip_level,
-            .min = 0,
-            .max = @as(i32, @intCast(demo.gctx.lookupResourceInfo(demo.texture).?.mip_level_count - 1)),
-        });
-    }
-    zgui.end();
 }
 
 fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *beui_mod.texpack) void {
@@ -769,8 +752,11 @@ pub fn main() !void {
     var draw_list = draw_lists.RenderList.init(gpa);
     defer draw_list.deinit();
 
+    var timer = try std.time.Timer.start();
+
     while (!window.shouldClose() and window.getKey(.escape) != .press) {
         tracy.frameMark();
+        timer.reset();
 
         _ = arena_state.reset(.retain_capacity);
         draw_list.clear();
@@ -823,6 +809,20 @@ pub fn main() !void {
         my_text_editor.gui(&beui, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });
 
         zgui.showDemoWindow(null);
+
+        zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .first_use_ever });
+        zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
+
+        if (zgui.begin("Demo Settings", .{})) {
+            zgui.text(
+                "Average : {d:.3} ms/frame ({d:.1} fps)",
+                .{ demo.gctx.stats.average_cpu_time, demo.gctx.stats.fps },
+            );
+            zgui.text("draw_list items: {d} / {d}", .{ draw_list.vertices.items.len, draw_list.indices.items.len });
+            zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
+            zgui.text("frame prepare time: {d}", .{std.fmt.fmtDuration(timer.read())});
+        }
+        zgui.end();
 
         draw(demo, &draw_list, &my_text_editor.glyphs);
     }
