@@ -109,6 +109,7 @@ pub const TcpSync = struct {
                 self._close();
                 return;
             } orelse continue; // no timeout = never null
+            defer self.client.?.done(msg);
 
             switch (msg.type) {
                 .text, .binary => {
