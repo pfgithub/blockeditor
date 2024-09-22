@@ -69,6 +69,7 @@ wishlist:
 - [ ] bbt findNodeForQuery only needs to have a compare fn signature be
   `(lhs: Query, rhs: Count) -> std.math.Order`. if it returns `.gt` but the node to the right of it
   returns `.lt` then we know the target node.
+- [ ] in editor, pinch to zoom out and see an overview of all the decls. pinch to zoom back in.
 
 
 future blocks:
