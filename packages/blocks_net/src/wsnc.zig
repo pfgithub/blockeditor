@@ -30,7 +30,7 @@ pub fn main() !void {
     while (true) {
         const msg = try std.io.getStdIn().reader().readUntilDelimiterAlloc(gpa, '\n', std.math.maxInt(usize));
         defer gpa.free(msg);
-        if (std.mem.eql(u8, msg, "\n") or std.mem.eql(u8, msg, "\r\n") or std.mem.eql(u8, msg, "\r")) {
+        if (std.mem.eql(u8, msg, "") or std.mem.eql(u8, msg, "\r")) {
             // exit
             break;
         }
