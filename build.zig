@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(blockeditor_dep.artifact("blockeditor"));
     b.installArtifact(blocks_net_dep.artifact("server"));
     b.installArtifact(texteditor_dep.artifact("zls"));
-    if (enable_tracy) b.installArtifact(tracy_dep.artifact("tracy")); // tracy exe has system dependencies and cannot be compiled for all targets
+    if (enable_tracy) b.getInstallStep().dependOn(&b.addInstallArtifact(tracy_dep.artifact("tracy"), .{ .dest_dir = .{ .override = .{ .custom = "tool" } } }).step); // tracy exe has system dependencies and cannot be compiled for all targets
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
@@ -44,12 +44,6 @@ pub fn build(b: *std.Build) void {
     });
     b.getInstallStep().dependOn(&b.addInstallArtifact(multirun_exe, .{ .dest_dir = .{ .override = .{ .custom = "tool" } } }).step);
 
-    const run_tracy = b.addRunArtifact(tracy_dep.artifact("tracy"));
-    run_tracy.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_tracy.addArgs(args);
-    const run_tracy_step = b.step("tracy", "Run tracy");
-    run_tracy_step.dependOn(&run_tracy.step);
-
     if (enable_tracy) {
         if (optimize == .Debug) {
             b.getInstallStep().dependOn(&b.addFail("To use tracy, -Doptimize must be set to a release mode").step);
@@ -59,11 +53,11 @@ pub fn build(b: *std.Build) void {
         run_multirun.step.dependOn(b.getInstallStep());
 
         run_multirun.addArg("|-|");
-        run_multirun.addFileArg(blockeditor_dep.artifact("blockeditor").getEmittedBin());
+        run_multirun.addArtifactArg(blockeditor_dep.artifact("blockeditor"));
         if (b.args) |args| run_multirun.addArgs(args);
 
         run_multirun.addArg("|-|");
-        run_multirun.addFileArg(tracy_dep.artifact("tracy").getEmittedBin());
+        run_multirun.addArtifactArg(tracy_dep.artifact("tracy"));
 
         const run_blockeditor_step = b.step("run", "Run blockeditor");
         run_blockeditor_step.dependOn(&run_multirun.step);
