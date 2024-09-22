@@ -106,3 +106,15 @@ const SampleVirtual = struct {
         return null;
     }
 };
+
+// if we choose not to allow moving children after rendering, then:
+// - we need in beui a toggle to say "disable rendering and events" so we can measure something
+//   without actually drawing it to the screen
+// - lots of stuff will have to be frame-delayed for no good reason. center aligning something
+//   requires: the first frame, don't render anything and just measure the thing to align. the
+//   second frame, render it and track its width. the third frame, render it and update based
+//   on the second frame. and any size changes will cause broken weird stuff.
+
+// if we choose to allow moving children after rendering, then:
+// - how? nested render lists that get unnested in a step after?
+// - have to deal with events. possibly even with event handlers
