@@ -12,7 +12,7 @@ const ft = beui_mod.font_experiment.ft;
 const hb = beui_mod.font_experiment.hb;
 const sb = beui_mod.font_experiment.sb;
 
-const editor_core = @import("texteditor").core;
+const editor_core = @import("editor_core.zig");
 
 pub const LayoutItem = struct {
     docbyte_offset_from_layout_line_start: u64,
