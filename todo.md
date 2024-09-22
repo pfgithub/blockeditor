@@ -62,6 +62,8 @@ Tasks:
 
 wishlist:
 
+- [ ] change beui_mod.Beui -> Beui, text_editor.core.EditorCore -> text_editor.Core,
+  text_editor.view.EditorView -> text_editor.EditorView
 - [ ] create virtual scroll view. create text component. text editor rendering then becomes:
   `while(beui.virtualScroll(&self.scroll)) |line_middle| { beui.renderTextLine( <text>, <cursor positions>, <syn hl fonts and ranges> ) }`.
 - [ ] move tree sitter into its own package
