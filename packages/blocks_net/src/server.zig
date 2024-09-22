@@ -3,10 +3,11 @@ const ws = @import("websocket");
 const shared = @import("shared.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    var gpa_backing = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa_backing.deinit() == .ok);
+    const gpa = gpa_backing.allocator();
 
-    var server = try ws.Server(Handler).init(allocator, .{
+    var server = try ws.Server(Handler).init(gpa, .{
         .port = 9224,
         .address = "127.0.0.1",
         .handshake = .{

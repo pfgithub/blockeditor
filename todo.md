@@ -47,6 +47,9 @@ Tasks:
 - [ ] Document: expose line_count functionality and two way fns for (line, col) -> Position
   and Position -> (line, col)
   - [ ] Use this new functionality for tree sitter rather than calculating from the start of the file
+- [ ] application takes a while to close until ConnectionRefused on tcp. windows
+  takes a while to send this, and presumably it could take a while over a real
+  network. Ideally we could kill this while it's in progress on app close.
 
 wishlist:
 
