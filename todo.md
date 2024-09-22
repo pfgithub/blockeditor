@@ -66,6 +66,9 @@ wishlist:
 - [ ] text editor tree sitter: add a button to copy dot graph of the current syntax tree to
   clipboard
 - [ ] text editor tree sitter: documentation comments should have markdown bodies. for this, we need to use the sub tree sitter support with a commonmark parser. and we want to render contents of doc comments as well as we render regular markdown files.
+- [ ] bbt findNodeForQuery only needs to have a compare fn signature be
+  `(lhs: Query, rhs: Count) -> std.math.Order`. if it returns `.gt` but the node to the right of it
+  returns `.lt` then we know the target node.
 
 
 future blocks:

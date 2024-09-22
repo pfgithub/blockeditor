@@ -798,9 +798,21 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
                 const DocbyteQuery = struct {
                     docbyte: u64,
-                    fn compare(q: DocbyteQuery, a: Count, b: Count) std.math.Order {
+                    pub fn compare(q: DocbyteQuery, a: Count, b: Count) std.math.Order {
                         if (q.docbyte < a.byte_count) return .lt;
                         if (q.docbyte >= b.byte_count) return .gt;
+                        return .eq;
+                    }
+                };
+                const LynColQuery = struct {
+                    lyn: u64,
+                    col: u64,
+                    fn tx64To128(a: u64, b: u64) u128 {
+                        return (@as(u128, a) << 64) | b;
+                    }
+                    pub fn compare(q: LynColQuery, a: Count, b: Count) std.math.Order {
+                        if (tx64To128(q.lyn, q.col) < tx64To128(a.newline_count, a.bytes_after_newline_count)) return .lt;
+                        if (tx64To128(q.lyn, q.col) >= tx64To128(b.newline_count, b.bytes_after_newline_count)) return .gt;
                         return .eq;
                     }
                 };
@@ -1006,16 +1018,27 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             const span = self.span_bbt.findNodeForQuery(Span.Count.DocbyteQuery{ .docbyte = target_docbyte });
             if (span == .none or span == .root) @panic("positionFromDocbyte out of range");
             const span_data = self.span_bbt.getNodeDataPtrConst(span).?;
+            std.debug.assert(!span_data.deleted());
             const span_position = self.span_bbt.getCountForNode(span);
-            return .{
+            const res_position: Position = .{
                 .id = span_data.id,
                 // I don't understand why span_data includes start_segbyte?
                 .segbyte = span_data.start_segbyte + (target_docbyte - span_position.byte_count),
             };
+            if (@import("builtin").is_test) self.assertRoundTrip(res_position);
+            return res_position;
         }
         pub fn docbyteFromPosition(self: *const Doc, position: Position) u64 {
             const res = self._findEntrySpan(position);
+            if (@import("builtin").is_test) self.assertRoundTrip(self.positionFromDocbyte(res.position_docbyte));
             return res.position_docbyte;
+        }
+
+        fn assertRoundTrip(self: *const Doc, position: Position) void {
+            // make sure round trip lynColFromPosition -> positionFromLynCol same
+            const lyn_col = self.lynColFromPosition(position);
+            const pos = self.positionFromLynCol(lyn_col);
+            std.debug.assert(pos.?.id == position.id and pos.?.segbyte == position.segbyte);
         }
 
         pub fn lynColFromPosition(self: *const Doc, position: Position) LynCol {
@@ -1029,9 +1052,34 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             const total_count = span_count.add(subarray_count);
             return .{ .lyn = total_count.newline_count, .col = total_count.bytes_after_newline_count };
         }
-        pub fn positionFromLynCol(self: *const Doc, lyn_col: LynCol) Position {
-            _ = self;
-            _ = lyn_col;
+        pub fn positionFromLynCol(self: *const Doc, lyn_col: LynCol) ?Position {
+            const span = self.span_bbt.findNodeForQuery(Span.Count.LynColQuery{ .lyn = lyn_col.lyn, .col = lyn_col.col });
+            if (span == .none or span == .root) return null; // not found
+            const span_data = self.span_bbt.getNodeDataPtrConst(span).?;
+            std.debug.assert(!span_data.deleted());
+            var current_position = self.span_bbt.getCountForNode(span);
+            // now we have to walk
+            const slice = self.buffer.items[span_data.bufbyte.?..][0..span_data.length];
+            for (slice, 0..) |char, i| {
+                switch (std.math.order(current_position.newline_count, lyn_col.lyn)) {
+                    .lt => {},
+                    .eq => switch (std.math.order(current_position.bytes_after_newline_count, lyn_col.col)) {
+                        .lt => {},
+                        .eq => return .{ .id = span_data.id, .segbyte = span_data.start_segbyte + i },
+                        .gt => return null,
+                    },
+                    .gt => return null,
+                }
+
+                current_position.byte_count += 1;
+                current_position.bytes_after_newline_count += 1;
+                if (char == '\n') {
+                    current_position.newline_count += 1;
+                    current_position.bytes_after_newline_count = 0;
+                }
+            }
+            std.debug.assert(current_position.newline_count != lyn_col.lyn and current_position.bytes_after_newline_count != lyn_col.col);
+            return null;
         }
 
         pub const EntryIndex = struct {
