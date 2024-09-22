@@ -42,7 +42,7 @@ Tasks:
   from the left of the selection (cursor or anchor) and down should go down from the right of
   the selection (cursor or anchor)
 - [x] update tree sitter
-- [ ] text editor tree sitter: `"hi{a}"` highlights the brackets. and `"hi{{ }}` shows the
+- [x] text editor tree sitter: `"hi{a}"` highlights the brackets. and `"hi{{ }}` shows the
   brackets as invalid. Make `{{` within a string highlight to `<punctuation>{<string>{`.
 - [x] Document: expose line_count functionality and two way fns for (line, col) -> Position
   and Position -> (line, col)

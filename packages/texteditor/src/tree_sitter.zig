@@ -376,6 +376,8 @@ const NodeTag = enum {
 
     @".?",
     @".*",
+    @"{{",
+    @"}}",
 };
 const NodeInfo = union(enum) {
     _none,
@@ -387,7 +389,7 @@ const NodeCacheInfo = union(enum) {
     color_scope: Core.SynHlColorScope,
     special: struct {
         start_byte: usize,
-        kind: enum { dot, number_with_prefix, escape_sequence, line_comment, doc_comment },
+        kind: enum { dot, number_with_prefix, escape_sequence, curly_escape, line_comment, doc_comment },
     },
 };
 const LastNodeCache = struct {
@@ -497,6 +499,17 @@ fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize)
                         else => .literal,
                     },
                 },
+                .curly_escape => switch (offset) {
+                    0 => switch (char) {
+                        '{' => .punctuation,
+                        else => .literal_string,
+                    },
+                    1 => switch (char) {
+                        '}' => .punctuation,
+                        else => .literal_string,
+                    },
+                    else => .literal_string,
+                },
                 .number_with_prefix => switch (offset) {
                     0...1 => .keyword_storage,
                     // '.' and '_' get the same formatting otherwise it looks weird
@@ -533,6 +546,7 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: ts.Node) NodeCacheInfo {
                     .kind = .dot,
                 } };
             },
+            .@"{{", .@"}}" => return .{ .special = .{ .start_byte = node.startByte(), .kind = .curly_escape } },
             .EscapeSequence => {
                 return .{ .special = .{
                     .start_byte = node.startByte(),
@@ -693,6 +707,13 @@ test Context {
         .insert_text = "//!c1\n//c2\n///c3\nconst a = 0;",
     }, null);
     try testHighlight(&ctx, "<keyword>//!<markdown_plain_text>c1\n<punctuation>//<comment>c2\n<keyword>///<markdown_plain_text>c3\n<keyword_storage>const <variable_constant>a <keyword>= <literal>0<punctuation>;");
+
+    src_component.applySimpleOperation(.{
+        .position = src_component.value.positionFromDocbyte(0),
+        .delete_len = src_component.value.length(),
+        .insert_text = "const a = \"Hello {s}: {{.a = b}}\";",
+    }, null);
+    try testHighlightOfsetted(&ctx, 10, "<punctuation>\"<literal_string>Hello <punctuation>{<literal_string>s<punctuation>}<literal_string>: <punctuation>{<literal_string>{.a = b}<punctuation>}\";");
 
     // we can fuzz: document plus random insert should equal document plus random insert
     // but one before initializing ctx and one after
