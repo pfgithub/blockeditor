@@ -1750,5 +1750,7 @@ pub const SynHlColorScope = enum {
     comment,
 
     /// editor color - your syntax highlighter never needs to output this
+    unstyled,
+    /// editor color - your syntax highlighter never needs to output this
     invisible,
 };

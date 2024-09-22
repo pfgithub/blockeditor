@@ -89,6 +89,10 @@ pub const EditorView = struct {
     verdana_ttf: ?[]const u8,
     layout_cache: std.StringArrayHashMap(LayoutInfo),
 
+    config: struct {
+        syntax_highlighting: bool = true,
+    } = .{},
+
     scroll: struct {
         /// null = start of file
         line_before_anchor: ?editor_core.Position = null,
@@ -602,14 +606,17 @@ pub const EditorView = struct {
                         const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
                         const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
 
-                        const tint = DefaultTheme.synHlColor(syn_hl.advanceAndRead(item_docbyte));
+                        const tint: editor_core.SynHlColorScope = switch (self.config.syntax_highlighting) {
+                            true => syn_hl.advanceAndRead(item_docbyte),
+                            false => .unstyled,
+                        };
                         draw_list.addRegion(.{
                             .pos = line_pos + cursor_pos + item_offset + glyph_offset,
                             .size = glyph_size,
                             .region = region,
                             .image = .editor_view_glyphs,
                             .image_size = self.glyphs.size,
-                            .tint = hexToFloat(tint),
+                            .tint = hexToFloat(DefaultTheme.synHlColor(tint)),
                         });
                     }
                 }
@@ -712,6 +719,8 @@ pub const EditorView = struct {
             zgui.text("click_target: {?d}", .{click_target});
             zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
 
+            zgui.checkbox("Syntax Highlighting", &self.config.syntax_highlighting);
+
             for (self.core.cursor_positions.items) |cursor| {
                 const lyncol = block.lynColFromPosition(cursor.pos.focus);
                 zgui.text("current pos: Ln {d}, Col {d}", .{ lyncol.lyn + 1, lyncol.col + 1 });
@@ -767,6 +776,7 @@ const DefaultTheme = struct {
             .variable_mutable => 0xB7C5D3,
             .comment => 0xff9d1c,
 
+            .unstyled => 0xB7C5D3,
             .invisible => 0x43515c,
         };
     }

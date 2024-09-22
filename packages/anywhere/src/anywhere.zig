@@ -26,6 +26,9 @@ pub const zgui = struct {
     pub inline fn text(comptime fmt: []const u8, args: anytype) void {
         if (zgui_mod) |z| z.text(fmt, args);
     }
+    pub inline fn checkbox(label: [:0]const u8, value: *bool) void {
+        if (zgui_mod) |z| _ = z.checkbox(label, .{ .v = value });
+    }
 };
 
 pub const tracy = struct {
