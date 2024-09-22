@@ -319,7 +319,7 @@ fn BalancedBinaryTree(comptime Data: type) type {
                 const child_side = self._getChildSide(parent, current_node);
                 if (child_side == .right) {
                     const parent_ptr = self._getNodePtrConst(parent).?;
-                    current_count = current_count.add(parent_ptr.lhs_sum.add(parent_ptr.self_sum));
+                    current_count = parent_ptr.lhs_sum.add(parent_ptr.self_sum).add(current_count);
                 }
                 current_node = parent;
             }
@@ -547,6 +547,8 @@ test "bbt" {
 
 const std = @import("std");
 
+pub const LynCol = struct { lyn: u64, col: u64 };
+
 pub const SegmentID = enum(u64) {
     end = 0,
     _,
@@ -760,26 +762,34 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 if (span.deleted()) return .{
                     .byte_count = 0,
                     .newline_count = 0,
+                    .bytes_after_newline_count = 0,
                 };
                 const document: *const Doc = @alignCast(@fieldParentPtr("span_bbt", bbt));
                 var result = Count{
                     .byte_count = span.length,
                     .newline_count = 0,
+                    .bytes_after_newline_count = 0,
                 };
                 for (document.buffer.items[usi(span.bufbyte.?)..][0..usi(span.length)]) |char| {
-                    if (char == '\n') result.newline_count += 1;
+                    result.bytes_after_newline_count += 1;
+                    if (char == '\n') {
+                        result.newline_count += 1;
+                        result.bytes_after_newline_count = 0;
+                    }
                 }
                 return result;
             }
             const Count = struct {
-                pub const zero = Count{ .byte_count = 0, .newline_count = 0 };
+                pub const zero = Count{ .byte_count = 0, .newline_count = 0, .bytes_after_newline_count = 0 };
                 byte_count: u64,
                 newline_count: u64,
+                bytes_after_newline_count: u64,
 
                 fn add(a: Count, b: Count) Count {
                     return .{
                         .byte_count = a.byte_count + b.byte_count,
                         .newline_count = a.newline_count + b.newline_count,
+                        .bytes_after_newline_count = if (b.newline_count == 0) a.bytes_after_newline_count + b.bytes_after_newline_count else b.bytes_after_newline_count,
                     };
                 }
                 fn eql(a: Count, b: Count) bool {
@@ -1013,6 +1023,23 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             const res = self._findEntrySpan(position);
             return res.position_docbyte;
         }
+
+        pub fn lynColFromPosition(self: *const Doc, position: Position) LynCol {
+            const res = self._findEntrySpan(position);
+            const span_data = self.span_bbt.getNodeDataPtrConst(res.span_index).?;
+            const span_count = self.span_bbt.getCountForNode(res.span_index);
+
+            var subarray_portion = span_data.*;
+            subarray_portion.length = if (span_data.deleted()) 0 else res.spanbyte_incl_deleted;
+            const subarray_count = subarray_portion.count(&self.span_bbt);
+            const total_count = span_count.add(subarray_count);
+            return .{ .lyn = total_count.newline_count, .col = total_count.bytes_after_newline_count };
+        }
+        pub fn positionFromLynCol(self: *const Doc, lyn_col: LynCol) Position {
+            _ = self;
+            _ = lyn_col;
+        }
+
         pub const EntryIndex = struct {
             span_index: BBT.NodeIndex,
             span_start_docbyte: u64,

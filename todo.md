@@ -56,6 +56,8 @@ Tasks:
     that is waiting on read()
 - [ ] text editor: pressing esc closes app. remove this.
 - [ ] text editor: pressing esc should remove all but the top multicursor
+- [ ] text editor: fix whatever's wrong with the last line. it's rendering twice and cursor
+  doesn't show at the last location.
 
 wishlist:
 

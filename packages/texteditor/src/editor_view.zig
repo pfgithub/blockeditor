@@ -711,6 +711,11 @@ pub const EditorView = struct {
             zgui.text("draw_list items: {d} / {d}", .{ draw_list.vertices.items.len, draw_list.indices.items.len });
             zgui.text("click_target: {?d}", .{click_target});
             zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
+
+            for (self.core.cursor_positions.items) |cursor| {
+                const lyncol = block.lynColFromPosition(cursor.pos.focus);
+                zgui.text("current pos: Ln {d}, Col {d}", .{ lyncol.lyn + 1, lyncol.col + 1 });
+            }
         }
 
         if (zgui.beginWindow("Tree Sitter Info", .{})) {
