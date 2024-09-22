@@ -1,4 +1,4 @@
-const Beui = @import("beui.zig").Beui;
+const Beui = @import("Beui.zig");
 
 const BeuiLayout = struct {
     beui: *Beui,

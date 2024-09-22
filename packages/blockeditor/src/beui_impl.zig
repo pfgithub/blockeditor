@@ -3,7 +3,6 @@ const draw_lists = Beui.draw_lists;
 const blocks_mod = @import("blocks");
 const bi = blocks_mod.blockinterface2;
 const db = blocks_mod.blockdb;
-const text_editor = @import("texteditor");
 const Beui = @import("beui").Beui;
 const blocks_net = @import("blocks_net");
 const anywhere = @import("anywhere");
@@ -671,7 +670,7 @@ pub fn main() !void {
     const my_text_component = my_text.typedComponent(bi.TextDocumentBlock).?; // .? asserts it's loaded which isn't what we want. we want to wait to init until it's loaded.
     defer my_text_component.unref();
 
-    var my_text_editor: text_editor.View = undefined;
+    var my_text_editor: Beui.EditorView = undefined;
     my_text_editor.initFromDoc(gpa, my_text_component);
     defer my_text_editor.deinit();
 

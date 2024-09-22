@@ -7,7 +7,6 @@
     .dependencies = .{
         .blocks = .{ .path = "../blocks" },
         .blocks_net = .{ .path = "../blocks_net" },
-        .texteditor = .{ .path = "../texteditor" },
         .beui = .{ .path = "../beui" },
         .tracy = .{ .path = "../tracy" },
         .anywhere = .{ .path = "../anywhere" },

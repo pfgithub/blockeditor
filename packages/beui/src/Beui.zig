@@ -2,6 +2,8 @@ pub const default_image = @embedFile("font.rgba"); // 97x161, 255 = white / 0 = 
 pub const draw_lists = @import("render_list.zig");
 pub const Texpack = @import("Texpack.zig");
 pub const font_experiment = @import("font_experiment.zig");
+pub const EditorView = @import("EditorView.zig");
+pub const beui_experiment = @import("beui_experiment.zig");
 
 const Beui = @This();
 
@@ -359,7 +361,9 @@ pub const Color = struct {
 };
 
 test {
-    _ = @import("font_experiment.zig");
-    _ = @import("render_list.zig");
-    _ = @import("Texpack.zig");
+    _ = font_experiment;
+    _ = draw_lists;
+    _ = Texpack;
+    _ = EditorView;
+    _ = beui_experiment;
 }

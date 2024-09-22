@@ -18,5 +18,7 @@
         },
         .sheen_bidi = .{ .path = "../sheen_bidi" },
         .anywhere = .{ .path = "../anywhere" },
+        .blocks = .{ .path = "../blocks" },
+        .texteditor = .{ .path = "../texteditor" },
     },
 }

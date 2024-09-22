@@ -4,7 +4,7 @@ const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
 const draw_lists = Beui.draw_lists;
-const Beui = @import("beui").Beui;
+const Beui = @import("Beui.zig");
 const tracy = @import("anywhere").tracy;
 const zgui = @import("anywhere").zgui;
 
@@ -12,8 +12,8 @@ const ft = Beui.font_experiment.ft;
 const hb = Beui.font_experiment.hb;
 const sb = Beui.font_experiment.sb;
 
-const Core = @import("Core.zig");
-const View = @This();
+const Core = @import("texteditor").Core;
+const EditorView = @This();
 
 gpa: std.mem.Allocator,
 core: Core,
@@ -37,7 +37,7 @@ scroll: struct {
     offset: f32 = 0.0,
 },
 
-pub fn initFromDoc(self: *View, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
+pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
     const verdana_ttf: ?[]const u8 = for (&[_][]const u8{
         // cwd
         "Verdana.ttf",
@@ -67,7 +67,7 @@ pub fn initFromDoc(self: *View, gpa: std.mem.Allocator, document: db_mod.TypedCo
     };
     self.core.initFromDoc(gpa, document);
 }
-pub fn deinit(self: *View) void {
+pub fn deinit(self: *EditorView) void {
     for (self.layout_cache.keys()) |k| self.gpa.free(k);
     for (self.layout_cache.values()) |v| self.gpa.free(v.items);
     self.layout_cache.deinit();
@@ -86,7 +86,7 @@ pub fn deinit(self: *View) void {
 // - or from screen position -> bufbyte
 // - and it will always give us access to total scroll height
 
-fn tickLayoutCache(self: *View, beui: *Beui) void {
+fn tickLayoutCache(self: *EditorView, beui: *Beui) void {
     const max_time = 10_000;
     const last_valid_time = beui.frame.frame_cfg.?.now_ms - max_time;
 
@@ -108,7 +108,7 @@ fn tickLayoutCache(self: *View, beui: *Beui) void {
 }
 
 /// result pointer is valid until next layoutLine() call
-fn layoutLine(self: *View, beui: *Beui, line_middle: Core.Position) LayoutInfo {
+fn layoutLine(self: *EditorView, beui: *Beui, line_middle: Core.Position) LayoutInfo {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
@@ -140,7 +140,7 @@ fn layoutLine(self: *View, beui: *Beui, line_middle: Core.Position) LayoutInfo {
 
     return gpres.value_ptr.*;
 }
-fn layoutLine_internal(self: *View, line_start_docbyte: u64, line_len: u64, layout_result_al: *std.ArrayList(LayoutItem)) LayoutInfo {
+fn layoutLine_internal(self: *EditorView, line_start_docbyte: u64, line_len: u64, layout_result_al: *std.ArrayList(LayoutItem)) LayoutInfo {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
@@ -233,7 +233,7 @@ fn layoutLine_internal(self: *View, line_start_docbyte: u64, line_len: u64, layo
     };
 }
 
-fn renderGlyph(self: *View, glyph_id: u32, line_height: i32) GlyphCacheEntry {
+fn renderGlyph(self: *EditorView, glyph_id: u32, line_height: i32) GlyphCacheEntry {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
@@ -246,7 +246,7 @@ fn renderGlyph(self: *View, glyph_id: u32, line_height: i32) GlyphCacheEntry {
     gpres.value_ptr.* = result;
     return result;
 }
-fn renderGlyph_nocache(self: *View, glyph_id: u32, line_height: i32) !GlyphCacheEntry {
+fn renderGlyph_nocache(self: *EditorView, glyph_id: u32, line_height: i32) !GlyphCacheEntry {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
@@ -272,7 +272,7 @@ fn renderGlyph_nocache(self: *View, glyph_id: u32, line_height: i32) !GlyphCache
     };
 }
 
-pub fn gui(self: *View, beui: *Beui, content_region_size: @Vector(2, f32)) void {
+pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32)) void {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 

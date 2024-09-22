@@ -4,7 +4,6 @@
     .dependencies = .{
         .blocks = .{ .path = "../blocks" },
         .unicode_segmentation = .{ .path = "../unicode_segmentation" },
-        .beui = .{ .path = "../beui" },
         .anywhere = .{ .path = "../anywhere" },
 
         .tree_sitter = .{

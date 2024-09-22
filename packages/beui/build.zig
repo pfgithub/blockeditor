@@ -33,6 +33,12 @@ pub fn build(b: *std.Build) void {
     const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
     const anywhere_mod = anywhere_dep.module("anywhere");
 
+    const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
+    const texteditor_mod = texteditor_dep.module("texteditor");
+
+    const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
+    const blocks_mod = blocks_dep.module("blocks");
+
     const fonts_mod = b.dependency("fonts", .{});
     const notosans_wght_mod = b.createModule(.{
         .root_source_file = fonts_mod.path("NotoSans[wght].ttf"),
@@ -59,6 +65,8 @@ pub fn build(b: *std.Build) void {
     beui_mod.addImport("harfbuzz", harfbuzz_mod);
     beui_mod.addImport("sheen_bidi", sheen_bidi_mod);
     beui_mod.addImport("anywhere", anywhere_mod);
+    beui_mod.addImport("texteditor", texteditor_mod);
+    beui_mod.addImport("blocks", blocks_mod);
     beui_mod.addImport("NotoSans[wght].ttf", notosans_wght_mod);
     beui_mod.addImport("NotoSansMono[wght].ttf", notosansmono_wght_mod);
 
@@ -72,6 +80,8 @@ pub fn build(b: *std.Build) void {
     beui_test.root_module.addImport("harfbuzz", harfbuzz_mod);
     beui_test.root_module.addImport("sheen_bidi", sheen_bidi_mod);
     beui_test.root_module.addImport("anywhere", anywhere_mod);
+    beui_test.root_module.addImport("texteditor", texteditor_mod);
+    beui_test.root_module.addImport("blocks", blocks_mod);
     beui_test.root_module.addImport("NotoSans[wght].ttf", notosans_wght_mod);
     beui_test.root_module.addImport("NotoSansMono[wght].ttf", notosansmono_wght_mod);
 
