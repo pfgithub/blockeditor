@@ -4,11 +4,9 @@ const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
 const draw_lists = beui_mod.draw_lists;
-const zglfw = @import("zglfw");
-const zgui = @import("zgui"); // zgui doesn't have everything! we should use cimgui + translate-c like we used to
 const beui_mod = @import("beui");
 const tracy = @import("anywhere").tracy;
-const zgui_anywhere = @import("anywhere").zgui;
+const zgui = @import("anywhere").zgui;
 
 const ft = beui_mod.font_experiment.ft;
 const hb = beui_mod.font_experiment.hb;
@@ -707,15 +705,16 @@ pub const EditorView = struct {
             self.selecting = false;
         }
 
-        if (zgui.begin("Editor Debug", .{})) {
+        if (zgui.beginWindow("Editor Debug", .{})) {
+            defer zgui.endWindow();
+
             zgui.text("draw_list items: {d} / {d}", .{ draw_list.vertices.items.len, draw_list.indices.items.len });
             zgui.text("click_target: {?d}", .{click_target});
             zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
         }
-        zgui.end();
 
-        if (zgui_anywhere.beginWindow("Tree Sitter Info", .{})) {
-            defer zgui_anywhere.endWindow();
+        if (zgui.beginWindow("Tree Sitter Info", .{})) {
+            defer zgui.endWindow();
 
             for (self.core.cursor_positions.items) |cursor_pos| {
                 const range = self.core.selectionToPosLen(cursor_pos.pos);
