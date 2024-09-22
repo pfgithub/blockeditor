@@ -118,3 +118,9 @@ const SampleVirtual = struct {
 // if we choose to allow moving children after rendering, then:
 // - how? nested render lists that get unnested in a step after?
 // - have to deal with events. possibly even with event handlers
+
+// moving after rendering is easy:
+// - in render lists, store an extra array that has offsets
+// - before sending buffers to the gpu, loop over that array and apply the offsets
+// handling events with items that have been moved after rendering is not easy.
+// - items know where they were last frame, so they can pretend they're still there?
