@@ -63,7 +63,7 @@ Tasks:
 wishlist:
 
 - [ ] create virtual scroll view. create text component. text editor rendering then becomes:
-  `while(beui.virtualScroll(&self.scroll)) |line_middle| { beui.renderText( <text>, <cursor positions>, <syn hl fonts and ranges> ) }`. literally so easy. for a *text editor*.
+  `while(beui.virtualScroll(&self.scroll)) |line_middle| { beui.renderTextLine( <text>, <cursor positions>, <syn hl fonts and ranges> ) }`.
 - [ ] move tree sitter into its own package
 - [ ] move tree sitter advanceAndRead logic into struct TreeCursor
 - [ ] text editor tree sitter: add a button to copy dot graph of the current syntax tree to

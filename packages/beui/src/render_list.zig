@@ -1,5 +1,6 @@
 const std = @import("std");
 const tracy = @import("anywhere").tracy;
+const beui = @import("beui.zig");
 
 // TODO:
 // - the whole result should end up in one vertex and index buffer.
@@ -120,7 +121,7 @@ pub const RenderList = struct {
         region: @import("texpack.zig").Region,
         image: ?RenderListImage,
         image_size: u32,
-        tint: @Vector(4, f32) = .{ 1, 1, 1, 1 },
+        tint: beui.BeuiColor = .fromHexRgb(0xFFFFFF),
     }) void {
         const tctx = tracy.trace(@src());
         defer tctx.end();
@@ -137,7 +138,7 @@ pub const RenderList = struct {
         uv_pos: @Vector(2, f32) = .{ -1.0, -1.0 },
         uv_size: @Vector(2, f32) = .{ 0, 0 },
         image: ?RenderListImage = null,
-        tint: @Vector(4, f32) = .{ 1, 1, 1, 1 },
+        tint: beui.BeuiColor = .fromHexRgb(0xFFFFFF),
     }) void {
         const tctx = tracy.trace(@src());
         defer tctx.end();
@@ -159,18 +160,20 @@ pub const RenderList = struct {
         const uv_bl = opts.uv_pos + @Vector(2, f32){ 0, opts.uv_size[1] };
         const uv_br = opts.uv_pos + opts.uv_size;
 
+        const tint_vec = opts.tint.toVec4f();
+
         self.addVertices(opts.image, &.{
-            .{ .pos = ul, .uv = uv_ul, .tint = opts.tint },
-            .{ .pos = ur, .uv = uv_ur, .tint = opts.tint },
-            .{ .pos = bl, .uv = uv_bl, .tint = opts.tint },
-            .{ .pos = br, .uv = uv_br, .tint = opts.tint },
+            .{ .pos = ul, .uv = uv_ul, .tint = tint_vec },
+            .{ .pos = ur, .uv = uv_ur, .tint = tint_vec },
+            .{ .pos = bl, .uv = uv_bl, .tint = tint_vec },
+            .{ .pos = br, .uv = uv_br, .tint = tint_vec },
         }, &.{
             0, 1, 3,
             0, 3, 2,
         });
     }
 
-    pub fn addChar(self: *RenderList, char: u8, pos: @Vector(2, f32), color: @Vector(4, f32)) void {
+    pub fn addChar(self: *RenderList, char: u8, pos: @Vector(2, f32), color: beui.BeuiColor) void {
         const conv: @Vector(2, u4) = @bitCast(char);
         const tile_id: @Vector(2, f32) = .{ @floatFromInt(conv[0]), @floatFromInt(conv[1]) };
         const tile_pos: @Vector(2, f32) = tile_id * @Vector(2, f32){ 6, 10 } + @Vector(2, f32){ 1, 1 };

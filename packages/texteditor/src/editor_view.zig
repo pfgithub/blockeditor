@@ -593,7 +593,7 @@ pub const EditorView = struct {
                                 .region = region,
                                 .image = .editor_view_glyphs,
                                 .image_size = self.glyphs.size,
-                                .tint = hexToFloat(tint),
+                                .tint = tint,
                             });
                         }
                     }
@@ -616,7 +616,7 @@ pub const EditorView = struct {
                             .region = region,
                             .image = .editor_view_glyphs,
                             .image_size = self.glyphs.size,
-                            .tint = hexToFloat(DefaultTheme.synHlColor(tint)),
+                            .tint = DefaultTheme.synHlColor(tint),
                         });
                     }
                 }
@@ -635,10 +635,10 @@ pub const EditorView = struct {
                     const portion_width = portion_next - portion;
 
                     if (cursor_info.left_cursor == .focus) {
-                        draw_list.addRect(@floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, -1 }), .{ 2, @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.cursor_color) });
+                        draw_list.addRect(@floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, -1 }), .{ 2, @floatFromInt(layout_test.height) }, .{ .tint = DefaultTheme.cursor_color });
                     }
                     if (cursor_info.selected) {
-                        draw_list.addRect(@floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 }), .{ portion_width, @floatFromInt(layout_test.height) }, .{ .tint = hexToFloat(DefaultTheme.selection_color) });
+                        draw_list.addRect(@floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 }), .{ portion_width, @floatFromInt(layout_test.height) }, .{ .tint = DefaultTheme.selection_color });
                     }
 
                     // click target problem
@@ -735,29 +735,19 @@ pub const EditorView = struct {
         }
 
         // background
-        draw_list.addRect(.{ 0, 0 }, content_region_size, .{ .tint = hexToFloat(DefaultTheme.editor_bg) });
+        draw_list.addRect(.{ 0, 0 }, content_region_size, .{ .tint = DefaultTheme.editor_bg });
     }
 };
-
-fn hexToFloat(hex: u32) @Vector(4, f32) {
-    const conv_f: @Vector(4, f32) = .{
-        @floatFromInt((hex >> 16) & 0xFF),
-        @floatFromInt((hex >> 8) & 0xFF),
-        @floatFromInt((hex >> 0) & 0xFF),
-        255.0,
-    };
-    return conv_f / @as(@Vector(4, f32), @splat(255.0));
-}
 
 const DefaultTheme = struct {
     // colors are defined in srgb
     // we can make this a simple json file with {"editor_bg": "#mycolor"}
-    pub const editor_bg: u32 = 0x1d252c;
-    pub const selection_color: u32 = 0x28323a;
-    pub const cursor_color = 0x5EC4FF;
+    pub const editor_bg: beui_mod.BeuiColor = .fromHexRgb(0x1d252c);
+    pub const selection_color: beui_mod.BeuiColor = .fromHexRgb(0x28323a);
+    pub const cursor_color: beui_mod.BeuiColor = .fromHexRgb(0x5EC4FF);
 
-    pub fn synHlColor(syn_hl_color: editor_core.SynHlColorScope) u32 {
-        return switch (syn_hl_color) {
+    pub fn synHlColor(syn_hl_color: editor_core.SynHlColorScope) beui_mod.BeuiColor {
+        return .fromHexRgb(switch (syn_hl_color) {
             .invalid => 0xFF0000,
 
             .keyword_storage => 0x008B94,
@@ -777,7 +767,7 @@ const DefaultTheme = struct {
 
             .unstyled => 0xB7C5D3,
             .invisible => 0x43515c,
-        };
+        });
     }
 };
 

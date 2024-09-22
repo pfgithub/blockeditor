@@ -358,6 +358,24 @@ pub const BeuiKey = enum(u32) {
     _,
     pub const count = 400;
 };
+pub const BeuiColor = struct {
+    value: @Vector(4, u8),
+
+    pub fn fromHexRgb(hex: u24) BeuiColor {
+        return .{ .value = .{
+            @truncate(hex >> 16),
+            @truncate(hex >> 8),
+            @truncate(hex >> 0),
+            0xFF,
+        } };
+    }
+
+    pub fn toVec4f(self: BeuiColor) @Vector(4, f32) {
+        var res: @Vector(4, f32) = @floatFromInt(self.value);
+        res /= @splat(255.0);
+        return res;
+    }
+};
 
 test {
     _ = @import("font_experiment.zig");
