@@ -7,12 +7,12 @@
         .anywhere = .{ .path = "../anywhere" },
 
         .tree_sitter = .{
-            .url = "https://github.com/tree-sitter/tree-sitter/archive/3c3699ba9057e9bc8c9d376a177fdf7547bee7b8.tar.gz",
-            .hash = "1220320cf52155253596c15b559fe27cccc7db29a7636d3fc12a215a9d8da33b44ed",
+            .url = "git+https://github.com/tree-sitter/tree-sitter?ref=master#99dbbbcbe9d7f3c286057e9f3bcc6e0b42690606",
+            .hash = "12201a6a3b55fdd5a556eab210b4c4d7c94865f8f40a18bc9c5737b01500b28f6d9d",
         },
         .tree_sitter_zig = .{
-            .url = "https://github.com/maxxnino/tree-sitter-zig/archive/0d08703e4c3f426ec61695d7617415fff97029bd.tar.gz",
-            .hash = "1220dd9604971e00571f9484632e98529e2464025939850765b9fe9c8b4852352873",
+            .url = "git+https://github.com/maxxnino/tree-sitter-zig?ref=main#2bac4cc6c697d46a193905fef6d003bfa0bfabfd",
+            .hash = "1220806e8fd2c17753c98bf7bc180ff0d23cd6005ecca28046fb2510a590dfd9e927",
         },
         .zls = .{
             .url = "git+https://github.com/zigtools/zls?ref=master#cf9b49a67b15693d62926ea11d17f53efc60be50",
