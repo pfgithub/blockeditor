@@ -82,17 +82,21 @@ pub const TcpSync = struct {
         };
     }
     fn recvThread_error(self: *TcpSync) !void {
+        self.client = null;
         {
             defer self.client_ready_to_send.post();
             {
                 defer self.client_available_to_close.post();
-                self.client = ws.Client.init(self.gpa, .{
+                if (@import("builtin").target.os.tag == .windows) {
+                    // https://github.com/karlseguin/websocket.zig/issues/46
+                    // possibly zig std problems
+                    log.err("TcpSync is not supported on windows. Will not attempt to connect.", .{});
+                    return error.UnsupportedOperatingSystem;
+                }
+                self.client = try ws.Client.init(self.gpa, .{
                     .port = 9224,
                     .host = "localhost",
-                }) catch |e| blk: {
-                    log.err("init fail: {s}", .{@errorName(e)});
-                    break :blk null;
-                };
+                });
             }
             if (self.client == null) return;
 
