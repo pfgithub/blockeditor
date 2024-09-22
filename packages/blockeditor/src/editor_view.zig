@@ -103,6 +103,8 @@ pub const EditorView = struct {
             "Verdana.ttf",
             // linux
             "/usr/share/fonts/TTF/verdana.ttf",
+            // mac
+            "/System/Library/Fonts/Supplemental/Verdana.ttf",
             // windows
             "c:\\WINDOWS\\Fonts\\VERDANA.TTF",
         }) |search_path| {
