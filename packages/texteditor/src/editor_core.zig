@@ -1158,9 +1158,13 @@ pub const EditorCore = struct {
 
     pub fn replaceRange(self: *EditorCore, operation: bi.text_component.TextDocument.SimpleOperation) void {
         self.redo.clear();
-        const ub = self.undo.begin();
-        self.document.applySimpleOperation(operation, ub.al);
-        self.undo.end(ub) catch @panic("oom");
+        if (false) {
+            const ub = self.undo.begin();
+            self.document.applySimpleOperation(operation, ub.al);
+            self.undo.end(ub) catch @panic("oom");
+        } else {
+            self.document.applySimpleOperation(operation, null);
+        }
     }
 
     pub fn getCursorPositions(self: *EditorCore) CursorPositions {
