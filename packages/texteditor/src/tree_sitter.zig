@@ -367,6 +367,7 @@ const identifier_parents_map = std.StaticStringMap(editor_core.SynHlColorScope).
 const NodeTag = enum {
     EscapeSequence,
     line_comment,
+    container_doc_comment,
     doc_comment,
 
     IDENTIFIER,
@@ -512,11 +513,11 @@ fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize)
                     else => .literal,
                 },
                 .line_comment => switch (offset) {
-                    0...2 => .punctuation,
+                    0...1 => .punctuation,
                     else => .comment,
                 },
                 .doc_comment => switch (offset) {
-                    0...3 => .keyword,
+                    0...2 => .keyword,
                     else => .comment,
                 },
             };
@@ -552,7 +553,7 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: ts.Node) NodeCacheInfo {
                     .kind = .line_comment,
                 } };
             },
-            .doc_comment => {
+            .container_doc_comment, .doc_comment => {
                 return .{ .special = .{
                     .start_byte = node.startByte(),
                     .kind = .doc_comment,
@@ -693,6 +694,13 @@ test Context {
     }, null);
 
     try testHighlight(&ctx, "<keyword_storage>const <variable_constant>mystr <keyword>= <punctuation>\"<literal_string>x_esc: <punctuation>\\<keyword_storage>x<literal>5A<literal_string>, n_esc: <punctuation>\\<literal>n<literal_string>, bks_esc: <punctuation>\\<literal_string>\\, str_esc: <punctuation>\\<literal_string>\", u_esc: <punctuation>\\<keyword_storage>u<punctuation>{<literal>ABC123<punctuation>}\";");
+
+    src_component.applySimpleOperation(.{
+        .position = src_component.value.positionFromDocbyte(0),
+        .delete_len = src_component.value.length(),
+        .insert_text = "//!c1\n//c2\n///c3\nconst a = 0;",
+    }, null);
+    try testHighlight(&ctx, "<keyword>//!<comment>c1\n<punctuation>//<comment>c2\n<keyword>///<comment>c3\n<keyword_storage>const <variable_constant>a <keyword>= <literal>0<punctuation>;");
 
     // we can fuzz: document plus random insert should equal document plus random insert
     // but one before initializing ctx and one after
