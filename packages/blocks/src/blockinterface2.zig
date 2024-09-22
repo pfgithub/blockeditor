@@ -2,9 +2,18 @@ const std = @import("std");
 const util = @import("util.zig");
 pub const text_component = @import("text_component.zig");
 
-pub const AlignedArrayList = std.ArrayListAligned(u8, 16);
-pub const AlignedFbsReader = std.io.FixedBufferStream([]align(16) const u8);
-pub const AlignedByteSlice = []align(16) const u8;
+pub const Alignment = 16;
+pub const AlignedArrayList = std.ArrayListAligned(u8, Alignment);
+pub const AlignedFbsReader = std.io.FixedBufferStream([]align(Alignment) const u8);
+pub const AlignedByteSlice = []align(Alignment) const u8;
+pub fn safeAlignForwards(al: *AlignedArrayList) void {
+    const target_len = std.mem.alignForward(usize, al.items.len, Alignment);
+    const diff = target_len - al.items.len;
+    al.appendNTimes(0, diff) catch @panic("oom");
+}
+pub fn assertAligned(al: *AlignedArrayList) void {
+    std.debug.assert(al.items.len == std.mem.alignForward(usize, al.items.len, Alignment));
+}
 
 pub const DeserializeError = error{DeserializeError};
 
@@ -79,6 +88,10 @@ pub const CounterComponent = struct {
 
     pub const default = "\x00\x00\x00\x00";
 
+    pub const SimpleOperation = union(enum) {
+        add: i32,
+        set: i32,
+    };
     pub const Operation = union(enum) {
         add: i32,
         set: i32,
@@ -135,6 +148,13 @@ pub const CounterComponent = struct {
         return .{ .count = values.count };
     }
 
+    pub fn genOperations(_: *CounterComponent, res: *std.ArrayList(Operation), simple: SimpleOperation) void {
+        res.append(switch (simple) {
+            .add => |v| .{ .add = v },
+            .set => |v| .{ .set = v },
+        }) catch @panic("oom");
+    }
+
     pub fn deinit(self: *CounterComponent) void {
         _ = self;
     }
@@ -153,8 +173,25 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
         pub const Operation = ChildComponent.Operation;
 
         fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
+            if (undo_operation) |_| @panic("TODO undo operation"); // for each item, append length and content. pretty simple.
+
             const self = any.cast(Self);
-            try self.value.applyOperation(operation_serialized, undo_operation);
+
+            var rem_op = operation_serialized;
+            while (true) {
+                if (rem_op.len == 0) break;
+                if (rem_op.len < Alignment) return error.DeserializeError;
+
+                const itm_len = std.mem.readInt(u64, rem_op[0..8], .little);
+                const itm_len_aligned = std.mem.alignForward(usize, itm_len, Alignment);
+
+                rem_op = rem_op[Alignment..];
+
+                if (rem_op.len < itm_len_aligned) return error.DeserializeError;
+
+                try self.value.applyOperation(rem_op[0..itm_len], null);
+                rem_op = @alignCast(rem_op[itm_len_aligned..]);
+            }
         }
 
         fn serialize(any: AnyBlock, out: *AlignedArrayList) void {
@@ -182,50 +219,3 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
 
 pub const CounterBlock = ComposedBlock(CounterComponent);
 pub const TextDocumentBlock = ComposedBlock(text_component.TextDocument);
-
-test CounterBlock {
-    const gpa = std.testing.allocator;
-    const mycounter = try CounterBlock.deserialize(gpa, CounterBlock.default);
-    defer mycounter.vtable.deinit(mycounter);
-
-    try std.testing.expectEqual(@as(i32, 0), mycounter.cast(CounterBlock).value.count);
-
-    var my_operation_al = AlignedArrayList.init(gpa);
-    defer my_operation_al.deinit();
-    const my_operation = CounterBlock.Operation{
-        .add = 12,
-    };
-    my_operation.serialize(&my_operation_al);
-    var my_undo_operation_al = AlignedArrayList.init(gpa);
-    defer my_undo_operation_al.deinit();
-    try mycounter.vtable.applyOperation(mycounter, my_operation_al.items, &my_undo_operation_al);
-
-    try std.testing.expectEqual(@as(i32, 12), mycounter.cast(CounterBlock).value.count);
-}
-
-test TextDocumentBlock {
-    const gpa = std.testing.allocator;
-    const mycounter = try TextDocumentBlock.deserialize(gpa, TextDocumentBlock.default);
-    defer mycounter.vtable.deinit(mycounter);
-
-    {
-        var gen_res = std.ArrayList(TextDocumentBlock.Child.Operation).init(gpa);
-        defer gen_res.deinit();
-
-        const block = &mycounter.cast(TextDocumentBlock).value;
-        block.genOperations(&gen_res, .{ .position = block.positionFromDocbyte(0), .delete_len = 0, .insert_text = "hello!" });
-
-        var op_res = AlignedArrayList.init(gpa);
-        defer op_res.deinit();
-
-        for (gen_res.items) |op| {
-            op_res.clearRetainingCapacity();
-            op.serialize(&op_res);
-            // we should be able to batch these
-            try mycounter.vtable.applyOperation(mycounter, op_res.items, null);
-        }
-
-        // print block
-        // std.log.err("block: {}", .{block});
-    }
-}

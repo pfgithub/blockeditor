@@ -34,3 +34,8 @@
 - Fix syntax highlighting not supporting `//!` comments and not marking
   the character immediately after the slashes as a comment
 - Some progress towards initial server
+
+## 2024-09-22
+
+Milestone: our editor is usable. If it could save and browse files, we could
+start using it right now to do editing. It feels pretty nice.

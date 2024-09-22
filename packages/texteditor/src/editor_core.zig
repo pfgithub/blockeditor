@@ -279,6 +279,96 @@ const DocumentDocument = struct {
     }
 };
 
+pub fn SliceStackAligned(comptime T: type, comptime alignment: ?u29) type {
+    if (alignment) |a| {
+        if (a == @alignOf(T)) {
+            return SliceStackAligned(T, null);
+        }
+    }
+    return struct {
+        const Range = struct { start: usize, end: if (alignment) |_| usize else void };
+        items: std.ArrayListAligned(T, alignment),
+        ranges: std.ArrayList(Range),
+
+        pub fn init(gpa: std.mem.Allocator) TextStack {
+            return .{ .items = .init(gpa), .ranges = .init(gpa) };
+        }
+        pub fn deinit(self: TextStack) void {
+            self.items.deinit();
+            self.ranges.deinit();
+        }
+
+        pub fn clear(self: *TextStack) void {
+            self.items.clearRetainingCapacity();
+            self.ranges.clearRetainingCapacity();
+        }
+
+        const Begin = struct {
+            al: *std.ArrayListAligned(T, alignment),
+            pos_start: usize,
+        };
+
+        pub fn begin(self: *TextStack) Begin {
+            return .{ .al = &self.items, .pos_start = self.items.items.len };
+        }
+        pub fn end(self: *TextStack, b: Begin) !void {
+            errdefer self.items.items.len = b.pos_start;
+            try self.ranges.append(.{ .start = b.pos_start, .end = if (alignment) |_| self.items.items.len else {} });
+            errdefer _ = self.ranges.pop();
+            if (alignment) |a| {
+                const aligned_len = std.mem.alignForward(usize, self.items.items.len, a);
+                try self.items.resize(aligned_len);
+            }
+        }
+
+        pub fn add(self: *TextStack, value: []const T) !void {
+            try self.ranges.append(.{ .start = self.items.items.len, .end = if (alignment) |_| self.items.items.len + value.len else {} });
+            errdefer _ = self.ranges.pop();
+            const aligned_len = if (alignment) |a| std.mem.alignForward(usize, value.len, a) else value.len;
+            const res_slice = try self.items.addManyAsSlice(aligned_len);
+            @memcpy(res_slice[0..value.len], value);
+        }
+        /// pointer is only valid until next add(), begin(), or deinit() call.
+        pub fn take(self: *TextStack) ?(if (alignment) |a| []align(a) T else []T) {
+            if (self.ranges.items.len == 0) return null;
+
+            const range = self.ranges.pop();
+            const res = self.items.items[range.start..if (alignment) |_| range.end else self.items.items.len];
+            self.items.items = self.items.items[0..range.start];
+            return @alignCast(res);
+        }
+    };
+}
+
+const TextStack = SliceStackAligned(u8, bi.Alignment);
+
+test TextStack {
+    var mystack: TextStack = .init(std.testing.allocator);
+    defer mystack.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
+    try mystack.add("one");
+    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
+    try mystack.add("2");
+    try std.testing.expectEqual(@as(usize, 32), mystack.items.items.len);
+    try mystack.add("threeee!");
+    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
+    try std.testing.expectEqualStrings("threeee!", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 32), mystack.items.items.len);
+    try std.testing.expectEqualStrings("2", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
+    try mystack.add("five");
+    try std.testing.expectEqual(@as(usize, 32), mystack.items.items.len);
+    try std.testing.expectEqualStrings("five", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
+    mystack.clear();
+    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
+    try std.testing.expectEqualStrings("null", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
+}
+
+// const History = struct { history: csdjlkncdsjkncsdjkacnjckdnddcjkasacdjacsdcasdcnakjlsdnlkcajds };
+
 // we would like EditorCore to edit any TextDocument component
 // in order to apply operations to the document, we need to be able to wrap an operation
 // with whatever is needed to target the right document
@@ -294,6 +384,8 @@ pub const EditorCore = struct {
         /// Wyhash of copied string
         copied_str_hash: u64,
     },
+    undo: TextStack,
+    redo: TextStack,
 
     cursor_positions: std.ArrayList(CursorPosition),
 
@@ -308,6 +400,8 @@ pub const EditorCore = struct {
             .document = document,
             .syn_hl_ctx = undefined,
             .clipboard_cache = null,
+            .undo = .init(gpa),
+            .redo = .init(gpa),
 
             .cursor_positions = .init(gpa),
         };
@@ -319,6 +413,8 @@ pub const EditorCore = struct {
         };
     }
     pub fn deinit(self: *EditorCore) void {
+        self.undo.deinit();
+        self.redo.deinit();
         if (self.clipboard_cache) |*v| {
             for (v.contents) |c| self.gpa.free(c);
             self.gpa.free(v.contents);
@@ -1061,7 +1157,10 @@ pub const EditorCore = struct {
     }
 
     pub fn replaceRange(self: *EditorCore, operation: bi.text_component.TextDocument.SimpleOperation) void {
-        self.document.applySimpleOperation(operation, null);
+        self.redo.clear();
+        const ub = self.undo.begin();
+        self.document.applySimpleOperation(operation, ub.al);
+        self.undo.end(ub) catch @panic("oom");
     }
 
     pub fn getCursorPositions(self: *EditorCore) CursorPositions {

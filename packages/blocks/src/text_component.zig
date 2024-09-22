@@ -882,7 +882,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
 
             // align
-            const aligned_length = std.mem.alignForward(usize, out.items.len, 16);
+            const aligned_length = std.mem.alignForward(usize, out.items.len, bi.Alignment);
             const align_diff = aligned_length - out.items.len;
             for (0..align_diff) |_| writer.writeByte('\x00') catch @panic("oom");
 
@@ -928,7 +928,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             if (buffer_length > fbs.buffer[fbs.pos..].len) return error.DeserializeError;
             res.buffer.appendSlice(fbs.buffer[fbs.pos..][0..usi(buffer_length)]) catch @panic("oom");
             fbs.pos += usi(buffer_length);
-            fbs.pos = std.mem.alignForward(usize, fbs.pos, 16);
+            fbs.pos = std.mem.alignForward(usize, fbs.pos, bi.Alignment);
             if (fbs.pos > fbs.buffer.len) return error.DeserializeError;
 
             var bufbyte: u64 = 0;

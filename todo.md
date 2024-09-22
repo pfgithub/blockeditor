@@ -58,9 +58,12 @@ Tasks:
 - [ ] text editor: pressing esc should remove all but the top multicursor
 - [ ] text editor: fix whatever's wrong with the last line. it's rendering twice and cursor
   doesn't show at the last location.
+- [ ] text editor: ctrl+enter from the end of a line inserts two lines below
 
 wishlist:
 
+- [ ] create virtual scroll view. create text component. text editor rendering then becomes:
+  `while(beui.virtualScroll(&self.scroll)) |line_middle| { beui.renderText( <text>, <cursor positions>, <syn hl fonts and ranges> ) }`. literally so easy. for a *text editor*.
 - [ ] move tree sitter into its own package
 - [ ] move tree sitter advanceAndRead logic into struct TreeCursor
 - [ ] text editor tree sitter: add a button to copy dot graph of the current syntax tree to

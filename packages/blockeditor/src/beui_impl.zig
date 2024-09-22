@@ -486,43 +486,19 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *beu
     _ = gctx.present();
 }
 
-pub fn renderCounter(arena: std.mem.Allocator, counter_anyref: *db.BlockRef) void {
-    if (counter_anyref.contents()) |counter_contents| {
-        const counter = counter_contents.client().cast(bi.CounterBlock);
-        const server_int = if (counter_contents.server()) |server_value| ( //
-            server_value.cast(bi.CounterBlock).value.count //
-        ) else null;
-        zgui.text("Count: {d} (server value: {?d})", .{ counter.value.count, server_int });
-        if (zgui.button("Increment!", .{})) {
-            var my_operation_al = bi.AlignedArrayList.init(arena);
-            defer my_operation_al.deinit();
-            const my_operation = bi.CounterBlock.Operation{
-                .add = 1,
-            };
-            my_operation.serialize(&my_operation_al);
-            var my_undo_operation_al = bi.AlignedArrayList.init(arena);
-            defer my_undo_operation_al.deinit();
-            counter_anyref.applyOperation("", my_operation_al.items, &my_undo_operation_al);
-        }
-        if (zgui.button("Zero!", .{})) {
-            var my_operation_al = bi.AlignedArrayList.init(arena);
-            defer my_operation_al.deinit();
-            const my_operation = bi.CounterBlock.Operation{
-                .set = 0,
-            };
-            my_operation.serialize(&my_operation_al);
-            var my_undo_operation_al = bi.AlignedArrayList.init(arena);
-            defer my_undo_operation_al.deinit();
-            counter_anyref.applyOperation("", my_operation_al.items, &my_undo_operation_al);
-        }
-        if (zgui.button("Undo!", .{})) {
-            @panic("TODO: someone needs to keep an undo list");
-        }
-        if (zgui.button("Redo!", .{})) {
-            @panic("TODO: someone needs to keep a redo list");
-        }
-    } else {
-        zgui.text("Counter loading...", .{});
+pub fn renderCounter(counter: db.TypedComponentRef(bi.CounterComponent)) void {
+    zgui.text("Count: {d}", .{counter.value.count});
+    if (zgui.button("Increment!", .{})) {
+        counter.applySimpleOperation(.{ .add = 1 }, null);
+    }
+    if (zgui.button("Zero!", .{})) {
+        counter.applySimpleOperation(.{ .set = 0 }, null);
+    }
+    if (zgui.button("Undo!", .{})) {
+        @panic("TODO: someone needs to keep an undo list");
+    }
+    if (zgui.button("Redo!", .{})) {
+        @panic("TODO: someone needs to keep a redo list");
     }
 }
 
@@ -677,6 +653,9 @@ pub fn main() !void {
     const my_counter = interface.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
     defer my_counter.unref();
 
+    const my_counter_component = my_counter.typedComponent(bi.CounterBlock).?; // .? asserts it's loaded, which is always true for a newly created block
+    defer my_counter_component.unref();
+
     const my_text = interface.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
     defer my_text.unref();
 
@@ -799,7 +778,7 @@ pub fn main() !void {
         zgui.setNextWindowPos(.{ .x = 20.0, .y = 80.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
         if (zgui.begin("My counter (editor 1)", .{})) {
-            renderCounter(arena, my_counter);
+            renderCounter(my_counter_component);
         }
         zgui.end();
 

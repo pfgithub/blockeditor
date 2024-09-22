@@ -31,15 +31,16 @@ test BlockDB {
     const my_created_block = interface.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
     defer my_created_block.unref();
 
-    var my_operation_al = bi.AlignedArrayList.init(gpa);
-    defer my_operation_al.deinit();
-    const my_operation = bi.CounterBlock.Operation{
-        .add = 12,
-    };
-    my_operation.serialize(&my_operation_al);
-    var my_undo_operation_al = bi.AlignedArrayList.init(gpa);
-    defer my_undo_operation_al.deinit();
-    my_created_block.applyOperation("", my_operation_al.items, &my_undo_operation_al);
+    const counter = my_created_block.typedComponent(bi.CounterBlock).?;
+    defer counter.unref();
+
+    try std.testing.expectEqual(@as(i32, 0), counter.value.count);
+    counter.applySimpleOperation(.{ .add = 12 }, null);
+    try std.testing.expectEqual(@as(i32, 12), counter.value.count);
+    counter.applySimpleOperation(.{ .set = 5 }, null);
+    try std.testing.expectEqual(@as(i32, 5), counter.value.count);
+    counter.applySimpleOperation(.{ .add = 23 }, null);
+    try std.testing.expectEqual(@as(i32, 28), counter.value.count);
 }
 
 pub const BlockDB = struct {
@@ -326,9 +327,6 @@ pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
             self.block_ref.applyOperation("", op, undo_op);
         }
         pub fn applySimpleOperation(self: Self, op: ComponentType.SimpleOperation, undo_op: ?*bi.AlignedArrayList) void {
-            // since the simple op may split into multiple or zero operations, the undo op needs to be able to contain multiple or zero operations
-            if (undo_op != null) @panic("TODO undo op");
-
             var opgen_al = std.ArrayList(ComponentType.Operation).init(self.block_ref.db.gpa);
             defer opgen_al.deinit();
             self.value.genOperations(&opgen_al, op);
@@ -337,11 +335,23 @@ pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
             defer srlz_res.deinit();
 
             for (opgen_al.items) |itm| {
-                srlz_res.clearRetainingCapacity();
-                itm.serialize(&srlz_res);
+                const start_len = srlz_res.items.len;
 
-                self.block_ref.applyOperation(self.prefix, srlz_res.items, null);
+                srlz_res.appendNTimes(0, bi.Alignment) catch @panic("oom");
+                bi.assertAligned(&srlz_res);
+
+                const srlz_start_len = srlz_res.items.len;
+                srlz_res.appendSlice(self.prefix) catch @panic("oom");
+                bi.assertAligned(&srlz_res);
+                itm.serialize(&srlz_res);
+                const srlz_end_len = srlz_res.items.len;
+                bi.safeAlignForwards(&srlz_res);
+
+                std.debug.assert(srlz_end_len >= srlz_start_len);
+                std.mem.writeInt(u64, srlz_res.items[start_len..][0..8], srlz_end_len - srlz_start_len, .little);
             }
+
+            self.block_ref.applyOperation(srlz_res.items, undo_op);
         }
     };
 }
@@ -388,14 +398,12 @@ pub const BlockRef = struct {
         } else return null;
     }
 
-    pub fn applyOperation(self: *BlockRef, prefix: bi.AlignedByteSlice, op: bi.AlignedByteSlice, undo_op: ?*bi.AlignedArrayList) void {
+    pub fn applyOperation(self: *BlockRef, op: bi.AlignedByteSlice, undo_op: ?*bi.AlignedArrayList) void {
         const content: *BlockRefContents = self.contents() orelse @panic("cannot apply operation on a block that has not yet loaded");
 
         // clone operation (can't use dupe because it has to stay aligned)
-        std.debug.assert(prefix.len == std.mem.alignForward(usize, prefix.len, 16));
-        const op_clone = self.unapplied_operations_queue.allocator.alignedAlloc(u8, 16, prefix.len + op.len) catch @panic("oom");
-        @memcpy(op_clone[0..prefix.len], prefix);
-        @memcpy(op_clone[prefix.len..], op);
+        const op_clone = self.unapplied_operations_queue.allocator.alignedAlloc(u8, 16, op.len) catch @panic("oom");
+        @memcpy(op_clone, op);
 
         // apply it to client contents and tell owning BlockDBInterface about the operation to eventually get it into server value
         content.client().vtable.applyOperation(content.client(), op, undo_op) catch @panic("Deserialize error only allowed on network operations");
