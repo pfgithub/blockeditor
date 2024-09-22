@@ -98,7 +98,17 @@ pub const EditorView = struct {
     },
 
     pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
-        const verdana_ttf: ?[]const u8 = std.fs.cwd().readFileAlloc(gpa, "/usr/share/fonts/TTF/verdana.ttf", std.math.maxInt(usize)) catch null;
+        const verdana_ttf: ?[]const u8 = for (&[_][]const u8{
+            // cwd
+            "Verdana.ttf",
+            // linux
+            "/usr/share/fonts/TTF/verdana.ttf",
+            // windows
+            "c:\\WINDOWS\\Fonts\\VERDANA.TTF",
+        }) |search_path| {
+            break std.fs.cwd().readFileAlloc(gpa, search_path, std.math.maxInt(usize)) catch continue;
+        } else null;
+        if (verdana_ttf == null) std.log.info("Verdana could not be found. Falling back to Noto Sans.", .{});
 
         self.* = .{
             .gpa = gpa,
