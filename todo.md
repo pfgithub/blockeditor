@@ -50,6 +50,10 @@ Tasks:
 - [ ] application takes a while to close until ConnectionRefused on tcp. windows
   takes a while to send this, and presumably it could take a while over a real
   network. Ideally we could kill this while it's in progress on app close.
+- [ ] client.zig close logic does not work. on windows, it freezes while trying
+  to close. on linux, it sends a message to the server?
+  - we need to find out how to kill the connection and stop the thread
+    that is waiting on read()
 
 wishlist:
 
