@@ -307,7 +307,7 @@ fn BalancedBinaryTree(comptime Data: type) type {
 
         pub fn getCountForNode(self: *const @This(), node: NodeIndex) Count {
             if (node == .root) {
-                const root_val = self._getNodePtrConst(self.root_node) orelse return Count.zero;
+                const root_val = self._getNodePtrConst(self.root_node) orelse return .zero;
                 return root_val.sum();
             }
             const root_node_ptr = self._getNodePtrConst(node).?;
@@ -328,13 +328,13 @@ fn BalancedBinaryTree(comptime Data: type) type {
         }
 
         pub fn findNodeForQuery(self: *const @This(), query: anytype) NodeIndex {
-            return self._findNodeForQuerySub(self.root_node, query);
+            return self._findNodeForQuerySub(self.root_node, .zero, query);
         }
-        fn _findNodeForQuerySub(self: *const @This(), node_idx: NodeIndex, target: anytype) NodeIndex {
+        fn _findNodeForQuerySub(self: *const @This(), node_idx: NodeIndex, parent_sum: Count, target: anytype) NodeIndex {
             const node = self._getNodePtrConst(node_idx) orelse return .root;
 
-            const lhs = node.lhs_sum;
-            const lhs_plus_center = node.lhs_sum.add(node.self_sum);
+            const lhs = parent_sum.add(node.lhs_sum);
+            const lhs_plus_center = lhs.add(node.self_sum);
             const cmp_res = target.compare(lhs, lhs_plus_center);
 
             switch (cmp_res) {
@@ -344,11 +344,11 @@ fn BalancedBinaryTree(comptime Data: type) type {
                 },
                 .gt => {
                     // search rhs
-                    return self._findNodeForQuerySub(node.rhs, target.shift(lhs_plus_center));
+                    return self._findNodeForQuerySub(node.rhs, lhs_plus_center, target);
                 },
                 .lt => {
                     // search lhs
-                    return self._findNodeForQuerySub(node.lhs, target);
+                    return self._findNodeForQuerySub(node.lhs, parent_sum, target);
                 },
             }
         }
@@ -476,9 +476,6 @@ const SampleData = struct {
                 if (q.docbyte < a.length) return .lt;
                 if (q.docbyte >= b.length) return .gt;
                 return .eq;
-            }
-            fn shift(q: DocbyteQuery, a: Count) DocbyteQuery {
-                return .{ .docbyte = q.docbyte - a.length };
             }
         };
     };
@@ -805,9 +802,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         if (q.docbyte < a.byte_count) return .lt;
                         if (q.docbyte >= b.byte_count) return .gt;
                         return .eq;
-                    }
-                    fn shift(q: DocbyteQuery, a: Count) DocbyteQuery {
-                        return .{ .docbyte = q.docbyte - a.byte_count };
                     }
                 };
             };
