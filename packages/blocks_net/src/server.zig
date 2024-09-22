@@ -20,7 +20,11 @@ pub fn main() !void {
 
     // Arbitrary (application-specific) data to pass into each handler
     // Pass void ({}) into listen if you have none
-    var app = App{};
+    var app = App{
+        .mutex = .{},
+        .conn_to_watched_blocks_map = .init(gpa),
+        .block_to_watchers_map = .init(gpa),
+    };
 
     // this blocks
     try server.listen(&app);
@@ -43,6 +47,16 @@ const Handler = struct {
             .app = app,
             .conn = conn,
         };
+    }
+
+    pub fn clientClose(self: *Handler, data: []const u8) !void {
+        _ = self;
+        _ = data;
+        // is this called if the client times out? hopefully
+
+        // - get connToWatchedBlocks entry
+        // - for each watched block, unwatch
+        // - remove entry
     }
 
     // You must defined a public clientMessage method
@@ -89,6 +103,7 @@ const Handler = struct {
 // This is application-specific you want passed into your Handler's
 // init function.
 const App = struct {
-    // maybe a db pool
-    // maybe a list of rooms
+    mutex: std.Thread.Mutex,
+    conn_to_watched_blocks_map: std.AutoArrayHashMap(*ws.Conn, std.ArrayList(shared.block_id_v1)),
+    block_to_watchers_map: std.AutoArrayHashMap(shared.block_id_v1, *ws.Conn),
 };
