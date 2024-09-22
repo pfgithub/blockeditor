@@ -337,22 +337,16 @@ pub const EditorCore = struct {
 
     pub fn getLineStart(self: *EditorCore, pos: Position) Position {
         const block = self.document.value;
-        var index: u64 = block.docbyteFromPosition(pos);
-        while (index > 0) : (index -= 1) {
-            if (index <= 0) continue; // to keep readSlice in bounds
-            var byte: [1]u8 = undefined;
-            block.readSlice(block.positionFromDocbyte(index - 1), &byte);
-            if (byte[0] == '\n') {
-                break;
-            }
-        }
-        return block.positionFromDocbyte(index);
+        var lyncol = block.lynColFromPosition(pos);
+        lyncol.col = 0;
+        return block.positionFromLynCol(lyncol).?;
     }
-    pub fn getPrevLineStart(self: *EditorCore, prev_line_start: Position) Position {
+    pub fn getPrevLineStart(self: *EditorCore, pos: Position) Position {
         const block = self.document.value;
-        const value = block.docbyteFromPosition(prev_line_start);
-        if (value == 0) return prev_line_start;
-        return self.getLineStart(block.positionFromDocbyte(value - 1));
+        var lyncol = block.lynColFromPosition(pos);
+        lyncol.col = 0;
+        if (lyncol.lyn > 0) lyncol.lyn -= 1;
+        return block.positionFromLynCol(lyncol).?;
     }
     pub fn getThisLineEnd(self: *EditorCore, prev_line_start: Position) Position {
         const block = self.document.value;
@@ -372,20 +366,14 @@ pub const EditorCore = struct {
         }
         return self.getNextLineStart(pos);
     }
-    pub fn getNextLineStart(self: *EditorCore, prev_line_start: Position) Position {
+    pub fn getNextLineStart(self: *EditorCore, prev_line: Position) Position {
         const block = self.document.value;
-        var index: u64 = block.docbyteFromPosition(prev_line_start);
-        const len = block.length();
-        while (index < len) {
-            index += 1;
-            if (index <= 0) continue; // to keep readSlice in bounds
-            var byte: [1]u8 = undefined;
-            block.readSlice(block.positionFromDocbyte(index - 1), &byte);
-            if (byte[0] == '\n') {
-                break;
-            }
-        }
-        return block.positionFromDocbyte(index);
+        var lyncol = block.lynColFromPosition(prev_line);
+        lyncol.col = 0;
+        lyncol.lyn += 1;
+        return block.positionFromLynCol(lyncol) orelse {
+            return .end;
+        };
     }
     fn measureIndent(self: *EditorCore, line_start_pos: Position) struct { indents: u64, chars: u64 } {
         var indent_segments: u64 = 0;
