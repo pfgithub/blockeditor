@@ -510,7 +510,7 @@ fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize)
                 },
                 .doc_comment => switch (offset) {
                     0...2 => .keyword,
-                    else => .comment,
+                    else => .markdown_plain_text,
                 },
             };
         },

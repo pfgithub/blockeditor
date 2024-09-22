@@ -773,6 +773,7 @@ const DefaultTheme = struct {
             .variable_constant => 0x8BD49C,
             .variable_mutable => 0xB7C5D3,
             .comment => 0xff9d1c,
+            .markdown_plain_text => 0xB7C5D3,
 
             .unstyled => 0xB7C5D3,
             .invisible => 0x43515c,

@@ -1748,6 +1748,8 @@ pub const SynHlColorScope = enum {
 
     /// comment body text, excluding '//'
     comment,
+    /// plain text, to be rendered in a variable width font
+    markdown_plain_text,
 
     /// editor color - your syntax highlighter never needs to output this
     unstyled,
