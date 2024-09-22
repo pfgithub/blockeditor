@@ -203,10 +203,18 @@ pub fn build(b: *std.Build) !void {
             tracy_exe.addCSourceFiles(.{
                 .root = tracy_dep.path("."),
                 .files = &[_][]const u8{
-                    "nfd/nfd_cocoa.m",
                     "public/libbacktrace/macho.cpp",
                 },
                 .flags = profiler_flags,
+            });
+            tracy_exe.addCSourceFiles(.{
+                .root = tracy_dep.path("."),
+                .files = &[_][]const u8{
+                    "nfd/nfd_cocoa.m",
+                },
+                .flags = &[_][]const u8{
+                    "-fno-sanitize=undefined",
+                },
             });
             tracy_exe.linkFramework("AppKit");
             tracy_exe.linkFramework("UniformTypeIdentifiers");
