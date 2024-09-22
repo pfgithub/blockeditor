@@ -19,9 +19,9 @@ Tasks:
   - return a boundary only if the space index % INDENT_WIDTH == 0
 - [x] text editor: ctrl+enter = insert new line at end of current line
 - [ ] replace all uses of 'std.log' with 'log' + ban unscoped 'std.log'
-- [ ] text editor: add back selection
+- [x] text editor: add back selection
 - [x] text editor: impl scroll algorithm described in editor_view.zig
-- [ ] text editor: cache harfbuzz layout results
+- [x] text editor: cache harfbuzz layout results
 - [ ] text editor: use sheen_bidi for bidi & script run splitting (and maybe glyph mirroring, if required?)
 - [ ] text editor: to get the cursor position for a click:
   - given the mouse x, prev stop location, and next stop location, use the location nearest to mouse x
@@ -29,7 +29,7 @@ Tasks:
 - [x] text editor: show invisibles in selection
 - [ ] text editor: show invisibles for any spaces before a newline (ie `abcd efg  ` the last two spaces should show)
 - [ ] text editor: position visible invisibles halfway through the original width they would have taken
-- [ ] text editor: fix kerning problems. `"vert"` has trouble between the v, e, and r
+- [x] text editor: fix kerning problems. `"vert"` has trouble between the v, e, and r
   - "type" has trouble between y and p
 - [ ] text editor: copying a single byte of a multi-byte codepoint and pasting it back pastes '?'. it should detect
   that the pasted string is identical to the copied string and paste the original byte.
@@ -54,6 +54,8 @@ Tasks:
   to close. on linux, it sends a message to the server?
   - we need to find out how to kill the connection and stop the thread
     that is waiting on read()
+- [ ] text editor: pressing esc closes app. remove this.
+- [ ] text editor: pressing esc should remove all but the top multicursor
 
 wishlist:
 
