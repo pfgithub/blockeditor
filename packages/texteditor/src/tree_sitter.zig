@@ -692,7 +692,7 @@ test Context {
         .delete_len = src_component.value.length(),
         .insert_text = "//!c1\n//c2\n///c3\nconst a = 0;",
     }, null);
-    try testHighlight(&ctx, "<keyword>//!<comment>c1\n<punctuation>//<comment>c2\n<keyword>///<comment>c3\n<keyword_storage>const <variable_constant>a <keyword>= <literal>0<punctuation>;");
+    try testHighlight(&ctx, "<keyword>//!<markdown_plain_text>c1\n<punctuation>//<comment>c2\n<keyword>///<markdown_plain_text>c3\n<keyword_storage>const <variable_constant>a <keyword>= <literal>0<punctuation>;");
 
     // we can fuzz: document plus random insert should equal document plus random insert
     // but one before initializing ctx and one after
