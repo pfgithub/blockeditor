@@ -51,8 +51,8 @@ const Handler = struct {
     }
 
     pub fn clientClose(self: *Handler, data: []const u8) !void {
+        std.log.info("client disconnected; \"{}\"", .{std.zig.fmtEscapes(data)});
         _ = self;
-        _ = data;
         // is this called if the client times out? hopefully
 
         // - get connToWatchedBlocks entry
@@ -62,6 +62,8 @@ const Handler = struct {
 
     // You must defined a public clientMessage method
     pub fn clientMessage(self: *Handler, data: []const u8, message_type: ws.MessageType) !void {
+        std.log.info("received message: {s} \"{}\"", .{ @tagName(message_type), std.zig.fmtEscapes(data) });
+
         if (message_type != .binary) return error.BadMessage;
         // simulate network latency
         // std.time.sleep(300 * std.time.ns_per_ms);

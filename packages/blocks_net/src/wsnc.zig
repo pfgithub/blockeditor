@@ -24,6 +24,8 @@ pub fn main() !void {
     const recv_thread = try std.Thread.spawn(.{}, recvThread, .{&app});
     defer recv_thread.join();
 
+    defer app.client.close(.{}) catch |e| std.log.err("close error: {s}", .{@errorName(e)});
+
     std.log.info("wsnc. enter to exit", .{});
 
     // wait for enter key to be pressed
@@ -38,10 +40,6 @@ pub fn main() !void {
         try app.client.writeBin(msg);
         std.log.info("-> sent", .{});
     }
-
-    std.log.info("closing...", .{});
-    try app.client.close(.{});
-    std.log.info("-> closed", .{});
 }
 
 fn recvThread(self: *App) void {
