@@ -15,14 +15,10 @@ extern fn tree_sitter_zig() ?*ts.Language;
 fn addPoint(start_point: ts.Point, src: []const u8) ts.Point {
     var result: ts.Point = start_point;
     for (src) |char| {
-        switch (char) {
-            '\n' => {
-                result.row += 1;
-                result.column = 0;
-            },
-            else => {
-                result.column += 1;
-            },
+        result.column += 1;
+        if (char == '\n') {
+            result.row += 1;
+            result.column = 0;
         }
     }
     return result;
@@ -96,19 +92,15 @@ pub const Context = struct {
         self.znh.clear();
 
         const block = self.document.value;
+        const op_position = block.positionFromDocbyte(op.position);
 
         std.debug.assert(self.old_slice.items.len == 0);
         const res_slice = self.old_slice.addManyAsSlice(op.delete_len) catch @panic("oom");
         defer self.old_slice.clearRetainingCapacity();
-        block.readSlice(block.positionFromDocbyte(op.position), res_slice);
+        block.readSlice(op_position, res_slice);
 
-        // TODO: calculate start_point row using computed values in text_component
-        // no need to render the whole document up to this point
-        const tmp_buf = self.alloc.alloc(u8, op.position) catch @panic("oom");
-        defer self.alloc.free(tmp_buf);
-        block.readSlice(block.positionFromDocbyte(0), tmp_buf);
-
-        const start_point = addPoint(.{ .row = 0, .column = 0 }, tmp_buf);
+        const start_point_lyncol = block.lynColFromPosition(op_position);
+        const start_point: ts.Point = .{ .row = @intCast(start_point_lyncol.lyn), .column = @intCast(start_point_lyncol.col) };
 
         self.cached_tree.edit(.{
             .start_byte = @intCast(op.position),
