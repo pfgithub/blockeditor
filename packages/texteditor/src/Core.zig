@@ -588,14 +588,14 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
 
             const rb = self.redo.begin();
             self.document.applyUndoOperation(undo_op, rb.al);
-            self.undo.end(rb) catch @panic("oom");
+            rb.end() catch @panic("oom");
         },
         .redo => {
             const redo_op = self.redo.take() orelse return;
 
-            const ub = self.redo.begin();
+            const ub = self.undo.begin();
             self.document.applyUndoOperation(redo_op, ub.al);
-            self.undo.end(ub) catch @panic("oom");
+            ub.end() catch @panic("oom");
         },
         .click => |click_op| {
             self.onClick(click_op.pos, click_op.mode, click_op.extend, click_op.select_ts_node);
@@ -802,7 +802,7 @@ pub fn replaceRange(self: *Core, operation: bi.text_component.TextDocument.Simpl
     self.redo.clear();
     const ub = self.undo.begin();
     self.document.applySimpleOperation(operation, ub.al);
-    self.undo.end(ub) catch @panic("oom");
+    ub.end() catch @panic("oom");
 }
 
 pub fn getCursorPositions(self: *Core) CursorPositions {
@@ -1098,6 +1098,7 @@ pub fn SliceStackAligned(comptime T: type, comptime alignment: ?u29) type {
     }
     return struct {
         const Range = struct { start: usize, end: if (alignment) |_| usize else void };
+        const SSA = @This();
         items: std.ArrayListAligned(T, alignment),
         ranges: std.ArrayList(Range),
 
@@ -1115,23 +1116,29 @@ pub fn SliceStackAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         const Begin = struct {
+            ssa: *SSA,
             al: *std.ArrayListAligned(T, alignment),
             pos_start: usize,
+
+            pub fn cancel(b: Begin) void {
+                b.ssa.items.items.len = b.pos_start;
+            }
+            pub fn end(b: Begin) !void {
+                try b.ssa.ranges.append(.{ .start = b.pos_start, .end = if (alignment) |_| b.ssa.items.items.len else {} });
+                errdefer _ = b.ssa.ranges.pop();
+                if (alignment) |a| {
+                    const aligned_len = std.mem.alignForward(usize, b.ssa.items.items.len, a);
+                    try b.ssa.items.resize(aligned_len);
+                }
+            }
         };
 
+        /// { const begin = mystack.begin();
+        /// errdefer begin.cancel();
+        /// try begin.al.appendSlice("0123456789ABCDEF");
+        /// try begin.end(); }
         pub fn begin(self: *TextStack) Begin {
-            return .{ .al = &self.items, .pos_start = self.items.items.len };
-        }
-        pub fn cancel(self: *TextStack, b: Begin) void {
-            self.items.items.len = b.pos_start;
-        }
-        pub fn end(self: *TextStack, b: Begin) !void {
-            try self.ranges.append(.{ .start = b.pos_start, .end = if (alignment) |_| self.items.items.len else {} });
-            errdefer _ = self.ranges.pop();
-            if (alignment) |a| {
-                const aligned_len = std.mem.alignForward(usize, self.items.items.len, a);
-                try self.items.resize(aligned_len);
-            }
+            return .{ .ssa = self, .al = &self.items, .pos_start = self.items.items.len };
         }
 
         pub fn add(self: *TextStack, value: []const T) !void {
@@ -1196,23 +1203,23 @@ test TextStack {
 
     {
         const begin = mystack.begin();
-        errdefer mystack.cancel(begin);
+        errdefer begin.cancel();
         try begin.al.appendSlice("0123456789ABCDEF");
-        try mystack.end(begin);
+        try begin.end();
     }
     try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
     {
         const begin = mystack.begin();
-        errdefer mystack.cancel(begin);
+        errdefer begin.cancel();
         try begin.al.appendSlice("0123456789ABCDEFG");
-        try mystack.end(begin);
+        try begin.end();
     }
     try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
     {
         const begin = mystack.begin();
-        errdefer mystack.cancel(begin);
+        errdefer begin.cancel();
         try begin.al.appendSlice("0123456789ABCDEFGH");
-        try mystack.end(begin);
+        try begin.end();
     }
     try std.testing.expectEqual(@as(usize, 80), mystack.items.items.len);
     try std.testing.expectEqualStrings("0123456789ABCDEFGH", mystack.take() orelse "null");
