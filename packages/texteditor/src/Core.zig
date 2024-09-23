@@ -584,14 +584,18 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .undo => {
-            // const undo_op = self.undo_list.popOrNull() orelse return;
-            // _ = undo_op;
-            @panic("TODO undo");
+            const undo_op = self.undo.take() orelse return;
+
+            const rb = self.redo.begin();
+            self.document.applyUndoOperation(undo_op, rb.al);
+            self.undo.end(rb) catch @panic("oom");
         },
         .redo => {
-            // const redo_op = self.redo_list.popOrNull() orelse return;
-            // _ = redo_op;
-            @panic("TODO redo");
+            const redo_op = self.redo.take() orelse return;
+
+            const ub = self.redo.begin();
+            self.document.applyUndoOperation(redo_op, ub.al);
+            self.undo.end(ub) catch @panic("oom");
         },
         .click => |click_op| {
             self.onClick(click_op.pos, click_op.mode, click_op.extend, click_op.select_ts_node);
@@ -796,13 +800,9 @@ fn onDrag(self: *Core, pos: Position) void {
 
 pub fn replaceRange(self: *Core, operation: bi.text_component.TextDocument.SimpleOperation) void {
     self.redo.clear();
-    if (true) {
-        const ub = self.undo.begin();
-        self.document.applySimpleOperation(operation, ub.al);
-        self.undo.end(ub) catch @panic("oom");
-    } else {
-        self.document.applySimpleOperation(operation, null);
-    }
+    const ub = self.undo.begin();
+    self.document.applySimpleOperation(operation, ub.al);
+    self.undo.end(ub) catch @panic("oom");
 }
 
 pub fn getCursorPositions(self: *Core) CursorPositions {

@@ -324,7 +324,7 @@ pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
         }
 
         pub fn applyUndoOperation(self: Self, op: bi.AlignedByteSlice, undo_op: *bi.AlignedArrayList) void {
-            self.block_ref.applyOperation("", op, undo_op);
+            self.block_ref.applyOperations(op, undo_op);
         }
         pub fn applySimpleOperation(self: Self, op: ComponentType.SimpleOperation, undo_op: ?*bi.AlignedArrayList) void {
             var al: bi.AlignedArrayList = .init(self.block_ref.db.gpa);
