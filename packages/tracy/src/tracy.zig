@@ -101,6 +101,9 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
         }
 
         fn allocFn(ptr: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
+            const tctx = trace(@src());
+            defer tctx.end();
+
             const self: *Self = @ptrCast(@alignCast(ptr));
             const result = self.parent_allocator.rawAlloc(len, ptr_align, ret_addr);
             if (result) |data| {
@@ -118,6 +121,9 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
         }
 
         fn resizeFn(ptr: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
+            const tctx = trace(@src());
+            defer tctx.end();
+
             const self: *Self = @ptrCast(@alignCast(ptr));
             if (self.parent_allocator.rawResize(buf, buf_align, new_len, ret_addr)) {
                 if (name) |n| {
@@ -137,6 +143,9 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
         }
 
         fn freeFn(ptr: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
+            const tctx = trace(@src());
+            defer tctx.end();
+
             const self: *Self = @ptrCast(@alignCast(ptr));
             self.parent_allocator.rawFree(buf, buf_align, ret_addr);
             // this condition is to handle free being called on an empty slice that was never even allocated
