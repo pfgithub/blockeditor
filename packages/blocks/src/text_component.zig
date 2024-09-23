@@ -703,6 +703,21 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 start: Position,
                 text: []const T,
             },
+            replace_and_delete: struct {
+                // a replace and delete operation replaces and deletes parts of a segment.
+                // this should be used for:
+                // - deleting text
+                // - undoing deleting text
+                // - checking or unchecking a markdown checkbox with a buttton
+                const Range = struct {
+                    start_spanbyte: u64,
+                    end_spanbyte: u64,
+                    mode: enum { delete, replace },
+                };
+                id: SegmentID,
+                sorted_ranges: []const Range,
+                replace_buffer: []const T,
+            },
 
             pub fn serialize(self: *const Operation, out: *bi.AlignedArrayList) void {
                 std.json.stringify(self, .{}, out.writer()) catch @panic("oom");
@@ -1342,6 +1357,36 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         .bufbyte = @intCast(added_data_bufbyte),
                         .length = @intCast(insert_op.text.len),
                     }});
+                },
+                .replace_and_delete => |rd_op| {
+                    // const Range = struct {
+                    //     start_spanbyte: u64,
+                    //     end_spanbyte: u64,
+                    //     mode: enum { delete, replace },
+                    // };
+                    // id: SegmentID,
+                    // sorted_ranges: []const Range,
+                    // replace_buffer: []const T,
+
+                    if (out_undo) |_| @panic("TODO undo replace_and_delete");
+
+                    // validate op
+                    std.debug.assert(rd_op.sorted_ranges.len > 0);
+                    var gteq: u64 = rd_op.sorted_ranges[0].start_spanbyte;
+                    for (rd_op.sorted_ranges) |range| {
+                        std.debug.assert(range.start_spanbyte == gteq);
+                        gteq = range.start_spanbyte;
+                        std.debug.assert(range.end_spanbyte > gteq);
+                        gteq = range.end_spanbyte;
+                    }
+
+                    for (rd_op.sorted_ranges) |range| {
+                        self.splitSpan(.{ .id = rd_op.id, .segbyte = range.start_spanbyte });
+                        self.splitSpan(.{ .id = rd_op.id, .segbyte = range.end_spanbyte });
+
+                        // there may be zero or more spans
+                        @panic("TODO modify all spans in range");
+                    }
                 },
                 .delete => |delete_op| {
                     if (out_undo) |uo| {

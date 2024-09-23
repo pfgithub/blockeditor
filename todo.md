@@ -59,6 +59,8 @@ Tasks:
 - [ ] text editor: fix whatever's wrong with the last line. it's rendering twice and cursor
   doesn't show at the last location.
 - [x] text editor: ctrl+enter from the end of a line inserts two lines below
+- [ ] document: finish replace_and_delete impl, remove replace and remove delete. replace
+  and delete will be easier to undo than seperate ops.
 
 wishlist:
 
