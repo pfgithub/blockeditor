@@ -825,6 +825,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         segment_id_map: SegmentIDMap, // this could also be a tree sorted by SegmentID first and segbyte second
         buffer: std.ArrayList(T),
         allocator: std.mem.Allocator,
+        panic_on_modify_segment_id_map: bool = false,
 
         on_before_simple_operation: util.CallbackList(util.Callback(EmitSimpleOperation, void)),
         on_after_simple_operation: util.CallbackList(util.Callback(EmitSimpleOperation, void)),
@@ -1178,23 +1179,33 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         fn _removeFromIdMap(self: *Doc, seg: SegmentID, idx: BBT.NodeIndex) void {
-            const gpres = self.segment_id_map.getOrPut(seg) catch @panic("oom");
-            if (!gpres.found_existing) @panic("cannot remove if not found1");
-            const insert_idx: usize = for (gpres.value_ptr.items, 0..) |itm, i| {
+            const gpres = self.segment_id_map.getPtr(seg) orelse @panic("cannot remove if not found1");
+            const insert_idx: usize = for (gpres.items, 0..) |itm, i| {
                 if (itm == idx) break i;
             } else @panic("cannot remove if not found2");
-            gpres.value_ptr.replaceRangeAssumeCapacity(insert_idx, 1, &.{});
+            gpres.replaceRangeAssumeCapacity(insert_idx, 1, &.{});
         }
         fn _ensureInIdMap(self: *Doc, seg: SegmentID, start: u64, idx: BBT.NodeIndex) void {
-            const gpres = self.segment_id_map.getOrPut(seg) catch @panic("oom");
-            if (!gpres.found_existing) gpres.value_ptr.* = .init(self.allocator);
-            const insert_idx: usize = for (gpres.value_ptr.items, 0..) |itm, i| {
+            const ptr = switch (self.panic_on_modify_segment_id_map) {
+                // getOrPut mutates the pointer if there is 0 remaining capacity even if the item is found.
+                // so if we're not allowed to mutate, we need to use getPtr.
+                true => self.segment_id_map.getPtr(seg).?,
+                false => blk: {
+                    const gpres = self.segment_id_map.getOrPut(seg) catch @panic("oom");
+                    if (!gpres.found_existing) {
+                        if (self.panic_on_modify_segment_id_map) @panic("not allowed to modify id map right now");
+                        gpres.value_ptr.* = .init(self.allocator);
+                    }
+                    break :blk gpres.value_ptr;
+                },
+            };
+            const insert_idx: usize = for (ptr.items, 0..) |itm, i| {
                 const itmv = self.span_bbt.getNodeDataPtrConst(itm).?;
                 if (start < itmv.start_segbyte) {
                     break i;
                 }
-            } else gpres.value_ptr.items.len;
-            gpres.value_ptr.replaceRange(insert_idx, 0, &[_]BBT.NodeIndex{idx}) catch @panic("oom");
+            } else ptr.items.len;
+            ptr.replaceRange(insert_idx, 0, &[_]BBT.NodeIndex{idx}) catch @panic("oom");
         }
 
         fn _getSimpleOp(self: *Doc, position: BBT.NodeIndex, remove: ?*const Span, insert: *const Span) EmitSimpleOperation {
@@ -1253,6 +1264,34 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             self._insertAfter(index, next_slice[1..]);
         }
 
+        fn splitSpan(self: *Doc, pos: Position) void {
+            const span_position = self._findEntrySpan(pos);
+            const span_index = span_position.span_index;
+            const span = self.span_bbt.getNodeDataPtrConst(span_index).?;
+            const split_spanbyte = pos.segbyte - span.start_segbyte;
+
+            const e_lhs: Span = .{
+                .id = span.id,
+                .start_segbyte = span.start_segbyte,
+                .bufbyte = span.bufbyte,
+                .length = split_spanbyte,
+            };
+            const e_rhs: Span = .{
+                .id = span.id,
+                .start_segbyte = span.start_segbyte + split_spanbyte,
+                .bufbyte = if (span.bufbyte) |bufbyte| bufbyte + split_spanbyte else null,
+                .length = span.length - split_spanbyte,
+            };
+
+            std.debug.assert(e_rhs.length > 0);
+            if (e_lhs.length != 0) {
+                self._replaceRange(span_index, 1, &.{
+                    e_lhs,
+                    e_rhs,
+                });
+            }
+        }
+
         pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.UndoOperationWriter(Operation)) !void {
             var arena = std.heap.ArenaAllocator.init(self.allocator);
             defer arena.deinit();
@@ -1294,48 +1333,16 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
                     const added_data_bufbyte = self.buffer.items.len;
                     self.buffer.appendSlice(insert_op.text) catch @panic("OOM");
-                    const e_mid: Span = .{
+
+                    self.splitSpan(insert_op.pos);
+                    const entry_span = self._findEntrySpan(insert_op.pos);
+                    std.debug.assert(entry_span.spanbyte_incl_deleted == 0);
+                    self._insertBefore(entry_span.span_index, &.{.{
                         .id = insert_op.id,
                         .start_segbyte = 0,
                         .bufbyte = @intCast(added_data_bufbyte),
                         .length = @intCast(insert_op.text.len),
-                    };
-
-                    // 0. find entry
-                    const span_position = self._findEntrySpan(insert_op.pos);
-                    const span_index = span_position.span_index;
-                    const span = self.span_bbt.getNodeDataPtrConst(span_index).?;
-                    // 1. split entry
-                    const split_spanbyte = insert_op.pos.segbyte - span.start_segbyte;
-
-                    const e_lhs: Span = .{
-                        .id = span.id,
-                        .start_segbyte = span.start_segbyte,
-                        .bufbyte = span.bufbyte,
-                        .length = split_spanbyte,
-                    };
-                    const e_rhs: Span = .{
-                        .id = span.id,
-                        .start_segbyte = span.start_segbyte + split_spanbyte,
-                        .bufbyte = if (span.bufbyte) |bufbyte| bufbyte + split_spanbyte else null,
-                        .length = span.length - split_spanbyte,
-                    };
-
-                    // done! above pointers are invalidated after this
-                    std.debug.assert(e_mid.length > 0);
-                    std.debug.assert(e_rhs.length > 0);
-                    if (e_lhs.length == 0) {
-                        self._replaceRange(span_index, 1, &.{
-                            e_mid,
-                            e_rhs,
-                        });
-                    } else {
-                        self._replaceRange(span_index, 1, &.{
-                            e_lhs,
-                            e_mid,
-                            e_rhs,
-                        });
-                    }
+                    }});
                 },
                 .delete => |delete_op| {
                     if (out_undo) |uo| {
@@ -1356,8 +1363,10 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         } });
                     }
 
+                    self.panic_on_modify_segment_id_map = true;
+                    defer self.panic_on_modify_segment_id_map = false;
                     const affected_spans_al_entry = self.segment_id_map.getEntry(delete_op.start.id).?;
-                    // this shouldn't invalidate because the hashmap shouldn't get any new entries
+                    // this won't invalidate because panic_on_modify_segment_id_map is set
                     const affected_spans_al = affected_spans_al_entry.value_ptr;
 
                     var i: usize = 0;
