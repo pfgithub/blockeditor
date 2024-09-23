@@ -739,6 +739,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     .insert => |iop| {
                         try writer.print("[I:{}:\"{}\"->{}]", .{ iop.pos, std.zig.fmtEscapes(iop.text), iop.id });
                     },
+                    .replace_and_delete => |rdop| {
+                        try writer.print("[RD:{}:\"{}\",{any}]", .{ rdop.id, std.zig.fmtEscapes(rdop.replace_buffer), rdop.sorted_ranges });
+                    },
                     .delete => |dop| {
                         try writer.print("[D:{}:{d}]", .{ dop.start, dop.len_within_segment });
                     },
@@ -1306,15 +1309,15 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
         }
 
-        pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.UndoOperationWriter(Operation)) !void {
+        pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.UndoOperationWriter(Operation)) bi.DeserializeError!void {
             var arena = std.heap.ArenaAllocator.init(self.allocator);
             defer arena.deinit();
             const op_dsrlz = try Operation.deserialize(arena.allocator(), operation_serialized);
-            // ^ need to validate, or we can validate at usafe in fn applyOperationStruct
+            // ^ need to validate, or we can validate at usage in fn applyOperationStruct
 
             applyOperationStruct(self, op_dsrlz, undo_operation);
         }
-        pub fn applyOperationStruct(self: *Doc, op: Operation, out_undo: ?*bi.UndoOperationWriter(Operation)) void {
+        pub fn applyOperationStruct(self: *Doc, op: Operation, out_undo: ?*bi.UndoOperationWriter(Operation)) bi.DeserializeError!void {
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
             // delete(3, 5) -> undelete(3, "hello")
@@ -1371,21 +1374,74 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     if (out_undo) |_| @panic("TODO undo replace_and_delete");
 
                     // validate op
-                    std.debug.assert(rd_op.sorted_ranges.len > 0);
-                    var gteq: u64 = rd_op.sorted_ranges[0].start_spanbyte;
+                    if (rd_op.sorted_ranges.len == 0) return error.DeserializeError;
+                    var gteq: u64 = 0;
                     for (rd_op.sorted_ranges) |range| {
-                        std.debug.assert(range.start_spanbyte == gteq);
+                        if (range.start_spanbyte < gteq) return error.DeserializeError;
                         gteq = range.start_spanbyte;
-                        std.debug.assert(range.end_spanbyte > gteq);
+                        if (range.end_spanbyte <= gteq) return error.DeserializeError;
                         gteq = range.end_spanbyte;
                     }
 
                     for (rd_op.sorted_ranges) |range| {
                         self.splitSpan(.{ .id = rd_op.id, .segbyte = range.start_spanbyte });
                         self.splitSpan(.{ .id = rd_op.id, .segbyte = range.end_spanbyte });
+                    }
 
-                        // there may be zero or more spans
-                        @panic("TODO modify all spans in range");
+                    // now, modify spans
+                    self.panic_on_modify_segment_id_map = true;
+                    defer self.panic_on_modify_segment_id_map = false;
+
+                    const affected_spans_al_entry = self.segment_id_map.getEntry(rd_op.id).?;
+                    const affected_spans_al = affected_spans_al_entry.value_ptr;
+
+                    var sorted_range_i: usize = 0;
+                    var data_i: usize = 0;
+                    for (0..affected_spans_al.items.len) |i| {
+                        if (sorted_range_i >= rd_op.sorted_ranges.len) break;
+                        const range = rd_op.sorted_ranges[sorted_range_i];
+
+                        const item = affected_spans_al.items[i];
+                        const span_info = self.span_bbt.getNodeDataPtrConst(item).?;
+
+                        if (range.start_spanbyte >= span_info.start_segbyte and range.end_spanbyte <= span_info.start_segbyte + span_info.length) {
+                            const range_len = range.end_spanbyte - range.start_spanbyte;
+                            const new_bufbyte: ?u64 = switch (range.mode) {
+                                .delete => blk: {
+                                    // consider reclaiming space in the bufbyte array?
+                                    if (span_info.bufbyte) |current_bufbyte| {
+                                        // zero old data for now so it isn't sitting around in memory. probably doesn't really matter.
+                                        std.crypto.secureZero(u8, self.buffer.items[current_bufbyte..][0..span_info.length]);
+                                    }
+                                    break :blk null;
+                                },
+                                .replace => blk: {
+                                    if (rd_op.replace_buffer.len < data_i + range_len) return error.DeserializeError;
+                                    const new_content = rd_op.replace_buffer[data_i..][0..range_len];
+                                    data_i += range_len;
+
+                                    if (span_info.bufbyte) |current_bufbyte| {
+                                        // there should only ever be one span pointing to a given buffer range, so we're allowed to mutate
+                                        @memcpy(self.buffer.items[current_bufbyte..][0..span_info.length], new_content);
+                                        break :blk current_bufbyte;
+                                    } else {
+                                        const new_bufbyte = self.buffer.items.len;
+                                        self.buffer.appendSlice(new_content) catch @panic("oom");
+                                        break :blk new_bufbyte;
+                                    }
+                                },
+                            };
+
+                            // update this span. item ptr should not invalidate but might, so we won't trust it after this call.
+                            self._updateNode(item, .{
+                                .bufbyte = new_bufbyte,
+                                .id = span_info.id,
+                                .length = span_info.length,
+                                .start_segbyte = span_info.start_segbyte,
+                            });
+                        }
+
+                        sorted_range_i += 1;
                     }
                 },
                 .delete => |delete_op| {
@@ -1724,7 +1780,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("pos: {}", .{b0});
     std.debug.assert(block.length() == 0);
 
-    block.applyOperationStruct(.{
+    try block.applyOperationStruct(.{
         .insert = .{
             .id = block.uuid(),
             .pos = block.positionFromDocbyte(0),
@@ -1734,7 +1790,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     try testBlockEquals(&block, "i held");
     std.log.info("block: [{}]", .{block});
 
-    block.applyOperationStruct(.{
+    try block.applyOperationStruct(.{
         .insert = .{
             .id = block.uuid(),
             .pos = block.positionFromDocbyte(4),
@@ -1743,7 +1799,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     }, null);
     try testBlockEquals(&block, "i hello world");
     std.log.info("block: [{}]", .{block});
-    block.applyOperationStruct(.{
+    try block.applyOperationStruct(.{
         // deleting a range will generate multiple delete operations unfortunately
         .delete = .{
             .start = block.positionFromDocbyte(0),
@@ -1752,7 +1808,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     }, null);
     try testBlockEquals(&block, "hello world");
     std.log.info("block: {d}[{}]", .{ block.length(), block });
-    block.applyOperationStruct(.{
+    try block.applyOperationStruct(.{
         .extend = .{
             .id = block.positionFromDocbyte(2).id,
             .prev_len = 7,
@@ -1762,7 +1818,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     try testBlockEquals(&block, "hello worRld");
     std.log.info("block: [{}]", .{block});
 
-    block.applyOperationStruct(.{
+    try block.applyOperationStruct(.{
         .extend = .{
             .id = block.positionFromDocbyte(0).id,
             .prev_len = 6,
@@ -1776,7 +1832,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.genOperations(&opgen_demo, .{ .position = block.positionFromDocbyte(0), .delete_len = 0, .insert_text = "Test\n" });
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
-        block.applyOperationStruct(op, null);
+        try block.applyOperationStruct(op, null);
     }
     try testBlockEquals(&block, "Test\nhello worRld!");
     std.log.info("block: [{}]", .{block});
@@ -1785,14 +1841,14 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.genOperations(&opgen_demo, .{ .position = block.positionFromDocbyte(1), .delete_len = 18 - 2, .insert_text = "Cleared." });
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
-        block.applyOperationStruct(op, null);
+        try block.applyOperationStruct(op, null);
     }
     try testBlockEquals(&block, "TCleared.!");
     std.log.info("block: [{}]", .{block});
 
     // replace live text
     opgen_demo.clearRetainingCapacity();
-    block.applyOperationStruct(.{ .replace = .{
+    try block.applyOperationStruct(.{ .replace = .{
         .start = block.positionFromDocbyte(1),
         .text = "Replaced",
     } }, null);
@@ -1801,7 +1857,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
 
     // replace part of live text
     opgen_demo.clearRetainingCapacity();
-    block.applyOperationStruct(.{ .replace = .{
+    try block.applyOperationStruct(.{ .replace = .{
         .start = block.positionFromDocbyte(4),
         .text = "!!!!",
     } }, null);
@@ -1810,7 +1866,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
 
     // bring back full dead text
     opgen_demo.clearRetainingCapacity();
-    block.applyOperationStruct(.{ .replace = .{
+    try block.applyOperationStruct(.{ .replace = .{
         .start = .{ .id = @enumFromInt(3 << 16), .segbyte = 1 },
         .text = "ABCD",
     } }, null);
@@ -1824,7 +1880,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
 
     // move text
     if (false) {
-        block.applyOperationStruct(.{
+        try block.applyOperationStruct(.{
             .move = .{
                 .start = block.positionFromDocbyte(2),
                 .end = block.positionFromDocbyte(8),
@@ -2001,7 +2057,7 @@ const BlockTester = struct {
         self.complex.genOperations(&self.opgen, .{ .position = self.complex.positionFromDocbyte(start), .delete_len = delete_count, .insert_text = insert_text });
         for (self.opgen.items) |op| {
             // std.log.info("    -> apply {}", .{op});
-            self.complex.applyOperationStruct(op, null);
+            try self.complex.applyOperationStruct(op, null);
         }
         // std.log.info("  Updated document: [{}], ", .{self.complex});
 
