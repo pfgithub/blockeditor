@@ -682,33 +682,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 prev_len: u64, // *must be full length of segment*. for error checking only.
                 text: []const T,
             },
-            delete: struct {
-                // a delete operation only deletes a slice of a single segment
-                // instead of being start: Position, end: Position
-                // 0: "|my text|"
-                //    1.0: "my |great |text"
-                //    2.0: "||"
-                // => |great |
-                // this might be a bit helpful against data loss?
-                // it's sure not helpful for programming. this is really annoying. it
-                // would be so much easier as start: Position, end: Position
-
-                // reminder: len_within_segment can span multiple spans
-                // of the same segment
-                start: Position,
-                len_within_segment: u64,
-            },
-            replace: struct {
-                // replaces text within a segment starting at [start] with [text]. undeletes any deleted text
-                // in this range. cannot change the length of a segment.
-
-                // this should be used for:
-                // - undoing a delete operation
-                // - checking or unchecking a markdown checkbox
-
-                start: Position,
-                text: []const T,
-            },
             replace_and_delete: struct {
                 // a replace and delete operation replaces and deletes parts of a segment.
                 // this should be used for:
@@ -754,14 +727,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     .replace_and_delete => |rdop| {
                         try writer.print("[RD:{}:\"{}\",{any}]", .{ rdop.id, std.zig.fmtEscapes(rdop.replace_buffer), rdop.sorted_ranges });
                     },
-                    .delete => |dop| {
-                        try writer.print("[D:{}:{d}]", .{ dop.start, dop.len_within_segment });
-                    },
                     .extend => |xop| {
                         try writer.print("[X:{}:{d}:\"{}\"]", .{ xop.id, xop.prev_len, std.zig.fmtEscapes(xop.text) });
-                    },
-                    .replace => |rop| {
-                        try writer.print("[R:{}:\"{}\"]", .{ rop.start, std.zig.fmtEscapes(rop.text) });
                     },
                 }
             }
@@ -1333,6 +1300,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         pub fn applyOperationStruct(self: *Doc, arena: std.mem.Allocator, op: Operation, out_undo: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
             const tctx = anywhere.tracy.trace(@src());
             defer tctx.end();
+            _ = arena;
 
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
@@ -1358,9 +1326,14 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     std.debug.assert(insert_op.text.len > 0);
 
                     if (out_undo) |undo| undo.appendOperation(.{
-                        .delete = .{
-                            .start = .{ .id = insert_op.id, .segbyte = 0 },
-                            .len_within_segment = insert_op.text.len,
+                        .replace_and_delete = .{
+                            .id = insert_op.id,
+                            .sorted_ranges = &.{.{
+                                .start_segbyte = 0,
+                                .end_segbyte = insert_op.text.len,
+                                .mode = .delete,
+                            }},
+                            .replace_buffer = &.{},
                         },
                     });
 
@@ -1477,52 +1450,16 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         }
                     }
                 },
-                .delete => |delete_op| {
-                    if (out_undo) |uo| {
-                        // if the delete range covers already-deleted parts, this won't work right
-                        // genOperations should never generate a delete operation like that though.
-
-                        const tmp_slice = arena.alloc(u8, delete_op.len_within_segment) catch @panic("oom");
-
-                        self.readSlice(delete_op.start, tmp_slice);
-
-                        uo.appendOperation(.{ .replace = .{
-                            .start = delete_op.start,
-                            .text = tmp_slice,
-                        } });
-                    }
-
-                    self.splitSpan(delete_op.start);
-                    self.splitSpan(.{ .id = delete_op.start.id, .segbyte = delete_op.start.segbyte + delete_op.len_within_segment });
-
-                    self.panic_on_modify_segment_id_map = true;
-                    defer self.panic_on_modify_segment_id_map = false;
-                    const affected_spans_al_entry = self.segment_id_map.getEntry(delete_op.start.id).?;
-                    // this won't invalidate because panic_on_modify_segment_id_map is set
-                    const affected_spans_al = affected_spans_al_entry.value_ptr;
-
-                    for (affected_spans_al.items) |itm| {
-                        const span = self.span_bbt.getNodeDataPtrConst(itm).?;
-                        if (span.start_segbyte < delete_op.start.segbyte) continue;
-                        if (span.start_segbyte >= delete_op.start.segbyte + delete_op.len_within_segment) break;
-
-                        std.debug.assert( //
-                            span.start_segbyte >= delete_op.start.segbyte and //
-                            span.start_segbyte + span.length <= delete_op.start.segbyte + delete_op.len_within_segment //
-                        );
-                        self._updateNode(itm, .{
-                            .id = span.id,
-                            .start_segbyte = span.start_segbyte,
-                            .bufbyte = null, // delete
-                            .length = span.length,
-                        });
-                    }
-                },
                 .extend => |extend_op| {
                     if (out_undo) |undo| undo.appendOperation(.{
-                        .delete = .{
-                            .start = .{ .id = extend_op.id, .segbyte = extend_op.prev_len },
-                            .len_within_segment = extend_op.text.len,
+                        .replace_and_delete = .{
+                            .id = extend_op.id,
+                            .sorted_ranges = &.{.{
+                                .start_segbyte = extend_op.prev_len,
+                                .end_segbyte = extend_op.prev_len + extend_op.text.len,
+                                .mode = .delete,
+                            }},
+                            .replace_buffer = &.{},
                         },
                     });
 
@@ -1554,83 +1491,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .length = @intCast(extend_op.text.len),
                             },
                         });
-                    }
-                },
-                .replace => |replace_op| {
-                    if (out_undo) |_| {
-                        // this is almost really simple. we almost just generate a replace op with the
-                        // existing text. the problem is that the previous text may have had deleted ranges.
-                        // so what we want really is a combined delete-replace operation. you say
-                        // 'delete_replace' <segment id> <start segbyte> and then pass a slice.
-                        // it could have
-                        // <length><new data><length><new data><length | deleted><length><new data>...
-                        //
-                        // the entirety of applyOperation is really complicated right now - we would like to make
-                        // it much simpler to say .splitSpan(split_position). maybe we work on that first.
-                        @panic("TODO support undo replace operation");
-                    }
-
-                    const affected_spans = blk: {
-                        const affected_spans_al_entry = self.segment_id_map.getEntry(replace_op.start.id).?;
-                        const affected_spans_al = affected_spans_al_entry.value_ptr;
-                        // affected_spans_al will be mutated when `replaceRange` is called, so we make a stable copy of it
-
-                        break :blk self.segment_id_map.allocator.dupe(BBT.NodeIndex, affected_spans_al.items) catch @panic("oom");
-                    };
-                    defer self.segment_id_map.allocator.free(affected_spans);
-
-                    const op_start_segbyte = replace_op.start.segbyte;
-                    const op_end_segbyte = op_start_segbyte + replace_op.text.len;
-
-                    for (affected_spans) |affected_span_idx| {
-                        // right we have to call replaceRange to update a span
-                        // replaceRange
-
-                        const span_value = self.span_bbt.getNodeDataPtrConst(affected_span_idx).?;
-
-                        const span_start_segbyte = span_value.start_segbyte;
-                        const span_end_segbyte = span_start_segbyte + span_value.length;
-
-                        const op_clamped_start_segbyte = @max(op_start_segbyte, span_start_segbyte);
-                        const op_clamped_end_segbyte = @min(op_end_segbyte, span_end_segbyte);
-
-                        // branches:
-                        // - out of range
-                        if (op_clamped_start_segbyte >= op_clamped_end_segbyte) {
-                            // - skip
-                            continue;
-                        }
-
-                        const span_start_offset = op_clamped_start_segbyte - span_start_segbyte;
-                        const op_start_offset = op_clamped_start_segbyte - replace_op.start.segbyte;
-                        const clamped_length = op_clamped_end_segbyte - op_clamped_start_segbyte;
-                        const replace_contents = replace_op.text[usi(op_start_offset)..][0..usi(clamped_length)];
-
-                        if (span_value.bufbyte) |bufbyte| {
-                            // - not deleted and partial or full coverage:
-                            // update buffer
-                            const full_range = self.buffer.items[usi(bufbyte)..][0..usi(span_value.length)];
-                            const update_range = full_range[usi(span_start_offset)..][0..usi(clamped_length)];
-                            @memcpy(update_range, replace_contents);
-
-                            // update newline points
-                            self._replaceRange(affected_span_idx, 1, &.{span_value.*});
-                        } else if (clamped_length == span_value.length) {
-                            const new_bufbyte_start = self.buffer.items.len;
-                            self.buffer.appendSlice(replace_contents) catch @panic("oom");
-                            self._replaceRange(affected_span_idx, 1, &.{.{
-                                .id = span_value.id,
-                                .length = span_value.length,
-                                .start_segbyte = span_value.start_segbyte,
-                                .bufbyte = new_bufbyte_start,
-                            }});
-                        } else {
-                            // - deleted and partial coverage:
-                            //   - have to split and mark just one span undeleted
-                            //   - for now we can panic("TODO")
-                            //   - ideally we should have a split function because it's such a common operation
-                            @panic("TODO 'replace' op deleted partial coverage branch");
-                        }
                     }
                 },
             }
@@ -1849,9 +1709,14 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("block: [{}]", .{block});
     try block.applyOperationStruct(arena, .{
         // deleting a range will generate multiple delete operations unfortunately
-        .delete = .{
-            .start = block.positionFromDocbyte(0),
-            .len_within_segment = 2,
+        .replace_and_delete = .{
+            .id = block.positionFromDocbyte(0).id,
+            .sorted_ranges = &.{.{
+                .start_segbyte = block.positionFromDocbyte(0).segbyte,
+                .end_segbyte = block.positionFromDocbyte(0).segbyte + 2,
+                .mode = .delete,
+            }},
+            .replace_buffer = &.{},
         },
     }, null);
     try testBlockEquals(&block, "hello world");
@@ -1897,26 +1762,47 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("block: [{}]", .{block});
 
     // replace live text
-    try block.applyOperationStruct(arena, .{ .replace = .{
-        .start = block.positionFromDocbyte(1),
-        .text = "Replaced",
-    } }, null);
+    try block.applyOperationStruct(arena, .{
+        .replace_and_delete = .{
+            .id = block.positionFromDocbyte(1).id,
+            .sorted_ranges = &.{.{
+                .start_segbyte = block.positionFromDocbyte(1).segbyte,
+                .end_segbyte = block.positionFromDocbyte(1).segbyte + "Replaced".len,
+                .mode = .replace,
+            }},
+            .replace_buffer = "Replaced",
+        },
+    }, null);
     try testBlockEquals(&block, "TReplaced!");
     std.log.info("block: [{}]", .{block});
 
     // replace part of live text
-    try block.applyOperationStruct(arena, .{ .replace = .{
-        .start = block.positionFromDocbyte(4),
-        .text = "!!!!",
-    } }, null);
+    try block.applyOperationStruct(arena, .{
+        .replace_and_delete = .{
+            .id = block.positionFromDocbyte(4).id,
+            .sorted_ranges = &.{.{
+                .start_segbyte = block.positionFromDocbyte(4).segbyte,
+                .end_segbyte = block.positionFromDocbyte(4).segbyte + "!!!!".len,
+                .mode = .replace,
+            }},
+            .replace_buffer = "!!!!",
+        },
+    }, null);
     try testBlockEquals(&block, "TRep!!!!d!");
     std.log.info("block: [{}]", .{block});
 
     // bring back full dead text
-    try block.applyOperationStruct(arena, .{ .replace = .{
-        .start = .{ .id = @enumFromInt(3 << 16), .segbyte = 1 },
-        .text = "ABCD",
-    } }, null);
+    try block.applyOperationStruct(arena, .{
+        .replace_and_delete = .{
+            .id = @enumFromInt(3 << 16),
+            .sorted_ranges = &.{.{
+                .start_segbyte = 1,
+                .end_segbyte = 1 + "ABCD".len,
+                .mode = .replace,
+            }},
+            .replace_buffer = "ABCD",
+        },
+    }, null);
     try testBlockEquals(&block, "TRep!!!!dABCD!");
     std.log.info("block: [{}]", .{block});
 
