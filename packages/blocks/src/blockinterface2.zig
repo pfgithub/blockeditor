@@ -6,6 +6,21 @@ pub const Alignment = 16;
 pub const AlignedArrayList = std.ArrayListAligned(u8, Alignment);
 pub const AlignedFbsReader = std.io.FixedBufferStream([]align(Alignment) const u8);
 pub const AlignedByteSlice = []align(Alignment) const u8;
+
+const BaseUndoOperationWriter = struct {
+    prefix: AlignedArrayList,
+    al: *AlignedArrayList,
+};
+pub fn UndoOperationWriter(comptime T: type) type {
+    return struct {
+        base: BaseUndoOperationWriter,
+
+        pub fn appendOperation(self: *@This(), op: T) void {
+            appendPrefixedOperation(self.base.al, self.base.prefix.items, op);
+        }
+    };
+}
+
 pub fn safeAlignForwards(al: *AlignedArrayList) void {
     const target_len = std.mem.alignForward(usize, al.items.len, Alignment);
     const diff = target_len - al.items.len;
@@ -138,22 +153,19 @@ pub const CounterComponent = struct {
             };
         }
     };
-    pub fn applyOperation(self: *CounterComponent, operation_serialized: AlignedByteSlice, self_prefix: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
+    pub fn applyOperation(self: *CounterComponent, operation_serialized: AlignedByteSlice, undo_operation: ?*UndoOperationWriter(Operation)) DeserializeError!void {
         const operation = try Operation.deserialize(operation_serialized);
 
-        const undo_op: Operation = switch (operation) {
+        if (undo_operation) |undo| undo.appendOperation(switch (operation) {
             .add => |num| .{ .add = -%num },
             .set => |_| .{ .set = self.count },
             // undo for 'set' isn't perfect. correct set undo would require keeping the values before set and
             // using a switch command to switch back to the previous counter. but it's fine enough for collaborative editing,
             // problematic for offline editing.
-        };
+        });
         switch (operation) {
             .add => |num| self.count +%= num,
             .set => |num| self.count = num,
-        }
-        if (undo_operation) |undo| {
-            appendPrefixedOperation(undo, self_prefix, undo_op);
         }
     }
 
@@ -195,6 +207,9 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
         fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
             const self = any.cast(Self);
 
+            var undo_helper: ?UndoOperationWriter(ChildComponent.Operation) = if (undo_operation) |uo| .{ .base = .{ .al = uo, .prefix = .init(self.gpa) } } else null;
+            defer if (undo_helper) |*uh| uh.base.prefix.deinit();
+
             var rem_op = operation_serialized;
             while (true) {
                 if (rem_op.len == 0) break;
@@ -207,7 +222,7 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
 
                 if (rem_op.len < itm_len_aligned) return error.DeserializeError;
 
-                try self.value.applyOperation(rem_op[0..itm_len], "", undo_operation);
+                try self.value.applyOperation(rem_op[0..itm_len], if (undo_helper) |*uo| uo else null);
 
                 rem_op = @alignCast(rem_op[itm_len_aligned..]);
             }

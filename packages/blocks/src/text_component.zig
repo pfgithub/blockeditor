@@ -1253,15 +1253,15 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             self._insertAfter(index, next_slice[1..]);
         }
 
-        pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, self_prefix: bi.AlignedByteSlice, undo_operation: ?*bi.AlignedArrayList) !void {
+        pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.UndoOperationWriter(Operation)) !void {
             var arena = std.heap.ArenaAllocator.init(self.allocator);
             defer arena.deinit();
             const op_dsrlz = try Operation.deserialize(arena.allocator(), operation_serialized);
             // ^ need to validate, or we can validate at usafe in fn applyOperationStruct
 
-            applyOperationStruct(self, op_dsrlz, self_prefix, undo_operation);
+            applyOperationStruct(self, op_dsrlz, undo_operation);
         }
-        pub fn applyOperationStruct(self: *Doc, op: Operation, self_prefix: bi.AlignedByteSlice, out_undo: ?*bi.AlignedArrayList) void {
+        pub fn applyOperationStruct(self: *Doc, op: Operation, out_undo: ?*bi.UndoOperationWriter(Operation)) void {
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
             // delete(3, 5) -> undelete(3, "hello")
@@ -1285,7 +1285,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 .insert => |insert_op| {
                     std.debug.assert(insert_op.text.len > 0);
 
-                    if (out_undo) |undo| bi.appendPrefixedOperation(undo, self_prefix, Operation{
+                    if (out_undo) |undo| undo.appendOperation(.{
                         .delete = .{
                             .start = .{ .id = insert_op.id, .segbyte = 0 },
                             .len_within_segment = insert_op.text.len,
@@ -1429,7 +1429,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     std.debug.assert(success);
                 },
                 .extend => |extend_op| {
-                    if (out_undo) |undo| bi.appendPrefixedOperation(undo, self_prefix, Operation{
+                    if (out_undo) |undo| undo.appendOperation(.{
                         .delete = .{
                             .start = .{ .id = extend_op.id, .segbyte = extend_op.prev_len },
                             .len_within_segment = extend_op.text.len,
@@ -1719,7 +1719,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .pos = block.positionFromDocbyte(0),
             .text = "i held",
         },
-    }, "", null);
+    }, null);
     try testBlockEquals(&block, "i held");
     std.log.info("block: [{}]", .{block});
 
@@ -1729,7 +1729,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .pos = block.positionFromDocbyte(4),
             .text = "llo wor",
         },
-    }, "", null);
+    }, null);
     try testBlockEquals(&block, "i hello world");
     std.log.info("block: [{}]", .{block});
     block.applyOperationStruct(.{
@@ -1738,7 +1738,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .start = block.positionFromDocbyte(0),
             .len_within_segment = 2,
         },
-    }, "", null);
+    }, null);
     try testBlockEquals(&block, "hello world");
     std.log.info("block: {d}[{}]", .{ block.length(), block });
     block.applyOperationStruct(.{
@@ -1747,7 +1747,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .prev_len = 7,
             .text = "R",
         },
-    }, "", null);
+    }, null);
     try testBlockEquals(&block, "hello worRld");
     std.log.info("block: [{}]", .{block});
 
@@ -1757,7 +1757,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
             .prev_len = 6,
             .text = "!",
         },
-    }, "", null);
+    }, null);
     try testBlockEquals(&block, "hello worRld!");
     std.log.info("block: [{}]", .{block});
 
@@ -1765,7 +1765,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.genOperations(&opgen_demo, .{ .position = block.positionFromDocbyte(0), .delete_len = 0, .insert_text = "Test\n" });
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
-        block.applyOperationStruct(op, "", null);
+        block.applyOperationStruct(op, null);
     }
     try testBlockEquals(&block, "Test\nhello worRld!");
     std.log.info("block: [{}]", .{block});
@@ -1774,7 +1774,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.genOperations(&opgen_demo, .{ .position = block.positionFromDocbyte(1), .delete_len = 18 - 2, .insert_text = "Cleared." });
     for (opgen_demo.items) |op| {
         std.log.info("  apply {}", .{op});
-        block.applyOperationStruct(op, "", null);
+        block.applyOperationStruct(op, null);
     }
     try testBlockEquals(&block, "TCleared.!");
     std.log.info("block: [{}]", .{block});
@@ -1784,7 +1784,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.applyOperationStruct(.{ .replace = .{
         .start = block.positionFromDocbyte(1),
         .text = "Replaced",
-    } }, "", null);
+    } }, null);
     try testBlockEquals(&block, "TReplaced!");
     std.log.info("block: [{}]", .{block});
 
@@ -1793,7 +1793,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.applyOperationStruct(.{ .replace = .{
         .start = block.positionFromDocbyte(4),
         .text = "!!!!",
-    } }, "", null);
+    } }, null);
     try testBlockEquals(&block, "TRep!!!!d!");
     std.log.info("block: [{}]", .{block});
 
@@ -1802,7 +1802,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     block.applyOperationStruct(.{ .replace = .{
         .start = .{ .id = @enumFromInt(3 << 16), .segbyte = 1 },
         .text = "ABCD",
-    } }, "", null);
+    } }, null);
     try testBlockEquals(&block, "TRep!!!!dABCD!");
     std.log.info("block: [{}]", .{block});
 
@@ -1990,7 +1990,7 @@ const BlockTester = struct {
         self.complex.genOperations(&self.opgen, .{ .position = self.complex.positionFromDocbyte(start), .delete_len = delete_count, .insert_text = insert_text });
         for (self.opgen.items) |op| {
             // std.log.info("    -> apply {}", .{op});
-            self.complex.applyOperationStruct(op, "", null);
+            self.complex.applyOperationStruct(op, null);
         }
         // std.log.info("  Updated document: [{}], ", .{self.complex});
 
