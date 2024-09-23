@@ -1122,8 +1122,10 @@ pub fn SliceStackAligned(comptime T: type, comptime alignment: ?u29) type {
         pub fn begin(self: *TextStack) Begin {
             return .{ .al = &self.items, .pos_start = self.items.items.len };
         }
+        pub fn cancel(self: *TextStack, b: Begin) void {
+            self.items.items.len = b.pos_start;
+        }
         pub fn end(self: *TextStack, b: Begin) !void {
-            errdefer self.items.items.len = b.pos_start;
             try self.ranges.append(.{ .start = b.pos_start, .end = if (alignment) |_| self.items.items.len else {} });
             errdefer _ = self.ranges.pop();
             if (alignment) |a| {
@@ -1173,6 +1175,51 @@ test TextStack {
     try std.testing.expectEqualStrings("five", mystack.take() orelse "null");
     try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
     mystack.clear();
+    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
+    try std.testing.expectEqualStrings("null", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
+
+    try mystack.add("0123456789ABCDEF");
+    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
+    try mystack.add("0123456789ABCDEFG");
+    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
+    try mystack.add("0123456789ABCDEFGH");
+    try std.testing.expectEqual(@as(usize, 80), mystack.items.items.len);
+    try std.testing.expectEqualStrings("0123456789ABCDEFGH", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
+    try std.testing.expectEqualStrings("0123456789ABCDEFG", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
+    try std.testing.expectEqualStrings("0123456789ABCDEF", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
+    try std.testing.expectEqualStrings("null", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
+
+    {
+        const begin = mystack.begin();
+        errdefer mystack.cancel(begin);
+        try begin.al.appendSlice("0123456789ABCDEF");
+        try mystack.end(begin);
+    }
+    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
+    {
+        const begin = mystack.begin();
+        errdefer mystack.cancel(begin);
+        try begin.al.appendSlice("0123456789ABCDEFG");
+        try mystack.end(begin);
+    }
+    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
+    {
+        const begin = mystack.begin();
+        errdefer mystack.cancel(begin);
+        try begin.al.appendSlice("0123456789ABCDEFGH");
+        try mystack.end(begin);
+    }
+    try std.testing.expectEqual(@as(usize, 80), mystack.items.items.len);
+    try std.testing.expectEqualStrings("0123456789ABCDEFGH", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
+    try std.testing.expectEqualStrings("0123456789ABCDEFG", mystack.take() orelse "null");
+    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
+    try std.testing.expectEqualStrings("0123456789ABCDEF", mystack.take() orelse "null");
     try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
     try std.testing.expectEqualStrings("null", mystack.take() orelse "null");
     try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
