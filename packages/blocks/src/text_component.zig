@@ -1420,7 +1420,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                         undo_op_res_ranges.append(.{
                                             .mode = .replace,
                                             .start_segbyte = spanbyte_start + range.start_segbyte,
-                                            .end_segbyte = spanbyte_end + range.end_segbyte,
+                                            .end_segbyte = spanbyte_end + range.start_segbyte,
                                         }) catch @panic("oom");
                                         undo_op_res_text.appendSlice(old_text) catch @panic("oom");
 
@@ -1430,7 +1430,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                         undo_op_res_ranges.append(.{
                                             .mode = .delete,
                                             .start_segbyte = spanbyte_start + range.start_segbyte,
-                                            .end_segbyte = spanbyte_end + range.end_segbyte,
+                                            .end_segbyte = spanbyte_end + range.start_segbyte,
                                         }) catch @panic("oom");
                                     }
                                     break :blk null;
@@ -1446,7 +1446,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                         undo_op_res_ranges.append(.{
                                             .mode = .replace,
                                             .start_segbyte = spanbyte_start + range.start_segbyte,
-                                            .end_segbyte = spanbyte_end + range.end_segbyte,
+                                            .end_segbyte = spanbyte_end + range.start_segbyte,
                                         }) catch @panic("oom");
                                         undo_op_res_text.appendSlice(old_text) catch @panic("oom");
 
@@ -1457,7 +1457,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                         undo_op_res_ranges.append(.{
                                             .mode = .delete,
                                             .start_segbyte = spanbyte_start + range.start_segbyte,
-                                            .end_segbyte = spanbyte_end + range.end_segbyte,
+                                            .end_segbyte = spanbyte_end + range.start_segbyte,
                                         }) catch @panic("oom");
 
                                         const new_bufbyte = self.buffer.items.len;
