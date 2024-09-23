@@ -335,20 +335,7 @@ pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
             defer srlz_res.deinit();
 
             for (opgen_al.items) |itm| {
-                const start_len = srlz_res.items.len;
-
-                srlz_res.appendNTimes(0, bi.Alignment) catch @panic("oom");
-                bi.assertAligned(&srlz_res);
-
-                const srlz_start_len = srlz_res.items.len;
-                srlz_res.appendSlice(self.prefix) catch @panic("oom");
-                bi.assertAligned(&srlz_res);
-                itm.serialize(&srlz_res);
-                const srlz_end_len = srlz_res.items.len;
-                bi.safeAlignForwards(&srlz_res);
-
-                std.debug.assert(srlz_end_len >= srlz_start_len);
-                std.mem.writeInt(u64, srlz_res.items[start_len..][0..8], srlz_end_len - srlz_start_len, .little);
+                bi.appendPrefixedOperation(&srlz_res, self.prefix, itm);
             }
 
             self.block_ref.applyOperation(srlz_res.items, undo_op);

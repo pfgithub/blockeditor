@@ -11,8 +11,26 @@ pub fn safeAlignForwards(al: *AlignedArrayList) void {
     const diff = target_len - al.items.len;
     al.appendNTimes(0, diff) catch @panic("oom");
 }
+pub fn reserveLength(al: *AlignedArrayList) usize {
+    const orig_len = al.items.len;
+    al.appendNTimes(0, Alignment) catch @panic("oom");
+    assertAligned(al);
+    return orig_len;
+}
+pub fn fillLengthAndAlignForwards(al: *AlignedArrayList, len_start: usize) void {
+    std.debug.assert(al.items.len >= len_start);
+    std.mem.writeInt(u64, al.items[len_start..][0..8], al.items.len - len_start - Alignment, .little);
+    safeAlignForwards(al);
+}
 pub fn assertAligned(al: *AlignedArrayList) void {
     std.debug.assert(al.items.len == std.mem.alignForward(usize, al.items.len, Alignment));
+}
+pub fn appendPrefixedOperation(al: *AlignedArrayList, prefix: AlignedByteSlice, op: anytype) void {
+    const reserved = reserveLength(al);
+    al.appendSlice(prefix) catch @panic("oom");
+    assertAligned(al);
+    op.serialize(al);
+    fillLengthAndAlignForwards(al, reserved);
 }
 
 pub const DeserializeError = error{DeserializeError};
@@ -120,7 +138,7 @@ pub const CounterComponent = struct {
             };
         }
     };
-    pub fn applyOperation(self: *CounterComponent, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
+    pub fn applyOperation(self: *CounterComponent, operation_serialized: AlignedByteSlice, self_prefix: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
         const operation = try Operation.deserialize(operation_serialized);
 
         const undo_op: Operation = switch (operation) {
@@ -134,7 +152,9 @@ pub const CounterComponent = struct {
             .add => |num| self.count +%= num,
             .set => |num| self.count = num,
         }
-        if (undo_operation) |undo| undo_op.serialize(undo);
+        if (undo_operation) |undo| {
+            appendPrefixedOperation(undo, self_prefix, undo_op);
+        }
     }
 
     pub fn serialize(self: CounterComponent, out: *AlignedArrayList) void {
@@ -173,8 +193,6 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
         pub const Operation = ChildComponent.Operation;
 
         fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
-            if (undo_operation) |_| @panic("TODO undo operation"); // for each item, append length and content. pretty simple.
-
             const self = any.cast(Self);
 
             var rem_op = operation_serialized;
@@ -189,7 +207,8 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
 
                 if (rem_op.len < itm_len_aligned) return error.DeserializeError;
 
-                try self.value.applyOperation(rem_op[0..itm_len], null);
+                try self.value.applyOperation(rem_op[0..itm_len], "", undo_operation);
+
                 rem_op = @alignCast(rem_op[itm_len_aligned..]);
             }
         }

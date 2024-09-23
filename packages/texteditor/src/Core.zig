@@ -796,7 +796,7 @@ fn onDrag(self: *Core, pos: Position) void {
 
 pub fn replaceRange(self: *Core, operation: bi.text_component.TextDocument.SimpleOperation) void {
     self.redo.clear();
-    if (false) {
+    if (true) {
         const ub = self.undo.begin();
         self.document.applySimpleOperation(operation, ub.al);
         self.undo.end(ub) catch @panic("oom");
