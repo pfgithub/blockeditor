@@ -7,19 +7,38 @@ pub const AlignedArrayList = std.ArrayListAligned(u8, Alignment);
 pub const AlignedFbsReader = std.io.FixedBufferStream([]align(Alignment) const u8);
 pub const AlignedByteSlice = []align(Alignment) const u8;
 
-const BaseUndoOperationWriter = struct {
+const BaseOperationWriter = struct {
     prefix: AlignedArrayList,
     al: *AlignedArrayList,
 };
-pub fn UndoOperationWriter(comptime T: type) type {
+pub fn OperationWriter(comptime T: type) type {
     return struct {
-        base: BaseUndoOperationWriter,
+        base: BaseOperationWriter,
 
         pub fn appendOperation(self: *@This(), op: T) void {
             appendPrefixedOperation(self.base.al, self.base.prefix.items, op);
         }
     };
 }
+pub const OperationIterator = struct {
+    content: AlignedByteSlice,
+    pub fn next(self: *OperationIterator) DeserializeError!?AlignedByteSlice {
+        if (self.content.len == 0) return null;
+        if (self.content.len < Alignment) return error.DeserializeError;
+
+        std.debug.assert(Alignment >= 8);
+        const itm_len = std.mem.readInt(u64, self.content[0..8], .little);
+        const itm_len_aligned = std.mem.alignForward(usize, itm_len, Alignment);
+
+        self.content = self.content[Alignment..];
+
+        if (self.content.len < itm_len_aligned) return error.DeserializeError;
+
+        const res = self.content[0..itm_len];
+        self.content = @alignCast(self.content[itm_len_aligned..]);
+        return res;
+    }
+};
 
 pub fn safeAlignForwards(al: *AlignedArrayList) void {
     const target_len = std.mem.alignForward(usize, al.items.len, Alignment);
@@ -153,7 +172,7 @@ pub const CounterComponent = struct {
             };
         }
     };
-    pub fn applyOperation(self: *CounterComponent, operation_serialized: AlignedByteSlice, undo_operation: ?*UndoOperationWriter(Operation)) DeserializeError!void {
+    pub fn applyOperation(self: *CounterComponent, operation_serialized: AlignedByteSlice, undo_operation: ?*OperationWriter(Operation)) DeserializeError!void {
         const operation = try Operation.deserialize(operation_serialized);
 
         if (undo_operation) |undo| undo.appendOperation(switch (operation) {
@@ -180,11 +199,11 @@ pub const CounterComponent = struct {
         return .{ .count = values.count };
     }
 
-    pub fn genOperations(_: *CounterComponent, res: *std.ArrayList(Operation), simple: SimpleOperation) void {
-        res.append(switch (simple) {
+    pub fn genOperations(_: *CounterComponent, res: *OperationWriter(Operation), simple: SimpleOperation) void {
+        res.appendOperation(switch (simple) {
             .add => |v| .{ .add = v },
             .set => |v| .{ .set = v },
-        }) catch @panic("oom");
+        });
     }
 
     pub fn deinit(self: *CounterComponent) void {
@@ -207,24 +226,12 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
         fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
             const self = any.cast(Self);
 
-            var undo_helper: ?UndoOperationWriter(ChildComponent.Operation) = if (undo_operation) |uo| .{ .base = .{ .al = uo, .prefix = .init(self.gpa) } } else null;
+            var undo_helper: ?OperationWriter(ChildComponent.Operation) = if (undo_operation) |uo| .{ .base = .{ .al = uo, .prefix = .init(self.gpa) } } else null;
             defer if (undo_helper) |*uh| uh.base.prefix.deinit();
 
-            var rem_op = operation_serialized;
-            while (true) {
-                if (rem_op.len == 0) break;
-                if (rem_op.len < Alignment) return error.DeserializeError;
-
-                const itm_len = std.mem.readInt(u64, rem_op[0..8], .little);
-                const itm_len_aligned = std.mem.alignForward(usize, itm_len, Alignment);
-
-                rem_op = rem_op[Alignment..];
-
-                if (rem_op.len < itm_len_aligned) return error.DeserializeError;
-
-                try self.value.applyOperation(rem_op[0..itm_len], if (undo_helper) |*uo| uo else null);
-
-                rem_op = @alignCast(rem_op[itm_len_aligned..]);
+            var iter: OperationIterator = .{ .content = operation_serialized };
+            while (try iter.next()) |op| {
+                try self.value.applyOperation(op, if (undo_helper) |*uo| uo else null);
             }
         }
 

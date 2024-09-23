@@ -327,18 +327,19 @@ pub fn TypedComponentRef(comptime ComponentType_arg: type) type {
             self.block_ref.applyOperation("", op, undo_op);
         }
         pub fn applySimpleOperation(self: Self, op: ComponentType.SimpleOperation, undo_op: ?*bi.AlignedArrayList) void {
-            var opgen_al = std.ArrayList(ComponentType.Operation).init(self.block_ref.db.gpa);
-            defer opgen_al.deinit();
-            self.value.genOperations(&opgen_al, op);
+            var al: bi.AlignedArrayList = .init(self.block_ref.db.gpa);
+            defer al.deinit();
+            var opw: bi.OperationWriter(ComponentType.Operation) = .{
+                .base = .{
+                    .al = &al,
+                    .prefix = .init(self.block_ref.db.gpa),
+                },
+            };
+            defer opw.base.prefix.deinit();
 
-            var srlz_res = bi.AlignedArrayList.init(self.block_ref.db.gpa);
-            defer srlz_res.deinit();
+            self.value.genOperations(&opw, op);
 
-            for (opgen_al.items) |itm| {
-                bi.appendPrefixedOperation(&srlz_res, self.prefix, itm);
-            }
-
-            self.block_ref.applyOperation(srlz_res.items, undo_op);
+            self.block_ref.applyOperation(opw.base.al.items, undo_op);
         }
     };
 }

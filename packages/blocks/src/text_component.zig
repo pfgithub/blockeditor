@@ -1309,15 +1309,15 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
         }
 
-        pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.UndoOperationWriter(Operation)) bi.DeserializeError!void {
+        pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
             var arena = std.heap.ArenaAllocator.init(self.allocator);
             defer arena.deinit();
             const op_dsrlz = try Operation.deserialize(arena.allocator(), operation_serialized);
             // ^ need to validate, or we can validate at usage in fn applyOperationStruct
 
-            applyOperationStruct(self, op_dsrlz, undo_operation);
+            try applyOperationStruct(self, op_dsrlz, undo_operation);
         }
-        pub fn applyOperationStruct(self: *Doc, op: Operation, out_undo: ?*bi.UndoOperationWriter(Operation)) bi.DeserializeError!void {
+        pub fn applyOperationStruct(self: *Doc, op: Operation, out_undo: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
             // delete(3, 5) -> undelete(3, "hello")
@@ -1613,7 +1613,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             return res_count - 1;
         }
 
-        pub fn genOperations(self: *Doc, res: *std.ArrayList(Operation), simple: SimpleOperation) void {
+        pub fn genOperations(self: *Doc, res: *bi.OperationWriter(Operation), simple: SimpleOperation) void {
             const pos = simple.position;
             const delete_count = simple.delete_len;
             const insert_text = simple.insert_text;
@@ -1644,19 +1644,22 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     const target_seglen = target_end_docbyte - target_start_docbyte;
                     std.debug.assert(target_seglen > 0);
 
-                    if (true) @panic("TODO genOperations to generate serialized operations");
-                    res.append(.{
-                        .replace_and_delete = .{
-                            .id = span.id,
-                            // uh oh! we need an arena. we can't return these.
-                            // if genOperations could generate serialized operations then it would be fine
-                            .replace_buffer = &.{},
-                            .sorted_ranges = &.{.{
-                                .start_bufbyte = @intCast(target_segbyte),
-                                .end_segbyte = @intCast(target_segbyte + target_seglen),
-                            }},
+                    // res.appendOperation(.{
+                    //     .replace_and_delete = .{
+                    //         .id = span.id,
+                    //         .replace_buffer = &.{},
+                    //         .sorted_ranges = &.{.{
+                    //             .start_bufbyte = @intCast(target_segbyte),
+                    //             .end_segbyte = @intCast(target_segbyte + target_seglen),
+                    //         }},
+                    //     },
+                    // });
+                    res.appendOperation(.{
+                        .delete = .{
+                            .start = .{ .id = span.id, .segbyte = target_segbyte },
+                            .len_within_segment = target_seglen,
                         },
-                    }) catch @panic("oom");
+                    });
 
                     span_start_docbyte += span.length;
                 }
@@ -1685,22 +1688,22 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 }
 
                 // valid!
-                res.append(.{
+                res.appendOperation(.{
                     .extend = .{
                         .id = prev_data.id,
                         .prev_len = prev_data.start_segbyte + prev_data.length,
                         .text = insert_text,
                     },
-                }) catch @panic("oom");
+                });
                 return;
             }
-            res.append(.{
+            res.appendOperation(.{
                 .insert = .{
                     .id = self.uuid(),
                     .pos = pos,
                     .text = insert_text,
                 },
-            }) catch @panic("oom");
+            });
         }
 
         pub fn uuid(self: *Doc) SegmentID {
@@ -1777,8 +1780,12 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
 
     std.log.info("block: [{}]", .{block});
 
-    var opgen_demo = std.ArrayList(TextDocument.Operation).init(gpa);
-    defer opgen_demo.deinit();
+    var opgen_al: bi.AlignedArrayList = .init(gpa);
+    defer opgen_al.deinit();
+    var opgen: bi.OperationWriter(TextDocument.Operation) = .{
+        .base = .{ .al = &opgen_al, .prefix = .init(gpa) },
+    };
+    defer opgen.base.prefix.deinit();
 
     const b0 = block.positionFromDocbyte(0);
     std.log.info("pos: {}", .{b0});
@@ -1832,26 +1839,27 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     try testBlockEquals(&block, "hello worRld!");
     std.log.info("block: [{}]", .{block});
 
-    opgen_demo.clearRetainingCapacity();
-    block.genOperations(&opgen_demo, .{ .position = block.positionFromDocbyte(0), .delete_len = 0, .insert_text = "Test\n" });
-    for (opgen_demo.items) |op| {
-        std.log.info("  apply {}", .{op});
-        try block.applyOperationStruct(op, null);
+    opgen_al.clearRetainingCapacity();
+    block.genOperations(&opgen, .{ .position = block.positionFromDocbyte(0), .delete_len = 0, .insert_text = "Test\n" });
+    var opgen_iter: bi.OperationIterator = .{ .content = opgen_al.items };
+    while (try opgen_iter.next()) |op| {
+        std.log.info("  apply \"{}\"", .{std.zig.fmtEscapes(op)});
+        try block.applyOperation(op, null);
     }
     try testBlockEquals(&block, "Test\nhello worRld!");
     std.log.info("block: [{}]", .{block});
 
-    opgen_demo.clearRetainingCapacity();
-    block.genOperations(&opgen_demo, .{ .position = block.positionFromDocbyte(1), .delete_len = 18 - 2, .insert_text = "Cleared." });
-    for (opgen_demo.items) |op| {
-        std.log.info("  apply {}", .{op});
-        try block.applyOperationStruct(op, null);
+    opgen_al.clearRetainingCapacity();
+    block.genOperations(&opgen, .{ .position = block.positionFromDocbyte(1), .delete_len = 18 - 2, .insert_text = "Cleared." });
+    opgen_iter = .{ .content = opgen_al.items };
+    while (try opgen_iter.next()) |op| {
+        std.log.info("  apply \"{}\"", .{std.zig.fmtEscapes(op)});
+        try block.applyOperation(op, null);
     }
     try testBlockEquals(&block, "TCleared.!");
     std.log.info("block: [{}]", .{block});
 
     // replace live text
-    opgen_demo.clearRetainingCapacity();
     try block.applyOperationStruct(.{ .replace = .{
         .start = block.positionFromDocbyte(1),
         .text = "Replaced",
@@ -1860,7 +1868,6 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("block: [{}]", .{block});
 
     // replace part of live text
-    opgen_demo.clearRetainingCapacity();
     try block.applyOperationStruct(.{ .replace = .{
         .start = block.positionFromDocbyte(4),
         .text = "!!!!",
@@ -1869,7 +1876,6 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("block: [{}]", .{block});
 
     // bring back full dead text
-    opgen_demo.clearRetainingCapacity();
     try block.applyOperationStruct(.{ .replace = .{
         .start = .{ .id = @enumFromInt(3 << 16), .segbyte = 1 },
         .text = "ABCD",
@@ -2019,7 +2025,8 @@ const BlockTester = struct {
     timings: Timings,
 
     rendered_result: std.ArrayList(u8),
-    opgen: std.ArrayList(TextDocument.Operation),
+    opgen_al: bi.AlignedArrayList,
+    opgen: bi.OperationWriter(TextDocument.Operation),
 
     pub fn init(self: *BlockTester, alloc: std.mem.Allocator) void {
         self.* = .{
@@ -2031,18 +2038,21 @@ const BlockTester = struct {
             .timings = .{},
 
             .rendered_result = .init(alloc),
-            .opgen = .init(alloc),
+            .opgen_al = .init(alloc),
+            .opgen = undefined,
         };
         self.complex.readSlice(self.complex.positionFromDocbyte(0), self.event_mirror.addManyAsSlice(self.complex.length()) catch @panic("oom"));
         self.complex.on_after_simple_operation.addListener(.from(self, onAfterSimpleOperation));
+        self.opgen = .{ .base = .{ .al = &self.opgen_al, .prefix = .init(alloc) } };
     }
     pub fn deinit(self: *BlockTester) void {
+        self.opgen_al.deinit();
+        self.opgen.base.prefix.deinit();
         self.complex.on_after_simple_operation.removeListener(.from(self, onAfterSimpleOperation));
         self.simple.deinit();
         self.complex.deinit();
         self.event_mirror.deinit();
         self.rendered_result.deinit();
-        self.opgen.deinit();
     }
 
     fn onAfterSimpleOperation(self: *BlockTester, op: TextDocument.EmitSimpleOperation) void {
@@ -2057,11 +2067,12 @@ const BlockTester = struct {
 
         self.timings.simple += timer.lap();
 
-        defer self.opgen.clearRetainingCapacity();
+        defer self.opgen_al.clearRetainingCapacity();
         self.complex.genOperations(&self.opgen, .{ .position = self.complex.positionFromDocbyte(start), .delete_len = delete_count, .insert_text = insert_text });
-        for (self.opgen.items) |op| {
+        var opgen_iter: bi.OperationIterator = .{ .content = self.opgen_al.items };
+        while (try opgen_iter.next()) |op| {
             // std.log.info("    -> apply {}", .{op});
-            try self.complex.applyOperationStruct(op, null);
+            try self.complex.applyOperation(op, null);
         }
         // std.log.info("  Updated document: [{}], ", .{self.complex});
 
