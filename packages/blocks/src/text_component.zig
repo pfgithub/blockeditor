@@ -1644,13 +1644,17 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     const target_seglen = target_end_docbyte - target_start_docbyte;
                     std.debug.assert(target_seglen > 0);
 
+                    if (true) @panic("TODO genOperations to generate serialized operations");
                     res.append(.{
-                        .delete = .{
-                            .start = .{
-                                .id = span.id,
-                                .segbyte = @intCast(target_segbyte),
-                            },
-                            .len_within_segment = @intCast(target_seglen),
+                        .replace_and_delete = .{
+                            .id = span.id,
+                            // uh oh! we need an arena. we can't return these.
+                            // if genOperations could generate serialized operations then it would be fine
+                            .replace_buffer = &.{},
+                            .sorted_ranges = &.{.{
+                                .start_bufbyte = @intCast(target_segbyte),
+                                .end_segbyte = @intCast(target_segbyte + target_seglen),
+                            }},
                         },
                     }) catch @panic("oom");
 
