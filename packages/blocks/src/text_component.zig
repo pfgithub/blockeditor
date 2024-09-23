@@ -998,7 +998,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 .bufbyte = 0,
             };
             const node_idx = res.span_bbt.insertNodeBefore(last_span, .root) catch @panic("oom");
-            res._ensureInIdMap(last_span.id, last_span.start_segbyte, node_idx);
+            res._insertInIdMap(last_span.id, last_span.start_segbyte, node_idx);
 
             return res;
         }
@@ -1185,7 +1185,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             } else @panic("cannot remove if not found2");
             gpres.replaceRangeAssumeCapacity(insert_idx, 1, &.{});
         }
-        fn _ensureInIdMap(self: *Doc, seg: SegmentID, start: u64, idx: BBT.NodeIndex) void {
+        fn _insertInIdMap(self: *Doc, seg: SegmentID, start: u64, idx: BBT.NodeIndex) void {
             const ptr = switch (self.panic_on_modify_segment_id_map) {
                 // getOrPut mutates the pointer if there is 0 remaining capacity even if the item is found.
                 // so if we're not allowed to mutate, we need to use getPtr.
@@ -1232,7 +1232,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
             self._removeFromIdMap(prev_value.id, index);
             self.span_bbt.updateNode(index, next_value);
-            self._ensureInIdMap(next_value.id, next_value.start_segbyte, index);
+            self._insertInIdMap(next_value.id, next_value.start_segbyte, index);
 
             self.on_after_simple_operation.emit(simple_op);
         }
@@ -1243,7 +1243,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 self.on_before_simple_operation.emit(simple_op);
 
                 const node_idx = self.span_bbt.insertNodeBefore(value, after_index) catch @panic("oom");
-                self._ensureInIdMap(value.id, value.start_segbyte, node_idx);
+                self._insertInIdMap(value.id, value.start_segbyte, node_idx);
 
                 self.on_after_simple_operation.emit(simple_op);
             }
