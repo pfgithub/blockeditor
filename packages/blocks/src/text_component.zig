@@ -1338,8 +1338,22 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     }
                 },
                 .delete => |delete_op| {
-                    if (out_undo) |_| {
-                        std.log.warn("TODO support undo delete operation", .{});
+                    if (out_undo) |uo| {
+                        // if the delete range covers already-deleted parts, this won't work right
+                        // genOperations should never generate a delete operation like that though.
+
+                        // stealing self.buffer to allocate a temporary array. this is hacky, we should be using an arena,
+                        // maybe passed into out_undo for example
+                        const orig_len = self.buffer.items.len;
+                        const tmp_slice = self.buffer.addManyAsSlice(delete_op.len_within_segment) catch @panic("oom");
+                        defer self.buffer.items.len = orig_len;
+
+                        self.readSlice(delete_op.start, tmp_slice);
+
+                        uo.appendOperation(.{ .replace = .{
+                            .start = delete_op.start,
+                            .text = tmp_slice,
+                        } });
                     }
 
                     const affected_spans_al_entry = self.segment_id_map.getEntry(delete_op.start.id).?;
@@ -1468,10 +1482,16 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 },
                 .replace => |replace_op| {
                     if (out_undo) |_| {
-                        std.log.warn("TODO support undo replace operation", .{});
-                        // we have to read the current value and make that into a replace op
-                        // oh and the delete problem :/
-                        // we have to restore deleted state on any things we undelete
+                        // this is almost really simple. we almost just generate a replace op with the
+                        // existing text. the problem is that the previous text may have had deleted ranges.
+                        // so what we want really is a combined delete-replace operation. you say
+                        // 'delete_replace' <segment id> <start segbyte> and then pass a slice.
+                        // it could have
+                        // <length><new data><length><new data><length | deleted><length><new data>...
+                        //
+                        // the entirety of applyOperation is really complicated right now - we would like to make
+                        // it much simpler to say .splitSpan(split_position). maybe we work on that first.
+                        @panic("TODO support undo replace operation");
                     }
 
                     const affected_spans = blk: {
