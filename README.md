@@ -34,4 +34,5 @@ zig build run
 - run "rr" debug profile in vscode to replay trace
   - to run gdb commands, open the "debug console": click the problems button at the bottom of
     vscode and switch tabs to debug console, then select rr.
-    - an example command is `print &myvar` to get the address of a variable 
+    - an example command is `print &myvar` to get the address of a variable
+    - to read memory (vscode's "hex editor" thing doesn't seem to work at all), use `x/LENcb value` eg `x/160cb myslice.ptr`. to read array items, can `print myslice.ptr[index]` 

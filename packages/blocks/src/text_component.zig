@@ -1477,6 +1477,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         }
                     }
 
+                    if (data_i != rd_op.replace_buffer.len) return error.DeserializeError;
+
                     if (out_undo) |uo| {
                         uo.appendOperation(.{ .replace_and_delete = .{
                             .id = rd_op.id,
