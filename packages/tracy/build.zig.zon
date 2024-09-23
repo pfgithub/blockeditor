@@ -11,5 +11,9 @@
             .url = "https://pkg.machengine.org/glfw/e6f377baed70a7bef9fa08d808f40b64c5136bf6.tar.gz",
             .hash = "1220c15e66c13f9633fcfd50b5ed265f74f2950c98b1f1defd66298fa027765e0190",
         },
+        .zstd = .{
+            .url = "git+https://github.com/allyourcodebase/zstd.git?ref=master#3247ffbcbc31f014027a5776a25c4261054e9fe9",
+            .hash = "12200dbfe91946451bab186f584edbec9f9f7fdbcf818ad984b7182fea655b3c10e3",
+        },
     },
 }

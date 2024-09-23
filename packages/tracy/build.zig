@@ -8,6 +8,8 @@ pub fn build(b: *std.Build) !void {
     const fmt_step = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
     b.getInstallStep().dependOn(&fmt_step.step);
 
+    const zstd_dep = b.dependency("zstd", .{ .target = target, .optimize = optimize });
+
     const tracy_dep = b.dependency("tracy", .{});
 
     const tracy_lib = b.addStaticLibrary(.{
@@ -196,10 +198,10 @@ pub fn build(b: *std.Build) !void {
         },
         .flags = profiler_flags,
     });
+    tracy_exe.linkLibrary(zstd_dep.artifact("zstd"));
     switch (target.result.os.tag) {
         .macos => {
             tracy_exe.linkSystemLibrary("capstone");
-            tracy_exe.linkSystemLibrary("libzstd");
             tracy_exe.addCSourceFiles(.{
                 .root = tracy_dep.path("."),
                 .files = &[_][]const u8{
@@ -221,7 +223,6 @@ pub fn build(b: *std.Build) !void {
         },
         .linux => {
             tracy_exe.linkSystemLibrary("capstone");
-            tracy_exe.linkSystemLibrary("zstd");
             tracy_exe.linkSystemLibrary("dbus-1");
             tracy_exe.addCSourceFiles(.{
                 .root = tracy_dep.path("."),
@@ -234,7 +235,6 @@ pub fn build(b: *std.Build) !void {
         },
         .windows => {
             tracy_exe.linkSystemLibrary("capstone");
-            tracy_exe.linkSystemLibrary("libzstd");
             tracy_exe.addCSourceFiles(.{
                 .root = tracy_dep.path("."),
                 .files = &[_][]const u8{
