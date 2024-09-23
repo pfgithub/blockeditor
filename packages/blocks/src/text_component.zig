@@ -688,15 +688,15 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 // - deleting text
                 // - undoing deleting text
                 // - checking or unchecking a markdown checkbox with a buttton
-                const Range = struct {
-                    start_segbyte: u64,
-                    end_segbyte: u64,
-                    mode: enum { delete, replace },
-                };
                 id: SegmentID,
                 sorted_ranges: []const Range,
                 replace_buffer: []const T,
             },
+            const Range = struct {
+                start_segbyte: u64,
+                end_segbyte: u64,
+                mode: enum { delete, replace },
+            };
 
             pub fn serialize(self: *const Operation, out: *bi.AlignedArrayList) void {
                 const tctx = anywhere.tracy.trace(@src());
@@ -1300,7 +1300,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         pub fn applyOperationStruct(self: *Doc, arena: std.mem.Allocator, op: Operation, out_undo: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
             const tctx = anywhere.tracy.trace(@src());
             defer tctx.end();
-            _ = arena;
 
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
@@ -1360,10 +1359,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     // sorted_ranges: []const Range,
                     // replace_buffer: []const T,
 
-                    if (out_undo) |_| {
-                        std.log.warn("TODO undo replace_and_delete", .{});
-                        // @panic("TODO undo replace_and_delete");
-                    }
+                    var undo_op_res_ranges = std.ArrayList(Operation.Range).init(arena);
+                    var undo_op_res_text = std.ArrayList(T).init(arena);
 
                     // validate op
                     if (rd_op.sorted_ranges.len == 0) return error.DeserializeError;
@@ -1418,8 +1415,23 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .delete => blk: {
                                     // consider reclaiming space in the bufbyte array?
                                     if (span_info.bufbyte) |current_bufbyte| {
+                                        const old_text = self.buffer.items[current_bufbyte..][0..span_info.length];
+
+                                        undo_op_res_ranges.append(.{
+                                            .mode = .replace,
+                                            .start_segbyte = spanbyte_start + range.start_segbyte,
+                                            .end_segbyte = spanbyte_end + range.end_segbyte,
+                                        }) catch @panic("oom");
+                                        undo_op_res_text.appendSlice(old_text) catch @panic("oom");
+
                                         // zero old data for now so it isn't sitting around in memory. probably doesn't really matter.
-                                        std.crypto.secureZero(u8, self.buffer.items[current_bufbyte..][0..span_info.length]);
+                                        std.crypto.secureZero(u8, old_text);
+                                    } else {
+                                        undo_op_res_ranges.append(.{
+                                            .mode = .delete,
+                                            .start_segbyte = spanbyte_start + range.start_segbyte,
+                                            .end_segbyte = spanbyte_end + range.end_segbyte,
+                                        }) catch @panic("oom");
                                     }
                                     break :blk null;
                                 },
@@ -1429,10 +1441,25 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                     data_i += spanbyte_len;
 
                                     if (span_info.bufbyte) |current_bufbyte| {
+                                        const old_text = self.buffer.items[current_bufbyte..][0..span_info.length];
+
+                                        undo_op_res_ranges.append(.{
+                                            .mode = .replace,
+                                            .start_segbyte = spanbyte_start + range.start_segbyte,
+                                            .end_segbyte = spanbyte_end + range.end_segbyte,
+                                        }) catch @panic("oom");
+                                        undo_op_res_text.appendSlice(old_text) catch @panic("oom");
+
                                         // there should only ever be one span pointing to a given buffer range, so we're allowed to mutate
-                                        @memcpy(self.buffer.items[current_bufbyte..][0..span_info.length], new_content);
+                                        @memcpy(old_text, new_content);
                                         break :blk current_bufbyte;
                                     } else {
+                                        undo_op_res_ranges.append(.{
+                                            .mode = .delete,
+                                            .start_segbyte = spanbyte_start + range.start_segbyte,
+                                            .end_segbyte = spanbyte_end + range.end_segbyte,
+                                        }) catch @panic("oom");
+
                                         const new_bufbyte = self.buffer.items.len;
                                         self.buffer.appendSlice(new_content) catch @panic("oom");
                                         break :blk new_bufbyte;
@@ -1448,6 +1475,14 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .start_segbyte = span_info.start_segbyte,
                             });
                         }
+                    }
+
+                    if (out_undo) |uo| {
+                        uo.appendOperation(.{ .replace_and_delete = .{
+                            .id = rd_op.id,
+                            .sorted_ranges = undo_op_res_ranges.items,
+                            .replace_buffer = undo_op_res_text.items,
+                        } });
                     }
                 },
                 .extend => |extend_op| {
