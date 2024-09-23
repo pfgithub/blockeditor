@@ -1843,6 +1843,33 @@ test Core {
     try tester.expectContent("    \nabc fn demo(pub, const) !u8 {|\n]    return 5;\n}\n");
     tester.editor.executeCommand(.{ .insert_line = .{ .direction = .down } });
     try tester.expectContent("    \nabc fn demo(pub, const) !u8 {\n|\n    return 5;\n}\n");
+
+    //
+    // undo + redo
+    //
+    tester.executeCommand(.select_all);
+    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
+    try tester.expectContent("|");
+    tester.editor.executeCommand(.{ .insert_line = .{ .direction = .down } });
+    try tester.expectContent("\n|");
+    tester.editor.executeCommand(.{ .insert_line = .{ .direction = .down } });
+    try tester.expectContent("\n\n|");
+    tester.editor.executeCommand(.{ .insert_line = .{ .direction = .down } });
+    try tester.expectContent("\n\n\n|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("\n\n|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("\n|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("|");
+    tester.editor.executeCommand(.redo);
+    try tester.expectContent("\n|");
+    tester.editor.executeCommand(.redo);
+    try tester.expectContent("\n\n|");
+    tester.editor.executeCommand(.redo);
+    try tester.expectContent("\n\n\n|");
+    tester.editor.executeCommand(.redo);
+    try tester.expectContent("\n\n\n|");
 }
 
 fn usi(a: u64) usize {
