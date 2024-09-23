@@ -710,8 +710,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 // - undoing deleting text
                 // - checking or unchecking a markdown checkbox with a buttton
                 const Range = struct {
-                    start_spanbyte: u64,
-                    end_spanbyte: u64,
+                    start_segbyte: u64,
+                    end_segbyte: u64,
                     mode: enum { delete, replace },
                 };
                 id: SegmentID,
@@ -1371,21 +1371,24 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     // sorted_ranges: []const Range,
                     // replace_buffer: []const T,
 
-                    if (out_undo) |_| @panic("TODO undo replace_and_delete");
+                    if (out_undo) |_| {
+                        std.log.warn("TODO undo replace_and_delete", .{});
+                        // @panic("TODO undo replace_and_delete");
+                    }
 
                     // validate op
                     if (rd_op.sorted_ranges.len == 0) return error.DeserializeError;
                     var gteq: u64 = 0;
                     for (rd_op.sorted_ranges) |range| {
-                        if (range.start_spanbyte < gteq) return error.DeserializeError;
-                        gteq = range.start_spanbyte;
-                        if (range.end_spanbyte <= gteq) return error.DeserializeError;
-                        gteq = range.end_spanbyte;
+                        if (range.start_segbyte < gteq) return error.DeserializeError;
+                        gteq = range.start_segbyte;
+                        if (range.end_segbyte <= gteq) return error.DeserializeError;
+                        gteq = range.end_segbyte;
                     }
 
                     for (rd_op.sorted_ranges) |range| {
-                        self.splitSpan(.{ .id = rd_op.id, .segbyte = range.start_spanbyte });
-                        self.splitSpan(.{ .id = rd_op.id, .segbyte = range.end_spanbyte });
+                        self.splitSpan(.{ .id = rd_op.id, .segbyte = range.start_segbyte });
+                        self.splitSpan(.{ .id = rd_op.id, .segbyte = range.end_segbyte });
                     }
 
                     // now, modify spans
@@ -1397,15 +1400,31 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
                     var sorted_range_i: usize = 0;
                     var data_i: usize = 0;
-                    for (0..affected_spans_al.items.len) |i| {
+                    for (0..affected_spans_al.items.len) |affected_span_i| {
                         if (sorted_range_i >= rd_op.sorted_ranges.len) break;
-                        const range = rd_op.sorted_ranges[sorted_range_i];
 
-                        const item = affected_spans_al.items[i];
+                        const item = affected_spans_al.items[affected_span_i];
                         const span_info = self.span_bbt.getNodeDataPtrConst(item).?;
+                        var range = rd_op.sorted_ranges[sorted_range_i];
 
-                        if (range.start_spanbyte >= span_info.start_segbyte and range.end_spanbyte <= span_info.start_segbyte + span_info.length) {
-                            const range_len = range.end_spanbyte - range.start_spanbyte;
+                        // if range start is greater than span start, continue
+                        if (range.start_segbyte > span_info.start_segbyte) {
+                            continue;
+                        }
+                        // if range end is lteq span start, incr range
+                        if (range.end_segbyte <= span_info.start_segbyte) {
+                            // don't have to loop because of the reason.
+                            sorted_range_i += 1;
+                            if (sorted_range_i >= rd_op.sorted_ranges.len) break;
+                            range = rd_op.sorted_ranges[sorted_range_i];
+                        }
+
+                        if (range.start_segbyte >= span_info.start_segbyte and range.end_segbyte <= span_info.start_segbyte + span_info.length) {
+                            // const range_len = range.end_segbyte - range.start_segbyte;
+                            const spanbyte_start = range.start_segbyte - span_info.start_segbyte;
+                            const spanbyte_end = spanbyte_start + span_info.length;
+                            const spanbyte_len = span_info.length;
+                            if (spanbyte_end + range.start_segbyte > range.end_segbyte) return error.DeserializeError;
                             const new_bufbyte: ?u64 = switch (range.mode) {
                                 .delete => blk: {
                                     // consider reclaiming space in the bufbyte array?
@@ -1416,9 +1435,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                     break :blk null;
                                 },
                                 .replace => blk: {
-                                    if (rd_op.replace_buffer.len < data_i + range_len) return error.DeserializeError;
-                                    const new_content = rd_op.replace_buffer[data_i..][0..range_len];
-                                    data_i += range_len;
+                                    if (rd_op.replace_buffer.len < data_i + spanbyte_len) return error.DeserializeError;
+                                    const new_content = rd_op.replace_buffer[data_i..][0..spanbyte_len];
+                                    data_i += spanbyte_len;
 
                                     if (span_info.bufbyte) |current_bufbyte| {
                                         // there should only ever be one span pointing to a given buffer range, so we're allowed to mutate
@@ -1440,8 +1459,6 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .start_segbyte = span_info.start_segbyte,
                             });
                         }
-
-                        sorted_range_i += 1;
                     }
                 },
                 .delete => |delete_op| {
@@ -1644,22 +1661,23 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                     const target_seglen = target_end_docbyte - target_start_docbyte;
                     std.debug.assert(target_seglen > 0);
 
-                    // res.appendOperation(.{
-                    //     .replace_and_delete = .{
-                    //         .id = span.id,
-                    //         .replace_buffer = &.{},
-                    //         .sorted_ranges = &.{.{
-                    //             .start_bufbyte = @intCast(target_segbyte),
-                    //             .end_segbyte = @intCast(target_segbyte + target_seglen),
-                    //         }},
-                    //     },
-                    // });
                     res.appendOperation(.{
-                        .delete = .{
-                            .start = .{ .id = span.id, .segbyte = target_segbyte },
-                            .len_within_segment = target_seglen,
+                        .replace_and_delete = .{
+                            .id = span.id,
+                            .replace_buffer = &.{},
+                            .sorted_ranges = &.{.{
+                                .start_segbyte = @intCast(target_segbyte),
+                                .end_segbyte = @intCast(target_segbyte + target_seglen),
+                                .mode = .delete,
+                            }},
                         },
                     });
+                    // res.appendOperation(.{
+                    //     .delete = .{
+                    //         .start = .{ .id = span.id, .segbyte = target_segbyte },
+                    //         .len_within_segment = target_seglen,
+                    //     },
+                    // });
 
                     span_start_docbyte += span.length;
                 }
