@@ -13,6 +13,12 @@
 
 const bi = @import("blockinterface2.zig");
 const util = @import("util.zig");
+const build_options = @import("build_options");
+const anywhere = @import("anywhere");
+
+pub const anywhere_cfg: anywhere.AnywhereCfg = .{
+    .tracy = if (build_options.use_tracy) @import("tracy") else null,
+};
 
 fn BalancedBinaryTree(comptime Data: type) type {
     return struct {
@@ -720,9 +726,15 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             },
 
             pub fn serialize(self: *const Operation, out: *bi.AlignedArrayList) void {
+                const tctx = anywhere.tracy.trace(@src());
+                defer tctx.end();
+
                 std.json.stringify(self, .{}, out.writer()) catch @panic("oom");
             }
             pub fn deserialize(arena: std.mem.Allocator, slice: bi.AlignedByteSlice) !Operation {
+                const tctx = anywhere.tracy.trace(@src());
+                defer tctx.end();
+
                 return std.json.parseFromSliceLeaky(Operation, arena, slice, .{}) catch return error.DeserializeError;
             }
 
@@ -1310,6 +1322,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
+
             var arena = std.heap.ArenaAllocator.init(self.allocator);
             defer arena.deinit();
             const op_dsrlz = try Operation.deserialize(arena.allocator(), operation_serialized);
@@ -1318,6 +1333,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             try applyOperationStruct(self, op_dsrlz, undo_operation);
         }
         pub fn applyOperationStruct(self: *Doc, op: Operation, out_undo: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
+
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
             // delete(3, 5) -> undelete(3, "hello")
@@ -1631,6 +1649,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         pub fn genOperations(self: *Doc, res: *bi.OperationWriter(Operation), simple: SimpleOperation) void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
+
             const pos = simple.position;
             const delete_count = simple.delete_len;
             const insert_text = simple.insert_text;
@@ -2006,6 +2027,8 @@ fn testDocument(alloc: std.mem.Allocator, count: usize, progress_node: ?std.Prog
     var max_len: usize = 0;
 
     for (0..count) |_| {
+        anywhere.tracy.frameMark();
+
         const insert_pos = rng.intRangeLessThan(u64, 0, tester.complex.length());
         const delete_pos = rng.intRangeLessThan(u64, insert_pos, tester.complex.length());
         const delete_len = delete_pos - insert_pos;
@@ -2078,19 +2101,31 @@ const BlockTester = struct {
     }
 
     pub fn testReplaceRange(self: *@This(), start: u64, delete_count: u64, insert_text: []const u8) !void {
+        const tctx_ = anywhere.tracy.trace(@src());
+        defer tctx_.end();
+
         var timer = try std.time.Timer.start();
 
         // std.log.info("  replaceRange@{d}:{d}:\"{s}\"", .{start, delete_count, insert_text});
-        self.simple.replaceRange(start, delete_count, insert_text) catch @panic("oom");
+        {
+            const tctx = anywhere.tracy.traceNamed(@src(), "simple");
+            defer tctx.end();
+            self.simple.replaceRange(start, delete_count, insert_text) catch @panic("oom");
+        }
 
         self.timings.simple += timer.lap();
 
-        defer self.opgen_al.clearRetainingCapacity();
-        self.complex.genOperations(&self.opgen, .{ .position = self.complex.positionFromDocbyte(start), .delete_len = delete_count, .insert_text = insert_text });
-        var opgen_iter: bi.OperationIterator = .{ .content = self.opgen_al.items };
-        while (try opgen_iter.next()) |op| {
-            // std.log.info("    -> apply {}", .{op});
-            try self.complex.applyOperation(op, null);
+        {
+            const tctx = anywhere.tracy.traceNamed(@src(), "complex");
+            defer tctx.end();
+
+            defer self.opgen_al.clearRetainingCapacity();
+            self.complex.genOperations(&self.opgen, .{ .position = self.complex.positionFromDocbyte(start), .delete_len = delete_count, .insert_text = insert_text });
+            var opgen_iter: bi.OperationIterator = .{ .content = self.opgen_al.items };
+            while (try opgen_iter.next()) |op| {
+                // std.log.info("    -> apply {}", .{op});
+                try self.complex.applyOperation(op, null);
+            }
         }
         // std.log.info("  Updated document: [{}], ", .{self.complex});
 

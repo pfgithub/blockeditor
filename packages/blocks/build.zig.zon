@@ -1,0 +1,11 @@
+.{
+    .name = "blocks",
+    .version = "0.1.0",
+    .paths = .{
+        "",
+    },
+    .dependencies = .{
+        .tracy = .{ .path = "../tracy", .lazy = true },
+        .anywhere = .{ .path = "../anywhere" },
+    },
+}
