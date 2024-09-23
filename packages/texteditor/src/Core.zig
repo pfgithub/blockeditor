@@ -1877,6 +1877,15 @@ test Core {
     try tester.expectContent("\n\n\n|");
     tester.editor.executeCommand(.redo);
     try tester.expectContent("\n\n\n|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("\n\n|");
+
+    // undo everything, see if it works
+    while (tester.editor.undo.items.items.len > 0) {
+        tester.editor.executeCommand(.undo);
+    }
+
+    try tester.expectContent("hello!");
 }
 
 fn usi(a: u64) usize {
