@@ -58,13 +58,15 @@ Tasks:
 - [ ] text editor: pressing esc should remove all but the top multicursor
 - [ ] text editor: fix whatever's wrong with the last line. it's rendering twice and cursor
   doesn't show at the last location.
-- [ ] text editor: ctrl+enter from the end of a line inserts two lines below
+- [x] text editor: ctrl+enter from the end of a line inserts two lines below
 
 wishlist:
 
+- [ ] introduce editor core test recorder. fix a bug or add a feature, then record a session
+  and generate tests from it.
 - [x] packages/texteditor should not contain View. Instead, it should be part of beui, and
   beui should depend on texteditor.
-- [ ] change beui_mod.Beui -> Beui, text_editor.core.EditorCore -> text_editor.Core,
+- [x] change beui_mod.Beui -> Beui, text_editor.core.EditorCore -> text_editor.Core,
   text_editor.view.EditorView -> text_editor.EditorView
 - [ ] create virtual scroll view. create text component. text editor rendering then becomes:
   `while(beui.virtualScroll(&self.scroll)) |line_middle| { beui.renderTextLine( <text>, <cursor positions>, <syn hl fonts and ranges> ) }`.

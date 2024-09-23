@@ -433,12 +433,12 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
         .insert_line => |cmd| {
             switch (cmd.direction) {
                 .up => {
-                    self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .line, .direction = .left } });
+                    for (self.cursor_positions.items) |*cursor_position| cursor_position.* = .at(self.getLineStart(cursor_position.pos.focus));
                     self.executeCommand(.newline);
                     self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .unicode_grapheme_cluster, .direction = .left } });
                 },
                 .down => {
-                    self.executeCommand(.{ .move_cursor_left_right = .{ .mode = .move, .stop = .line, .direction = .right } });
+                    for (self.cursor_positions.items) |*cursor_position| cursor_position.* = .at(self.getThisLineEnd(cursor_position.pos.focus));
                     self.executeCommand(.newline);
                 },
             }
@@ -1788,6 +1788,14 @@ test Core {
     try tester.expectContent("    \nabc|    return 5;\n}\n");
     tester.executeCommand(.{ .paste = .{ .text = copied } });
     try tester.expectContent("    \nabc fn demo(pub, const) !u8 {\n|    return 5;\n}\n");
+
+    //
+    // ctrl + enter
+    //
+    tester.editor.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .stop = .byte, .mode = .select } });
+    try tester.expectContent("    \nabc fn demo(pub, const) !u8 {|\n]    return 5;\n}\n");
+    tester.editor.executeCommand(.{ .insert_line = .{ .direction = .down } });
+    try tester.expectContent("    \nabc fn demo(pub, const) !u8 {\n|\n    return 5;\n}\n");
 }
 
 fn usi(a: u64) usize {
