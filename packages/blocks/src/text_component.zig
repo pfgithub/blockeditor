@@ -1283,8 +1283,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 .length = span.length - split_spanbyte,
             };
 
-            std.debug.assert(e_rhs.length > 0);
-            if (e_lhs.length != 0) {
+            if (e_lhs.length != 0 and e_rhs.length != 0) {
                 self._replaceRange(span_index, 1, &.{
                     e_lhs,
                     e_rhs,
@@ -1363,93 +1362,31 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         } });
                     }
 
+                    self.splitSpan(delete_op.start);
+                    self.splitSpan(.{ .id = delete_op.start.id, .segbyte = delete_op.start.segbyte + delete_op.len_within_segment });
+
                     self.panic_on_modify_segment_id_map = true;
                     defer self.panic_on_modify_segment_id_map = false;
                     const affected_spans_al_entry = self.segment_id_map.getEntry(delete_op.start.id).?;
                     // this won't invalidate because panic_on_modify_segment_id_map is set
                     const affected_spans_al = affected_spans_al_entry.value_ptr;
 
-                    var i: usize = 0;
-                    for (affected_spans_al.items, 0..) |itm, i_in| {
+                    for (affected_spans_al.items) |itm| {
                         const span = self.span_bbt.getNodeDataPtrConst(itm).?;
-                        if (delete_op.start.segbyte >= span.start_segbyte) {
-                            i = i_in;
-                        } else {
-                            break;
-                        }
-                    }
-                    const success = while (i < affected_spans_al.items.len) : (i += 1) {
-                        var span_idx = affected_spans_al.items[i];
-                        var span = self.span_bbt.getNodeDataPtrConst(span_idx).?;
+                        if (span.start_segbyte < delete_op.start.segbyte) continue;
+                        if (span.start_segbyte >= delete_op.start.segbyte + delete_op.len_within_segment) break;
 
-                        // split affected start portion
-                        if (delete_op.start.segbyte >= span.start_segbyte) {
-                            const split_spanbyte = delete_op.start.segbyte - span.start_segbyte;
-                            const left_side: Span = .{
-                                .id = span.id,
-                                .start_segbyte = span.start_segbyte,
-                                .bufbyte = span.bufbyte,
-                                .length = split_spanbyte,
-                            };
-                            const right_side: Span = .{
-                                .id = span.id,
-                                .start_segbyte = span.start_segbyte + split_spanbyte,
-                                .bufbyte = if (span.bufbyte) |bufbyte| bufbyte + split_spanbyte else null,
-                                .length = span.length - split_spanbyte,
-                            };
-                            std.debug.assert(right_side.length > 0);
-                            if (left_side.length > 0) {
-                                self._replaceRange(span_idx, 1, &.{
-                                    left_side,
-                                    right_side,
-                                });
-                                i += 1;
-                                span_idx = affected_spans_al.items[i];
-                                span = self.span_bbt.getNodeDataPtrConst(span_idx).?;
-                            }
-                        }
-                        // split affected end portion
-                        var did_split_end = false;
-                        if (delete_op.start.segbyte + delete_op.len_within_segment < span.start_segbyte + span.length) {
-                            did_split_end = true;
-                            const split_spanbyte = (delete_op.start.segbyte + delete_op.len_within_segment) - span.start_segbyte;
-                            const left_side: Span = .{
-                                .id = span.id,
-                                .start_segbyte = span.start_segbyte,
-                                .bufbyte = span.bufbyte,
-                                .length = split_spanbyte,
-                            };
-                            const right_side: Span = .{
-                                .id = span.id,
-                                .start_segbyte = span.start_segbyte + split_spanbyte,
-                                .bufbyte = if (span.bufbyte) |bufbyte| bufbyte + split_spanbyte else null,
-                                .length = span.length - split_spanbyte,
-                            };
-                            if (left_side.length > 0) {
-                                self._replaceRange(span_idx, 1, &.{
-                                    left_side,
-                                    right_side,
-                                });
-                                span = self.span_bbt.getNodeDataPtrConst(span_idx).?;
-                            }
-                        }
-
-                        // mark deleted
-                        self._replaceRange(span_idx, 1, &.{
-                            .{
-                                .id = span.id,
-                                .start_segbyte = span.start_segbyte,
-                                .bufbyte = null,
-                                .length = span.length,
-                            },
+                        std.debug.assert( //
+                            span.start_segbyte >= delete_op.start.segbyte and //
+                            span.start_segbyte + span.length <= delete_op.start.segbyte + delete_op.len_within_segment //
+                        );
+                        self._updateNode(itm, .{
+                            .id = span.id,
+                            .start_segbyte = span.start_segbyte,
+                            .bufbyte = null, // delete
+                            .length = span.length,
                         });
-                        span = self.span_bbt.getNodeDataPtrConst(span_idx).?;
-
-                        if (did_split_end or span.start_segbyte + span.length == delete_op.start.segbyte + delete_op.len_within_segment) {
-                            break true; // done
-                        }
-                    } else false;
-                    std.debug.assert(success);
+                    }
                 },
                 .extend => |extend_op| {
                     if (out_undo) |undo| undo.appendOperation(.{
