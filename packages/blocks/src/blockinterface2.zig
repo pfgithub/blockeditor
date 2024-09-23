@@ -84,7 +84,7 @@ pub const AnyBlock = struct {
 
     pub fn from(comptime T: type, self: *T) AnyBlock {
         const vtable = BlockVtable{
-            .applyOperation = T.applyOperation,
+            .applyOperations = T.applyOperations,
             .serialize = T.serialize,
             .deserialize = T.deserialize,
             .deinit = T.deinit,
@@ -113,7 +113,7 @@ pub const AnyBlock = struct {
 pub const BlockVtable = struct {
     /// must be deterministic. given an initial block state and a list of operations, applying the same operations in the same order
     /// must always yield a byte-for-byte identical serialized result.
-    applyOperation: *const fn (block: AnyBlock, operation: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void,
+    applyOperations: *const fn (block: AnyBlock, operation: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void,
 
     serialize: *const fn (block: AnyBlock, out: *AlignedArrayList) void,
     deserialize: *const fn (gpa: std.mem.Allocator, in: AlignedByteSlice) DeserializeError!AnyBlock,
@@ -172,7 +172,8 @@ pub const CounterComponent = struct {
             };
         }
     };
-    pub fn applyOperation(self: *CounterComponent, operation_serialized: AlignedByteSlice, undo_operation: ?*OperationWriter(Operation)) DeserializeError!void {
+    pub fn applyOperation(self: *CounterComponent, arena: std.mem.Allocator, operation_serialized: AlignedByteSlice, undo_operation: ?*OperationWriter(Operation)) DeserializeError!void {
+        _ = arena;
         const operation = try Operation.deserialize(operation_serialized);
 
         if (undo_operation) |undo| undo.appendOperation(switch (operation) {
@@ -223,15 +224,20 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
 
         pub const Operation = ChildComponent.Operation;
 
-        fn applyOperation(any: AnyBlock, operation_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
+        fn applyOperations(any: AnyBlock, operations_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
             const self = any.cast(Self);
+
+            // make a whole arena just for this operation for no good reason :/
+            var arena_backing = std.heap.ArenaAllocator.init(self.gpa);
+            defer arena_backing.deinit();
+            const arena = arena_backing.allocator();
 
             var undo_helper: ?OperationWriter(ChildComponent.Operation) = if (undo_operation) |uo| .{ .base = .{ .al = uo, .prefix = .init(self.gpa) } } else null;
             defer if (undo_helper) |*uh| uh.base.prefix.deinit();
 
-            var iter: OperationIterator = .{ .content = operation_serialized };
+            var iter: OperationIterator = .{ .content = operations_serialized };
             while (try iter.next()) |op| {
-                try self.value.applyOperation(op, if (undo_helper) |*uo| uo else null);
+                try self.value.applyOperation(arena, op, if (undo_helper) |*uo| uo else null);
             }
         }
 

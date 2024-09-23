@@ -1321,18 +1321,16 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
         }
 
-        pub fn applyOperation(self: *Doc, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
+        pub fn applyOperation(self: *Doc, arena: std.mem.Allocator, operation_serialized: bi.AlignedByteSlice, undo_operation: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
             const tctx = anywhere.tracy.trace(@src());
             defer tctx.end();
 
-            var arena = std.heap.ArenaAllocator.init(self.allocator);
-            defer arena.deinit();
-            const op_dsrlz = try Operation.deserialize(arena.allocator(), operation_serialized);
+            const op_dsrlz = try Operation.deserialize(arena, operation_serialized);
             // ^ need to validate, or we can validate at usage in fn applyOperationStruct
 
-            try applyOperationStruct(self, op_dsrlz, undo_operation);
+            try applyOperationStruct(self, arena, op_dsrlz, undo_operation);
         }
-        pub fn applyOperationStruct(self: *Doc, op: Operation, out_undo: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
+        pub fn applyOperationStruct(self: *Doc, arena: std.mem.Allocator, op: Operation, out_undo: ?*bi.OperationWriter(Operation)) bi.DeserializeError!void {
             const tctx = anywhere.tracy.trace(@src());
             defer tctx.end();
 
@@ -1484,11 +1482,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         // if the delete range covers already-deleted parts, this won't work right
                         // genOperations should never generate a delete operation like that though.
 
-                        // stealing self.buffer to allocate a temporary array. this is hacky, we should be using an arena,
-                        // maybe passed into out_undo for example
-                        const orig_len = self.buffer.items.len;
-                        const tmp_slice = self.buffer.addManyAsSlice(delete_op.len_within_segment) catch @panic("oom");
-                        defer self.buffer.items.len = orig_len;
+                        const tmp_slice = arena.alloc(u8, delete_op.len_within_segment) catch @panic("oom");
 
                         self.readSlice(delete_op.start, tmp_slice);
 
@@ -1817,6 +1811,10 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     var block = TextDocument.initEmpty(gpa);
     defer block.deinit();
 
+    var arena_backing = std.heap.ArenaAllocator.init(gpa);
+    defer arena_backing.deinit();
+    const arena = arena_backing.allocator();
+
     std.log.info("block: [{}]", .{block});
 
     var opgen_al: bi.AlignedArrayList = .init(gpa);
@@ -1830,7 +1828,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("pos: {}", .{b0});
     std.debug.assert(block.length() == 0);
 
-    try block.applyOperationStruct(.{
+    try block.applyOperationStruct(arena, .{
         .insert = .{
             .id = block.uuid(),
             .pos = block.positionFromDocbyte(0),
@@ -1840,7 +1838,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     try testBlockEquals(&block, "i held");
     std.log.info("block: [{}]", .{block});
 
-    try block.applyOperationStruct(.{
+    try block.applyOperationStruct(arena, .{
         .insert = .{
             .id = block.uuid(),
             .pos = block.positionFromDocbyte(4),
@@ -1849,7 +1847,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     }, null);
     try testBlockEquals(&block, "i hello world");
     std.log.info("block: [{}]", .{block});
-    try block.applyOperationStruct(.{
+    try block.applyOperationStruct(arena, .{
         // deleting a range will generate multiple delete operations unfortunately
         .delete = .{
             .start = block.positionFromDocbyte(0),
@@ -1858,7 +1856,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     }, null);
     try testBlockEquals(&block, "hello world");
     std.log.info("block: {d}[{}]", .{ block.length(), block });
-    try block.applyOperationStruct(.{
+    try block.applyOperationStruct(arena, .{
         .extend = .{
             .id = block.positionFromDocbyte(2).id,
             .prev_len = 7,
@@ -1868,7 +1866,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     try testBlockEquals(&block, "hello worRld");
     std.log.info("block: [{}]", .{block});
 
-    try block.applyOperationStruct(.{
+    try block.applyOperationStruct(arena, .{
         .extend = .{
             .id = block.positionFromDocbyte(0).id,
             .prev_len = 6,
@@ -1883,7 +1881,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     var opgen_iter: bi.OperationIterator = .{ .content = opgen_al.items };
     while (try opgen_iter.next()) |op| {
         std.log.info("  apply \"{}\"", .{std.zig.fmtEscapes(op)});
-        try block.applyOperation(op, null);
+        try block.applyOperation(arena, op, null);
     }
     try testBlockEquals(&block, "Test\nhello worRld!");
     std.log.info("block: [{}]", .{block});
@@ -1893,13 +1891,13 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     opgen_iter = .{ .content = opgen_al.items };
     while (try opgen_iter.next()) |op| {
         std.log.info("  apply \"{}\"", .{std.zig.fmtEscapes(op)});
-        try block.applyOperation(op, null);
+        try block.applyOperation(arena, op, null);
     }
     try testBlockEquals(&block, "TCleared.!");
     std.log.info("block: [{}]", .{block});
 
     // replace live text
-    try block.applyOperationStruct(.{ .replace = .{
+    try block.applyOperationStruct(arena, .{ .replace = .{
         .start = block.positionFromDocbyte(1),
         .text = "Replaced",
     } }, null);
@@ -1907,7 +1905,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("block: [{}]", .{block});
 
     // replace part of live text
-    try block.applyOperationStruct(.{ .replace = .{
+    try block.applyOperationStruct(arena, .{ .replace = .{
         .start = block.positionFromDocbyte(4),
         .text = "!!!!",
     } }, null);
@@ -1915,7 +1913,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
     std.log.info("block: [{}]", .{block});
 
     // bring back full dead text
-    try block.applyOperationStruct(.{ .replace = .{
+    try block.applyOperationStruct(arena, .{ .replace = .{
         .start = .{ .id = @enumFromInt(3 << 16), .segbyte = 1 },
         .text = "ABCD",
     } }, null);
@@ -1929,7 +1927,7 @@ fn testSampleBlock(gpa: std.mem.Allocator) !void {
 
     // move text
     if (false) {
-        try block.applyOperationStruct(.{
+        try block.applyOperationStruct(arena, .{
             .move = .{
                 .start = block.positionFromDocbyte(2),
                 .end = block.positionFromDocbyte(8),
@@ -2059,6 +2057,7 @@ const Timings = struct {
 };
 const BlockTester = struct {
     alloc: std.mem.Allocator,
+    arena_backing: std.heap.ArenaAllocator,
     simple: std.ArrayList(u8),
     complex: TextDocument,
     event_mirror: std.ArrayList(u8),
@@ -2072,6 +2071,7 @@ const BlockTester = struct {
     pub fn init(self: *BlockTester, alloc: std.mem.Allocator) void {
         self.* = .{
             .alloc = alloc,
+            .arena_backing = .init(alloc),
             .simple = .init(alloc),
             .complex = .initEmpty(alloc),
             .event_mirror = .init(alloc),
@@ -2094,6 +2094,7 @@ const BlockTester = struct {
         self.complex.deinit();
         self.event_mirror.deinit();
         self.rendered_result.deinit();
+        self.arena_backing.deinit();
     }
 
     fn onAfterSimpleOperation(self: *BlockTester, op: TextDocument.EmitSimpleOperation) void {
@@ -2103,6 +2104,9 @@ const BlockTester = struct {
     pub fn testReplaceRange(self: *@This(), start: u64, delete_count: u64, insert_text: []const u8) !void {
         const tctx_ = anywhere.tracy.trace(@src());
         defer tctx_.end();
+
+        const arena = self.arena_backing.allocator();
+        defer _ = self.arena_backing.reset(.retain_capacity);
 
         var timer = try std.time.Timer.start();
 
@@ -2124,7 +2128,7 @@ const BlockTester = struct {
             var opgen_iter: bi.OperationIterator = .{ .content = self.opgen_al.items };
             while (try opgen_iter.next()) |op| {
                 // std.log.info("    -> apply {}", .{op});
-                try self.complex.applyOperation(op, null);
+                try self.complex.applyOperation(arena, op, null);
             }
         }
         // std.log.info("  Updated document: [{}], ", .{self.complex});
