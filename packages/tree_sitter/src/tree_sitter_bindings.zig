@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const tree_sitter = @import("tree-sitter");
+pub const tree_sitter = @import("tree_sitter_translatec");
 
 pub const Point = tree_sitter.TSPoint;
 pub const Input = struct {

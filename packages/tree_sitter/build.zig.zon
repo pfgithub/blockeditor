@@ -1,0 +1,15 @@
+.{
+    .name = "tree_sitter",
+    .version = "0.0.0",
+    .dependencies = .{
+        .tree_sitter = .{
+            .url = "git+https://github.com/tree-sitter/tree-sitter?ref=master#99dbbbcbe9d7f3c286057e9f3bcc6e0b42690606",
+            .hash = "12201a6a3b55fdd5a556eab210b4c4d7c94865f8f40a18bc9c5737b01500b28f6d9d",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

@@ -5,7 +5,7 @@ const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const tracy = @import("anywhere").tracy;
 const zgui = @import("anywhere").zgui;
-pub const ts = @import("tree_sitter_bindings.zig");
+pub const ts = @import("tree_sitter");
 
 // TODO
 // https://github.com/tree-sitter/tree-sitter/issues/739

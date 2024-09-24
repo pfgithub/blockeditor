@@ -1,5 +1,9 @@
 const std = @import("std");
 
+pub const pkgs = struct {
+    pub const tree_sitter = @import("tree_sitter");
+};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
