@@ -8,6 +8,7 @@ const blocks_net = @import("blocks_net");
 const anywhere = @import("anywhere");
 const tracy = anywhere.tracy;
 const build_options = @import("build_options");
+const zgui_anywhere = anywhere.zgui;
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
@@ -673,6 +674,9 @@ pub fn main() !void {
     var zig_language = Beui.EditorView.Core.highlighters_zig.HlZig.init(gpa);
     defer zig_language.deinit();
 
+    var markdown_language = Beui.EditorView.Core.highlighters_markdown.HlMd.init();
+    defer markdown_language.deinit();
+
     var my_text_editor: Beui.EditorView = undefined;
     my_text_editor.initFromDoc(gpa, my_text_component);
     defer my_text_editor.deinit();
@@ -806,6 +810,21 @@ pub fn main() !void {
 
         zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
+
+        if (zgui_anywhere.beginWindow("Editor Settings", .{})) {
+            defer zgui_anywhere.endWindow();
+
+            zgui.text("Set syn hl:", .{});
+            if (zgui.button("zig", .{})) {
+                my_text_editor.core.setSynHl(zig_language.language());
+            }
+            if (zgui.button("markdown", .{})) {
+                my_text_editor.core.setSynHl(markdown_language.language());
+            }
+            if (zgui.button("plaintext", .{})) {
+                my_text_editor.core.setSynHl(null);
+            }
+        }
 
         if (zgui.begin("Demo Settings", .{})) {
             zgui.text(

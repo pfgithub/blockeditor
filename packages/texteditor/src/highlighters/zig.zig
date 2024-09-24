@@ -24,9 +24,9 @@ pub const HlZig = struct {
         self.cached_node = getCacheForNode(&self.znh, ctx, node);
         _ = node_parent;
     }
-    fn highlightCurrentNode(self_any: Highlighter.Language, ctx: *Highlighter, offset_into_node: u32) Highlighter.SynHlColorScope {
+    fn highlightCurrentNode(self_any: Highlighter.Language, ctx: *Highlighter, byte_index: u32) Highlighter.SynHlColorScope {
         const self = self_any.cast(HlZig);
-        return renderCache(ctx, self.cached_node.?, offset_into_node);
+        return renderCache(ctx, self.cached_node.?, byte_index);
     }
 
     const vtable = Highlighter.Language.Vtable{

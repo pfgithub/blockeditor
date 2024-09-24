@@ -8,6 +8,7 @@ const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
 pub const Highlighter = @import("Highlighter.zig");
 pub const highlighters_zig = @import("highlighters/zig.zig");
+pub const highlighters_markdown = @import("highlighters/markdown.zig");
 const ts = @import("tree_sitter");
 const tracy = @import("anywhere").tracy;
 
@@ -68,11 +69,15 @@ fn cb_onEdit(self: *Core, edit: bi.text_component.TextDocument.SimpleOperation) 
     _ = edit;
 }
 
-pub fn setSynHl(self: *Core, language: Highlighter.Language) void {
+pub fn setSynHl(self: *Core, language: ?Highlighter.Language) void {
     if (self.syn_hl_ctx) |*pv| pv.deinit();
 
-    self.syn_hl_ctx = undefined;
-    self.syn_hl_ctx.?.init(self.document, language, self.gpa);
+    if (language) |l| {
+        self.syn_hl_ctx = undefined;
+        self.syn_hl_ctx.?.init(self.document, l, self.gpa);
+    } else {
+        self.syn_hl_ctx = null;
+    }
 }
 pub fn highlight(self: *Core) Highlighter.TreeSitterSyntaxHighlighter {
     if (self.syn_hl_ctx) |*v| return v.highlight();

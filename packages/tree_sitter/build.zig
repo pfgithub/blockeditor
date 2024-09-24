@@ -1,13 +1,13 @@
 const std = @import("std");
 
-pub fn addLanguage(b: *std.Build, language_name: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, src_path: std.Build.LazyPath) *std.Build.Step.Compile {
+pub fn addLanguage(b: *std.Build, language_name: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, src_path: std.Build.LazyPath, source_files: []const []const u8) *std.Build.Step.Compile {
     const language_support_obj = b.addStaticLibrary(.{
         .name = b.fmt("tree_sitter_{s}", .{language_name}),
         .target = target,
         .optimize = optimize,
     });
     language_support_obj.linkLibC();
-    language_support_obj.addCSourceFile(.{ .file = src_path.path(b, "parser.c") });
+    language_support_obj.addCSourceFiles(.{ .root = src_path, .files = source_files });
     language_support_obj.addIncludePath(src_path);
     return language_support_obj;
 }
