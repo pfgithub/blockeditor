@@ -29,6 +29,7 @@ undo: TextStack,
 undo_tokens: std.ArrayList(UndoTokenValue),
 redo: TextStack,
 redo_tokens: std.ArrayList(UndoTokenValue),
+last_undo_token_classification: UndoTokenClassification,
 
 cursor_positions: std.ArrayList(CursorPosition),
 
@@ -47,6 +48,7 @@ pub fn initFromDoc(self: *Core, gpa: std.mem.Allocator, document: db_mod.TypedCo
         .undo_tokens = .init(gpa),
         .redo = .init(gpa),
         .redo_tokens = .init(gpa),
+        .last_undo_token_classification = .always_split,
 
         .cursor_positions = .init(gpa),
     };
@@ -321,7 +323,17 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }) catch @panic("oom");
         },
         .insert_text => |text_op| {
-            const token = self.addUndoToken();
+            var classification: UndoTokenClassification = .insert_alphanumeric;
+            for (text_op.text) |char| {
+                if (std.ascii.isWhitespace(char)) classification = .insert_space;
+                if (switch (char) {
+                    // this matches vscode, but vscode only does it because it's automatically
+                    // inserting a right bracket at the same time. so not sure if this makes sense to match.
+                    '(', '{', '[', '<' => true,
+                    else => false,
+                }) classification = .always_split;
+            }
+            const token = self.addUndoToken(classification);
 
             for (self.cursor_positions.items) |*cursor_position| {
                 const pos_len = self.selectionToPosLen(cursor_position.pos);
@@ -409,7 +421,11 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .delete => |lr_cmd| {
-            const token = self.addUndoToken();
+            var classification: UndoTokenClassification = .always_split;
+            if (lr_cmd.stop == .byte or lr_cmd.stop == .codepoint or lr_cmd.stop == .unicode_grapheme_cluster) {
+                classification = .delete_grapheme_cluster;
+            }
+            const token = self.addUndoToken(classification);
 
             for (self.cursor_positions.items) |*cursor_position| {
                 const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
@@ -420,8 +436,15 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                 // if there is a selection, delete the selection
                 // if there is no selection, delete from the focus in the direction to the stop
                 var pos_len = self.selectionToPosLen(cursor_position.pos);
+                if (pos_len.len != 0) {
+                    self.changeClassification(token, .always_split);
+                }
                 if (pos_len.len == 0) {
                     pos_len = self.selectionToPosLen(.{ .anchor = cursor_position.pos.focus, .focus = moved });
+                }
+                if (pos_len.left_docbyte < block.length()) {
+                    const first_deleted_char = block.read(pos_len.pos)[0];
+                    if (first_deleted_char == '\n') self.changeClassification(token, .always_split);
                 }
                 self.replaceRange(token, .{
                     .position = pos_len.pos,
@@ -434,7 +457,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .newline => {
-            const token = self.addUndoToken();
+            const token = self.addUndoToken(.always_split);
 
             for (self.cursor_positions.items) |*cursor_position| {
                 const pos_len = self.selectionToPosLen(cursor_position.pos);
@@ -473,7 +496,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .indent_selection => |indent_cmd| {
-            const token = self.addUndoToken();
+            const token = self.addUndoToken(.always_split);
 
             for (self.cursor_positions.items) |*cursor_position| {
                 const pos_len = self.selectionToPosLen(cursor_position.pos);
@@ -503,7 +526,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .duplicate_line => |dupe_cmd| {
-            const token = self.addUndoToken();
+            const token = self.addUndoToken(.always_split);
 
             for (self.cursor_positions.items) |*cursor_position| {
                 const pos_len = self.selectionToPosLen(cursor_position.pos);
@@ -619,6 +642,8 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .undo, .redo => {
+            self.last_undo_token_classification = .always_split; // "abcd" ctrl+z ctrl+shift+z "efgh" ctrl+z should only undo "abcd"
+
             const take_from, const take_from_tokens, const add_to, const add_to_tokens = switch (command) {
                 .undo => .{ &self.undo, &self.undo_tokens, &self.redo, &self.redo_tokens },
                 .redo => .{ &self.redo, &self.redo_tokens, &self.undo, &self.undo_tokens },
@@ -662,7 +687,7 @@ pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: Copy
     self.normalizeCursors();
     defer self.normalizeCursors();
 
-    const token = if (mode == .cut) self.addUndoToken() else null;
+    const token = if (mode == .cut) self.addUndoToken(.always_split) else null;
 
     const stored_buf = self.gpa.alloc([]const u8, self.cursor_positions.items.len) catch @panic("oom");
     var paste_in_new_line = true;
@@ -700,7 +725,7 @@ fn paste(self: *Core, clipboard_contents: []const u8) void {
     self.normalizeCursors();
     defer self.normalizeCursors();
 
-    const token = self.addUndoToken();
+    const token = self.addUndoToken(.always_split);
 
     defer {
         if (self.clipboard_cache) |*v| {
@@ -851,7 +876,29 @@ const UndoTokenValue = struct {
 const UndoToken = struct {
     ut_len: usize,
 };
-pub fn addUndoToken(self: *Core) UndoToken {
+const UndoTokenClassification = enum {
+    always_split,
+    insert_space,
+    insert_alphanumeric,
+    delete_grapheme_cluster, // mark always_split for deleting '\n'
+};
+pub fn changeClassification(self: *Core, token: UndoToken, new_classification: UndoTokenClassification) void {
+    std.debug.assert(self.undo_tokens.items.len == token.ut_len);
+    self.last_undo_token_classification = new_classification;
+}
+pub fn addUndoToken(self: *Core, classification: UndoTokenClassification) UndoToken {
+    if (self.undo_tokens.items.len > 0) {
+        if (self.last_undo_token_classification != .always_split) {
+            if (self.last_undo_token_classification == classification) {
+                return .{ .ut_len = self.undo_tokens.items.len };
+            }
+            if (self.last_undo_token_classification == .insert_space and classification == .insert_alphanumeric) {
+                self.last_undo_token_classification = .insert_alphanumeric;
+                return .{ .ut_len = self.undo_tokens.items.len };
+            }
+        }
+    }
+
     for (self.redo_tokens.items) |item| self.gpa.free(item.cursor_positions_clone_owned);
     self.redo.clear();
     self.redo_tokens.clearRetainingCapacity();
@@ -859,6 +906,7 @@ pub fn addUndoToken(self: *Core) UndoToken {
         .index = self.undo.headers.items.len,
         .cursor_positions_clone_owned = self.gpa.dupe(CursorPosition, self.cursor_positions.items) catch @panic("oom"),
     }) catch @panic("oom");
+    self.last_undo_token_classification = classification;
     return .{ .ut_len = self.undo_tokens.items.len };
 }
 pub fn replaceRange(self: *Core, token: UndoToken, operation: bi.text_component.TextDocument.SimpleOperation) void {
@@ -1924,22 +1972,44 @@ test Core {
     tester.editor.executeCommand(.redo);
     try tester.expectContent("|");
 
-    if (false) {
-        for ("const std = @import(\"std\");") |char| {
-            tester.executeCommand(.{ .insert_text = .{ .text = &.{char} } });
-        }
-        try tester.expectContent("const std = @import(\"std\");|");
-        tester.editor.executeCommand(.undo);
-        try tester.expectContent("const std = @import(|");
-        tester.editor.executeCommand(.undo);
-        try tester.expectContent("const std =|");
-        tester.editor.executeCommand(.undo);
-        try tester.expectContent("const std|");
-        tester.editor.executeCommand(.undo);
-        try tester.expectContent("const|");
-        tester.editor.executeCommand(.undo);
-        try tester.expectContent("|");
+    for ("const std = @import(\"std\");") |char| {
+        tester.executeCommand(.{ .insert_text = .{ .text = &.{char} } });
     }
+    try tester.expectContent("const std = @import(\"std\");|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("const std = @import(|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("const std = @import|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("const std =|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("const std|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("const|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("|");
+    for (0..6) |_| tester.executeCommand(.redo);
+    try tester.expectContent("const std = @import(\"std\");|");
+    for (0..tester.editor.document.value.length()) |_| tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
+    try tester.expectContent("|");
+    tester.executeCommand(.undo);
+    try tester.expectContent("const std = @import(\"std\");|");
+    tester.executeCommand(.redo);
+    try tester.expectContent("|");
+
+    for ("abcd") |char| {
+        tester.executeCommand(.{ .insert_text = .{ .text = &.{char} } });
+    }
+    try tester.expectContent("abcd|");
+    tester.executeCommand(.undo);
+    tester.executeCommand(.redo);
+    for ("efgh") |char| {
+        tester.executeCommand(.{ .insert_text = .{ .text = &.{char} } });
+    }
+    tester.executeCommand(.undo);
+    try tester.expectContent("abcd|");
+    tester.executeCommand(.undo);
+    try tester.expectContent("|");
 
     // undo everything, see if it works
     while (tester.editor.undo.values.items.len > 0) {
