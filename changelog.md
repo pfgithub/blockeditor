@@ -39,3 +39,28 @@
 
 Milestone: our editor is usable. If it could save and browse files, we could
 start using it right now to do editing. It feels pretty nice.
+
+- Disable TcpSync on windows for now: https://github.com/ziglang/zig/issues/21492
+- Move files around: editor_view -> beui and some files -> structs
+- Implement Position <-> LynCol functions in Document and update editor core functions
+  to use them
+- Add a toggle button for syntax highlighting to see the perf cost (not as high anymore
+  compared to the other things eating miliseconds)
+- Fix running with -Dtracy wasn't keeping imgui.ini settings because it was using the wrong
+  folder
+- Add frame prepare time display
+- Change doc comment body to be white
+- Change block.applyOperation to accept multiple operations at once
+- Start thinking about Beui
+- Change tint in vertex struct to take just one u32 instead of 4xf32
+- Upgrade tree_sitter and tree-sitter-zig
+- Fix "{{" in syntax highlighting
+- Fix ctrl+enter at end of line
+- Pipe undo operations all the way through in preperation for supporting undo/redo
+- Simplify insert applyOperation logic
+- Simplify delete applyOperation logic
+- Begin work on new combined replace_and_delete operation
+
+## 2024-09-23
+
+
