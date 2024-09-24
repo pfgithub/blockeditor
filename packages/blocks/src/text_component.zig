@@ -1411,9 +1411,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                             range = rd_op.sorted_ranges[sorted_range_i];
                         }
 
-                        if (range.start_segbyte >= span_info.start_segbyte and range.end_segbyte <= span_info.start_segbyte + span_info.length) {
+                        if (range.start_segbyte <= span_info.start_segbyte and range.end_segbyte >= span_info.start_segbyte + span_info.length) {
                             // const range_len = range.end_segbyte - range.start_segbyte;
-                            const spanbyte_start = range.start_segbyte - span_info.start_segbyte;
+                            const spanbyte_start = span_info.start_segbyte - range.start_segbyte;
                             const spanbyte_end = spanbyte_start + span_info.length;
                             const spanbyte_len = span_info.length;
                             if (spanbyte_end + range.start_segbyte > range.end_segbyte) return error.DeserializeError;
