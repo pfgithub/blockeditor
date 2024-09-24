@@ -66,6 +66,9 @@ Tasks:
 
 wishlist:
 
+- [ ] text_editor.Core undo and redo don't have to be seperate stacks. they can be just
+  one arraylist where when you read an undo, you move the cursor left, and read a redo
+  move the cursor right. and to add a new undo, clear everything right of the cursor.
 - [ ] automatically disable tree sitter once document length passes a certian value, and re-enable it when it gets below the value. this will also prevent crashing for files larger than maxInt(u32).
 - [ ] introduce editor core test recorder. fix a bug or add a feature, then record a session
   and generate tests from it.
