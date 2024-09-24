@@ -77,6 +77,8 @@ fn runWithTracy(b: *std.Build, enable_tracy: bool, optimize: std.builtin.Optimiz
 
         run_multirun.addArg("|-|");
         run_multirun.addArtifactArg(tracy_dep.artifact("tracy"));
+        run_multirun.addArg("-a");
+        run_multirun.addArg("127.0.0.1");
 
         run_multirun.addArg("|-|");
         run_multirun.addArtifactArg(target_exe);
