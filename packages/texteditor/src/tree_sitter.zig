@@ -139,8 +139,6 @@ pub const TreeSitterSyntaxHighlighter = struct {
     root_node: ts.Node,
     znh: *ZigNodeHighlighter,
     cursor: ts.TreeCursor,
-    last_access: u64,
-    last_access_value: ?ts.Node,
 
     pub fn init(znh: *ZigNodeHighlighter, root_node: ts.Node) TreeSitterSyntaxHighlighter {
         var cursor: ts.TreeCursor = .init(znh.alloc, root_node);
@@ -150,77 +148,10 @@ pub const TreeSitterSyntaxHighlighter = struct {
             .root_node = root_node,
             .znh = znh,
             .cursor = cursor,
-            .last_access = 0,
-            .last_access_value = null,
         };
     }
     pub fn deinit(self: *TreeSitterSyntaxHighlighter) void {
         self.cursor.deinit();
-    }
-
-    fn advanceAndRead2(self: *TreeSitterSyntaxHighlighter, docbyte: u64) ts.Node {
-        const tctx = tracy.trace(@src());
-        defer tctx.end();
-
-        if (self.last_access == docbyte) if (self.last_access_value) |v| return v;
-        if (docbyte < self.last_access) @panic("advanceAndRead must advance");
-        self.last_access = docbyte;
-        const res = self.advanceAndRead2_internal(docbyte);
-        self.last_access_value = res;
-        return res;
-    }
-    inline fn advanceAndRead2_internal(self: *TreeSitterSyntaxHighlighter, docbyte: u64) ts.Node {
-        // first, advance if necessary
-        if (docbyte >= self.cursor.currentNode().endByte()) {
-            // need to advance
-            // 1. find the lowest node who's parent contains the current docbyte
-
-            while (true) {
-                if (self.cursor.stack.items.len < 2) return self.root_node;
-                const parent_node = self.cursor.stack.items[self.cursor.stack.items.len - 2];
-                if (parent_node.docbyteInRange(docbyte)) {
-                    // perfect node!
-                    break;
-                } else {
-                    // not wide enough, go up one
-                    std.debug.assert(self.cursor.gotoParent());
-                    continue;
-                }
-            }
-
-            // 2. advance next sibling until one covers our range
-            while (docbyte >= self.cursor.currentNode().endByte()) {
-                if (!self.cursor.gotoNextSibling()) {
-                    // cursor has no next sibling. go parent
-                    std.debug.assert(self.cursor.gotoParent());
-                    return self.cursor.currentNode(); // no more siblings, but parent is known to cover our range
-                }
-            }
-
-            // 3. goDeepLhs on final result, but skip by any nodes left of us
-            while (self.cursor.gotoFirstChild()) {
-                while (docbyte >= self.cursor.currentNode().endByte()) {
-                    std.debug.assert(self.cursor.gotoNextSibling());
-                }
-            }
-
-            std.debug.assert(docbyte < self.cursor.currentNode().endByte());
-        }
-
-        // then, find the node that contains the current docbyte
-        var current_node_i = self.cursor.stack.items.len - 1;
-        while (true) {
-            const current_node = self.cursor.stack.items[current_node_i];
-            if (current_node.docbyteInRange(docbyte)) {
-                // perfect node!
-                return current_node;
-            } else {
-                // not wide enough, go up one
-                if (current_node_i == 0) return self.root_node;
-                current_node_i -= 1;
-                continue;
-            }
-        }
     }
 
     pub fn advanceAndRead(syn_hl: *TreeSitterSyntaxHighlighter, idx: usize) Core.SynHlColorScope {
@@ -229,21 +160,8 @@ pub const TreeSitterSyntaxHighlighter = struct {
 
         if (idx >= syn_hl.znh.doc.?.length()) return .invalid;
 
-        // TODO:
-        // https://github.com/tree-sitter/tree-sitter/blob/8e8648afa9c30bf69a0020db9b130c4eb11b095e/lib/src/node.c#L328
-        // modify this implementation to keep state so it's not slow for access in a loop
-        // ts_tree_cursor_goto_descendant maybe this will help?
-        // ts_tree_cursor_goto_first_child_for_byte <- maybe this will help?
-        //    seems like we'd have to call it repeatedly or something
-        //    also that function is bugged https://github.com/tree-sitter/tree-sitter/issues/2012
-
-        // 5ms total is spent on ts_node_descendant_for_byte_range
-        // 0.5ms total is spent on highlightNode
-        // that's pretty bad
-
-        if (false) return .punctuation_important;
-
-        const hl_node = syn_hl.advanceAndRead2(idx);
+        const hl_node_idx = syn_hl.cursor.advanceAndFindNodeForByte(@intCast(idx));
+        const hl_node = syn_hl.cursor.stack.items[hl_node_idx];
         return syn_hl.znh.highlightNode(hl_node, idx);
     }
 };

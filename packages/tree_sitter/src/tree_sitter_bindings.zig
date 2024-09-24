@@ -119,11 +119,12 @@ pub const Node = struct {
 pub const TreeCursor = struct {
     stack: std.ArrayList(Node),
     cursor: tree_sitter.TSTreeCursor,
+    last_access: u32,
 
     pub inline fn init(gpa: std.mem.Allocator, root_node: Node) TreeCursor {
         var res_stack = std.ArrayList(Node).init(gpa);
         res_stack.append(root_node) catch @panic("oom");
-        return .{ .stack = res_stack, .cursor = tree_sitter.ts_tree_cursor_new(root_node.node_not_null) };
+        return .{ .stack = res_stack, .cursor = tree_sitter.ts_tree_cursor_new(root_node.node_not_null), .last_access = 0 };
     }
     pub inline fn deinit(self: *TreeCursor) void {
         tree_sitter.ts_tree_cursor_delete(&self.cursor);
@@ -149,15 +150,74 @@ pub const TreeCursor = struct {
         } else return false;
     }
 
-    pub inline fn goDeepLhs(self: *TreeCursor) void {
-        while (self.gotoFirstChild()) {}
-    }
-
     pub inline fn _currentNode_raw(self: *TreeCursor) Node {
         return Node.from(tree_sitter.ts_tree_cursor_current_node(&self.cursor)).?;
     }
     pub inline fn currentNode(self: *TreeCursor) Node {
         std.debug.assert(self.stack.getLast().eq(self._currentNode_raw()));
         return self.stack.getLast();
+    }
+
+    pub fn goDeepLhs(self: *TreeCursor) void {
+        while (self.gotoFirstChild()) {}
+    }
+
+    /// before using for the first time, must initialize TreeCursor on the root node and call .goDeepLhs();
+    /// returns an index into TreeCursor's stack ArrayList
+    pub fn advanceAndFindNodeForByte(cursor: *TreeCursor, byte: u32) usize {
+        std.debug.assert(byte >= cursor.last_access);
+        cursor.last_access = byte;
+
+        // first, advance if necessary
+        if (byte >= cursor.currentNode().endByte()) {
+            // need to advance
+            // 1. find the lowest node who's parent contains the current docbyte
+
+            while (true) {
+                if (cursor.stack.items.len < 2) return 0;
+                const parent_node = cursor.stack.items[cursor.stack.items.len - 2];
+                if (parent_node.docbyteInRange(byte)) {
+                    // perfect node!
+                    break;
+                } else {
+                    // not wide enough, go up one
+                    std.debug.assert(cursor.gotoParent());
+                    continue;
+                }
+            }
+
+            // 2. advance next sibling until one covers our range
+            while (byte >= cursor.currentNode().endByte()) {
+                if (!cursor.gotoNextSibling()) {
+                    // cursor has no next sibling. go parent
+                    std.debug.assert(cursor.gotoParent());
+                    return cursor.stack.items.len - 1; // no more siblings, but parent is known to cover our range
+                }
+            }
+
+            // 3. goDeepLhs on final result, but skip by any nodes left of us
+            while (cursor.gotoFirstChild()) {
+                while (byte >= cursor.currentNode().endByte()) {
+                    std.debug.assert(cursor.gotoNextSibling());
+                }
+            }
+
+            std.debug.assert(byte < cursor.currentNode().endByte());
+        }
+
+        // then, find the node that contains the current docbyte
+        var current_node_i = cursor.stack.items.len - 1;
+        while (true) {
+            const current_node = cursor.stack.items[current_node_i];
+            if (current_node.docbyteInRange(byte)) {
+                // perfect node!
+                return current_node_i;
+            } else {
+                // not wide enough, go up one
+                if (current_node_i == 0) return 0;
+                current_node_i -= 1;
+                continue;
+            }
+        }
     }
 };

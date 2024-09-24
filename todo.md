@@ -73,8 +73,8 @@ wishlist:
   text_editor.view.EditorView -> text_editor.EditorView
 - [ ] create virtual scroll view. create text component. text editor rendering then becomes:
   `while(beui.virtualScroll(&self.scroll)) |line_middle| { beui.renderTextLine( <text>, <cursor positions>, <syn hl fonts and ranges> ) }`.
-- [ ] move tree sitter into its own package
-- [ ] move tree sitter advanceAndRead logic into struct TreeCursor
+- [x] move tree sitter into its own package
+- [x] move tree sitter advanceAndRead logic into struct TreeCursor
 - [ ] text editor tree sitter: add a button to copy dot graph of the current syntax tree to
   clipboard
 - [ ] text editor tree sitter: documentation comments should have markdown bodies. for this, we need to use the sub tree sitter support with a commonmark parser. and we want to render contents of doc comments as well as we render regular markdown files.
