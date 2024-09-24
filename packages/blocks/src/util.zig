@@ -176,3 +176,35 @@ pub fn CallbackList(comptime cb_type: type) type {
         }
     };
 }
+
+pub fn AnySized(comptime Size: comptime_int, comptime Align: comptime_int) type {
+    return struct {
+        data: [Size]u8 align(Align),
+        ty: if (std.debug.runtime_safety) [*:0]const u8 else void,
+
+        pub fn from(comptime T: type, value: T) @This() {
+            std.debug.assert(@sizeOf(T) <= Size);
+            std.debug.assert(@alignOf(T) <= Align);
+            var result_bytes: [Size]u8 = [_]u8{0} ** Size;
+            const bytes = std.mem.asBytes(&value);
+            @memcpy(result_bytes[0..bytes.len], bytes);
+            return .{ .data = result_bytes, .ty = if (std.debug.runtime_safety) @typeName(T) else void };
+        }
+        pub fn asPtr(self: *@This(), comptime T: type) *T {
+            if (std.debug.runtime_safety) std.debug.assert(self.ty == @typeName(T));
+            return std.mem.bytesAsValue(T, &self.data);
+        }
+        pub fn as(self: @This(), comptime T: type) T {
+            if (std.debug.runtime_safety) std.debug.assert(self.ty == @typeName(T));
+            return std.mem.bytesAsValue(T, &self.data).*;
+        }
+    };
+}
+test AnySized {
+    const Any = AnySized(16, 16);
+
+    var my_any = Any.from(u32, 25);
+    try std.testing.expectEqual(@as(u32, 25), my_any.as(u32));
+    my_any.asPtr(u32).* += 12;
+    try std.testing.expectEqual(@as(u32, 25 + 12), my_any.as(u32));
+}

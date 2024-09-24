@@ -544,7 +544,7 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
                     const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
                     const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
 
-                    const tint: Core.SynHlColorScope = switch (self.config.syntax_highlighting) {
+                    const tint: Core.Highlighter.SynHlColorScope = switch (self.config.syntax_highlighting) {
                         true => syn_hl.advanceAndRead(item_docbyte),
                         false => .unstyled,
                     };
@@ -745,7 +745,7 @@ const DefaultTheme = struct {
     pub const selection_color: Beui.Color = .fromHexRgb(0x28323a);
     pub const cursor_color: Beui.Color = .fromHexRgb(0x5EC4FF);
 
-    pub fn synHlColor(syn_hl_color: Core.SynHlColorScope) Beui.Color {
+    pub fn synHlColor(syn_hl_color: Core.Highlighter.SynHlColorScope) Beui.Color {
         return .fromHexRgb(switch (syn_hl_color) {
             .invalid => 0xFF0000,
 

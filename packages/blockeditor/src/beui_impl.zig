@@ -670,7 +670,7 @@ pub fn main() !void {
     const my_text_component = my_text.typedComponent(bi.TextDocumentBlock).?; // .? asserts it's loaded which isn't what we want. we want to wait to init until it's loaded.
     defer my_text_component.unref();
 
-    var zig_language = Beui.EditorView.Core.tree_sitter.HlZig.init(gpa);
+    var zig_language = Beui.EditorView.Core.highlighters_zig.HlZig.init(gpa);
     defer zig_language.deinit();
 
     var my_text_editor: Beui.EditorView = undefined;
