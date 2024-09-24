@@ -232,8 +232,9 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
             defer arena_backing.deinit();
             const arena = arena_backing.allocator();
 
-            var undo_helper: ?OperationWriter(ChildComponent.Operation) = if (undo_operation) |uo| .{ .base = .{ .al = uo, .prefix = .init(self.gpa) } } else null;
-            defer if (undo_helper) |*uh| uh.base.prefix.deinit();
+            // TODO: must reverse order of undo operations. each applyOperation call will generate one or more undo operations.
+            // These should stay in the same order, but whenever loop iteration, the next undo operations should go to the front of the array
+            var undo_helper: ?OperationWriter(ChildComponent.Operation) = if (undo_operation) |uo| .{ .base = .{ .al = uo, .prefix = .init(arena) } } else null;
 
             var iter: OperationIterator = .{ .content = operations_serialized };
             while (try iter.next()) |op| {

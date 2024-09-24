@@ -26,7 +26,9 @@ clipboard_cache: ?struct {
     copied_str_hash: u64,
 },
 undo: TextStack,
+undo_tokens: std.ArrayList(UndoTokenValue),
 redo: TextStack,
+redo_tokens: std.ArrayList(UndoTokenValue),
 
 cursor_positions: std.ArrayList(CursorPosition),
 
@@ -42,7 +44,9 @@ pub fn initFromDoc(self: *Core, gpa: std.mem.Allocator, document: db_mod.TypedCo
         .syn_hl_ctx = null,
         .clipboard_cache = null,
         .undo = .init(gpa),
+        .undo_tokens = .init(gpa),
         .redo = .init(gpa),
+        .redo_tokens = .init(gpa),
 
         .cursor_positions = .init(gpa),
     };
@@ -52,7 +56,9 @@ pub fn initFromDoc(self: *Core, gpa: std.mem.Allocator, document: db_mod.TypedCo
 }
 pub fn deinit(self: *Core) void {
     if (self.syn_hl_ctx) |*pv| pv.deinit();
+    self.undo_tokens.deinit();
     self.undo.deinit();
+    self.redo_tokens.deinit();
     self.redo.deinit();
     if (self.clipboard_cache) |*v| {
         for (v.contents) |c| self.gpa.free(c);
@@ -108,9 +114,9 @@ pub fn getThisLineEnd(self: *Core, prev_line_start: Position) Position {
     std.debug.assert(next_line_start_byte > prev_line_start_byte);
     return block.positionFromDocbyte(next_line_start_byte - 1);
 }
-pub fn getNextLineStartMaybeInsertNewline(self: *Core, pos: Position) Position {
-    if (self.document.value.docbyteFromPosition(pos) == self.document.value.length()) {
-        self.replaceRange(.{ .position = .end, .delete_len = 0, .insert_text = "\n" });
+pub fn getNextLineStartMaybeInsertNewline(self: *Core, token: ?UndoToken, pos: Position) Position {
+    if (token != null and self.document.value.docbyteFromPosition(pos) == self.document.value.length()) {
+        self.replaceRange(token.?, .{ .position = .end, .delete_len = 0, .insert_text = "\n" });
         return .end;
     }
     return self.getNextLineStart(pos);
@@ -313,10 +319,12 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }) catch @panic("oom");
         },
         .insert_text => |text_op| {
+            const token = self.addUndoToken();
+
             for (self.cursor_positions.items) |*cursor_position| {
                 const pos_len = self.selectionToPosLen(cursor_position.pos);
 
-                self.replaceRange(.{
+                self.replaceRange(token, .{
                     .position = pos_len.pos,
                     .delete_len = pos_len.len,
                     .insert_text = text_op.text,
@@ -399,6 +407,8 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .delete => |lr_cmd| {
+            const token = self.addUndoToken();
+
             for (self.cursor_positions.items) |*cursor_position| {
                 const moved = self.toWordBoundary(cursor_position.pos.focus, lr_cmd.direction, lr_cmd.stop, switch (lr_cmd.direction) {
                     .left => .left,
@@ -411,7 +421,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                 if (pos_len.len == 0) {
                     pos_len = self.selectionToPosLen(.{ .anchor = cursor_position.pos.focus, .focus = moved });
                 }
-                self.replaceRange(.{
+                self.replaceRange(token, .{
                     .position = pos_len.pos,
                     .delete_len = pos_len.len,
                     .insert_text = "",
@@ -422,6 +432,8 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .newline => {
+            const token = self.addUndoToken();
+
             for (self.cursor_positions.items) |*cursor_position| {
                 const pos_len = self.selectionToPosLen(cursor_position.pos);
 
@@ -438,7 +450,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                 temp_insert_slice.appendNTimes(self.config.indent_with.char(), usi(self.config.indent_with.count() * line_indent_count.indents)) catch @panic("oom");
                 if (!order) temp_insert_slice.append('\n') catch @panic("oom");
 
-                self.replaceRange(.{
+                self.replaceRange(token, .{
                     .position = pos_len.pos,
                     .delete_len = pos_len.len,
                     .insert_text = temp_insert_slice.items,
@@ -459,6 +471,8 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .indent_selection => |indent_cmd| {
+            const token = self.addUndoToken();
+
             for (self.cursor_positions.items) |*cursor_position| {
                 const pos_len = self.selectionToPosLen(cursor_position.pos);
                 const end_pos = block.positionFromDocbyte(block.docbyteFromPosition(pos_len.pos) + pos_len.len);
@@ -477,7 +491,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                     defer temp_insert_slice.deinit();
                     temp_insert_slice.appendNTimes(self.config.indent_with.char(), usi(self.config.indent_with.count() * new_indent_count)) catch @panic("oom");
 
-                    self.replaceRange(.{
+                    self.replaceRange(token, .{
                         .position = line_start,
                         .delete_len = line_indent_count.chars,
                         .insert_text = temp_insert_slice.items,
@@ -487,6 +501,8 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .duplicate_line => |dupe_cmd| {
+            const token = self.addUndoToken();
+
             for (self.cursor_positions.items) |*cursor_position| {
                 const pos_len = self.selectionToPosLen(cursor_position.pos);
 
@@ -513,7 +529,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                     },
                 }
 
-                self.replaceRange(.{
+                self.replaceRange(token, .{
                     .position = switch (dupe_cmd.direction) {
                         .down => start_line,
                         .up => end_line,
@@ -600,17 +616,20 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                 };
             }
         },
-        .undo => {
-            const undo_op = self.undo.take() orelse return;
+        .undo, .redo => {
+            const take_from, const take_from_tokens, const add_to, const add_to_tokens = switch (command) {
+                .undo => .{ &self.undo, &self.undo_tokens, &self.redo, &self.redo_tokens },
+                .redo => .{ &self.redo, &self.redo_tokens, &self.undo, &self.undo_tokens },
+                else => unreachable,
+            };
+            const token = take_from_tokens.popOrNull() orelse return;
+            add_to_tokens.append(.{ .index = add_to.headers.items.len }) catch @panic("oom");
 
-            const al = self.redo.begin() catch @panic("oom");
-            self.document.applyUndoOperation(undo_op, al);
-        },
-        .redo => {
-            const redo_op = self.redo.take() orelse return;
-
-            const al = self.undo.begin() catch @panic("oom");
-            self.document.applyUndoOperation(redo_op, al);
+            while (take_from.headers.items.len > token.index) {
+                const op = take_from.take() orelse return;
+                const al = add_to.begin() catch @panic("oom");
+                self.document.applyUndoOperation(op, al);
+            }
         },
         .click => |click_op| {
             self.onClick(click_op.pos, click_op.mode, click_op.extend, click_op.select_ts_node);
@@ -635,6 +654,8 @@ pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: Copy
     self.normalizeCursors();
     defer self.normalizeCursors();
 
+    const token = if (mode == .cut) self.addUndoToken() else null;
+
     const stored_buf = self.gpa.alloc([]const u8, self.cursor_positions.items.len) catch @panic("oom");
     var paste_in_new_line = true;
     var this_needs_newline = false;
@@ -643,7 +664,7 @@ pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: Copy
         var next_needs_newline = true;
         defer this_needs_newline = next_needs_newline;
         if (pos_range.len == 0) {
-            pos_range = self.selectionToPosLen(.range(self.getLineStart(pos_range.pos), self.getNextLineStartMaybeInsertNewline(pos_range.pos)));
+            pos_range = self.selectionToPosLen(.range(self.getLineStart(pos_range.pos), self.getNextLineStartMaybeInsertNewline(token, pos_range.pos)));
             next_needs_newline = false;
         } else {
             paste_in_new_line = false;
@@ -656,7 +677,7 @@ pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: Copy
         result_str.appendSlice(slice) catch @panic("oom");
 
         if (mode == .cut) {
-            self.replaceRange(.{ .position = pos_range.pos, .delete_len = pos_range.len, .insert_text = "" });
+            self.replaceRange(token.?, .{ .position = pos_range.pos, .delete_len = pos_range.len, .insert_text = "" });
         }
     }
     self.clipboard_cache = .{
@@ -670,6 +691,8 @@ pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: Copy
 fn paste(self: *Core, clipboard_contents: []const u8) void {
     self.normalizeCursors();
     defer self.normalizeCursors();
+
+    const token = self.addUndoToken();
 
     defer {
         if (self.clipboard_cache) |*v| {
@@ -688,15 +711,15 @@ fn paste(self: *Core, clipboard_contents: []const u8) void {
 
     if (clip_contents.len == self.cursor_positions.items.len) {
         for (clip_contents, self.cursor_positions.items) |text, *cursor_pos| {
-            self.pasteInternal(cursor_pos, text, paste_in_new_line);
+            self.pasteInternal(token, cursor_pos, text, paste_in_new_line);
         }
     } else {
         for (clip_contents) |text| for (self.cursor_positions.items) |*cursor_pos| {
-            self.pasteInternal(cursor_pos, text, paste_in_new_line);
+            self.pasteInternal(token, cursor_pos, text, paste_in_new_line);
         };
     }
 }
-fn pasteInternal(self: *Core, cursor_pos: *const CursorPosition, text: []const u8, paste_in_new_line: bool) void {
+fn pasteInternal(self: *Core, token: UndoToken, cursor_pos: *const CursorPosition, text: []const u8, paste_in_new_line: bool) void {
     var pos_range = self.selectionToPosLen(cursor_pos.pos);
     var add_newline = false;
     if (pos_range.len == 0 and paste_in_new_line) {
@@ -704,7 +727,7 @@ fn pasteInternal(self: *Core, cursor_pos: *const CursorPosition, text: []const u
         add_newline = true;
     }
 
-    self.replaceRange(.{
+    self.replaceRange(token, .{
         .position = pos_range.pos,
         .delete_len = pos_range.len,
         .insert_text = text,
@@ -813,15 +836,22 @@ fn onDrag(self: *Core, pos: Position) void {
     }
 }
 
-const UndoToken = struct {};
+const UndoTokenValue = struct {
+    index: usize,
+};
+const UndoToken = struct {
+    ut_len: usize,
+};
 pub fn addUndoToken(self: *Core) UndoToken {
-    // save:
-    // - cursor positions
-    //
-    // if the last thing done was insert_text, maybe don't add an undo token
-    _ = self;
+    self.redo.clear();
+    self.redo_tokens.clearRetainingCapacity();
+    self.undo_tokens.append(.{
+        .index = self.undo.headers.items.len,
+    }) catch @panic("oom");
+    return .{ .ut_len = self.undo_tokens.items.len };
 }
-pub fn replaceRange(self: *Core, operation: bi.text_component.TextDocument.SimpleOperation) void {
+pub fn replaceRange(self: *Core, token: UndoToken, operation: bi.text_component.TextDocument.SimpleOperation) void {
+    std.debug.assert(self.undo_tokens.items.len == token.ut_len);
     self.redo.clear();
     const al = self.undo.begin() catch @panic("oom");
     self.document.applySimpleOperation(operation, al);
