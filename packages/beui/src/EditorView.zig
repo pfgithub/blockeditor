@@ -12,7 +12,7 @@ const ft = Beui.font_experiment.ft;
 const hb = Beui.font_experiment.hb;
 const sb = Beui.font_experiment.sb;
 
-const Core = @import("texteditor").Core;
+pub const Core = @import("texteditor").Core;
 const EditorView = @This();
 
 gpa: std.mem.Allocator,
@@ -469,7 +469,7 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
     var cursor_positions = self.core.getCursorPositions();
     defer cursor_positions.deinit();
 
-    var syn_hl = self.core.syn_hl_ctx.highlight();
+    var syn_hl = self.core.highlight();
     defer syn_hl.deinit();
 
     const replace_space = self.font.?.ft_face.getCharIndex('·') orelse self.font.?.ft_face.getCharIndex('_');
@@ -668,7 +668,7 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
 
         for (self.core.cursor_positions.items) |cursor_pos| {
             const range = self.core.selectionToPosLen(cursor_pos.pos);
-            self.core.syn_hl_ctx.guiInspectNodeUnderCursor(range.left_docbyte, range.right_docbyte);
+            if (self.core.syn_hl_ctx) |*c| c.guiInspectNodeUnderCursor(range.left_docbyte, range.right_docbyte);
         }
     }
 

@@ -6,14 +6,14 @@ const seg_dep = @import("grapheme_cursor");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
-const tree_sitter = @import("tree_sitter.zig");
+pub const tree_sitter = @import("tree_sitter.zig");
 const tracy = @import("anywhere").tracy;
 
 const Core = @This();
 
 gpa: std.mem.Allocator,
 document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
-syn_hl_ctx: tree_sitter.Context,
+syn_hl_ctx: ?tree_sitter.Context,
 clipboard_cache: ?struct {
     /// owned by self.gpa
     contents: []const []const u8,
@@ -36,7 +36,7 @@ pub fn initFromDoc(self: *Core, gpa: std.mem.Allocator, document: db_mod.TypedCo
     self.* = .{
         .gpa = gpa,
         .document = document,
-        .syn_hl_ctx = undefined,
+        .syn_hl_ctx = null,
         .clipboard_cache = null,
         .undo = .init(gpa),
         .redo = .init(gpa),
@@ -46,18 +46,15 @@ pub fn initFromDoc(self: *Core, gpa: std.mem.Allocator, document: db_mod.TypedCo
     document.ref();
     document.addUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit)); // to keep the language server up to date
 
-    self.syn_hl_ctx.init(self.document, gpa) catch {
-        @panic("TODO handle syn_hl_ctx init failure");
-    };
 }
 pub fn deinit(self: *Core) void {
+    if (self.syn_hl_ctx) |*pv| pv.deinit();
     self.undo.deinit();
     self.redo.deinit();
     if (self.clipboard_cache) |*v| {
         for (v.contents) |c| self.gpa.free(c);
         self.gpa.free(v.contents);
     }
-    self.syn_hl_ctx.deinit();
     self.cursor_positions.deinit();
     self.document.removeUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit));
     self.document.unref();
@@ -67,6 +64,17 @@ fn cb_onEdit(self: *Core, edit: bi.text_component.TextDocument.SimpleOperation) 
     // TODO: keep tree-sitter updated
     _ = self;
     _ = edit;
+}
+
+pub fn setSynHl(self: *Core, language: tree_sitter.Language) void {
+    if (self.syn_hl_ctx) |*pv| pv.deinit();
+
+    self.syn_hl_ctx = undefined;
+    self.syn_hl_ctx.?.init(self.document, language, self.gpa);
+}
+pub fn highlight(self: *Core) tree_sitter.TreeSitterSyntaxHighlighter {
+    if (self.syn_hl_ctx) |*v| return v.highlight();
+    return .initPlaintext();
 }
 
 pub fn getLineStart(self: *Core, pos: Position) Position {
@@ -520,6 +528,9 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             }
         },
         .ts_select_node => |ts_sel| {
+            const syn_hl_ctx = if (self.syn_hl_ctx) |*v| v else return; // no syn hl ctx; can't. todo: at least we could support select full file.
+            const tree = syn_hl_ctx.getTree();
+
             for (self.cursor_positions.items) |*cursor_position| {
                 var sel_start = cursor_position.node_select_start orelse cursor_position.pos;
                 _ = &sel_start; // work around zig bug. sel_start should be 'const' but it mutates if it is
@@ -527,7 +538,6 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                 const sel_curr = cursor_position.pos;
                 const curr_pos_len = self.selectionToPosLen(sel_curr);
 
-                const tree = self.syn_hl_ctx.getTree();
                 const min_node = tree.rootNode().descendantForByteRange(@intCast(start_pos_len.left_docbyte), @intCast(start_pos_len.right_docbyte));
 
                 var curr_node_v = min_node;
@@ -740,11 +750,11 @@ fn onDrag(self: *Core, pos: Position) void {
     const drag_info = cursor.drag_info.?;
     const stop = drag_info.sel_mode.stop;
     const anchor_pos = drag_info.start_pos;
-    if (drag_info.select_ts_node) {
+    if (drag_info.select_ts_node and self.syn_hl_ctx != null) {
         const sel_start: Selection = .range(anchor_pos, pos);
         const pos_len = self.selectionToPosLen(sel_start);
 
-        const tree = self.syn_hl_ctx.getTree();
+        const tree = self.syn_hl_ctx.?.getTree();
         const min_node = tree.rootNode().descendantForByteRange(@intCast(pos_len.left_docbyte), @intCast(pos_len.right_docbyte));
 
         const target_start = if (min_node) |m| m.startByte() else 0;
@@ -1346,6 +1356,7 @@ const EditorTester = struct {
     my_db: db_mod.BlockDB,
     src_block: *db_mod.BlockRef,
     src_component: db_mod.TypedComponentRef(bi.TextDocumentBlock.Child),
+    language: tree_sitter.HlZig,
     editor: Core,
 
     pub fn init(res: *EditorTester, gpa: std.mem.Allocator, initial_text: []const u8) void {
@@ -1354,12 +1365,14 @@ const EditorTester = struct {
             .my_db = undefined,
             .src_block = undefined,
             .src_component = undefined,
+            .language = .init(gpa),
             .editor = undefined,
         };
         res.my_db = .init(gpa);
         res.src_block = res.my_db.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
         res.src_component = res.src_block.typedComponent(bi.TextDocumentBlock) orelse unreachable;
         res.editor.initFromDoc(gpa, res.src_component);
+        res.editor.setSynHl(res.language.language());
 
         res.src_component.applySimpleOperation(.{ .position = res.src_component.value.positionFromDocbyte(0), .delete_len = 0, .insert_text = initial_text }, null);
     }
@@ -1368,6 +1381,7 @@ const EditorTester = struct {
         self.src_block.unref();
         self.src_component.unref();
         self.my_db.deinit();
+        self.language.deinit();
     }
 
     pub fn expectContent(self: *EditorTester, expected: []const u8) !void {

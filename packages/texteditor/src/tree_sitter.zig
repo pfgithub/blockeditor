@@ -7,11 +7,8 @@ const tracy = @import("anywhere").tracy;
 const zgui = @import("anywhere").zgui;
 pub const ts = @import("tree_sitter");
 
-// TODO
-// https://github.com/tree-sitter/tree-sitter/issues/739
-
-extern fn tree_sitter_zig() ?*ts.Language;
-extern fn tree_sitter_markdown() ?*ts.Language;
+extern fn tree_sitter_zig() *ts.Language;
+extern fn tree_sitter_markdown() *ts.Language;
 
 fn tsinputRead(block_val: *const bi.text_component.TextDocument, byte_offset: u32, _: ts.Point) []const u8 {
     if (byte_offset >= block_val.length()) return "";
@@ -21,48 +18,123 @@ fn textComponentToTsInput(block_val: *const bi.text_component.TextDocument) ts.I
     return .from(.utf8, block_val, tsinputRead);
 }
 
+pub fn AnySized(comptime Size: comptime_int, comptime Align: comptime_int) type {
+    return struct {
+        data: [Size]u8 align(Align),
+        ty: if (std.debug.runtime_safety) [*:0]const u8 else void,
+
+        pub fn from(comptime T: type, value: T) @This() {
+            std.debug.assert(@sizeOf(T) <= Size);
+            std.debug.assert(@alignOf(T) <= Align);
+            var result_bytes: [Size]u8 = [_]u8{0} ** Size;
+            const bytes = std.mem.asBytes(&value);
+            @memcpy(result_bytes[0..bytes.len], bytes);
+            return .{ .data = result_bytes, .ty = if (std.debug.runtime_safety) @typeName(T) else void };
+        }
+        pub fn asPtr(self: *@This(), comptime T: type) *T {
+            if (std.debug.runtime_safety) std.debug.assert(self.ty == @typeName(T));
+            return std.mem.bytesAsValue(T, &self.data);
+        }
+        pub fn as(self: @This(), comptime T: type) T {
+            if (std.debug.runtime_safety) std.debug.assert(self.ty == @typeName(T));
+            return std.mem.bytesAsValue(T, &self.data).*;
+        }
+    };
+}
+test AnySized {
+    const Any = AnySized(16, 16);
+
+    var my_any = Any.from(u32, 25);
+    try std.testing.expectEqual(@as(u32, 25), my_any.as(u32));
+    my_any.asPtr(u32).* += 12;
+    try std.testing.expectEqual(@as(u32, 25 + 12), my_any.as(u32));
+}
+
+pub const Language = struct {
+    ts_language: *ts.Language,
+    zig_language_data: *anyopaque,
+    zig_language_vtable: *const LanguageVtable,
+    pub fn cast(self: Language, comptime Target: type) *Target {
+        std.debug.assert(self.zig_language_vtable.type_name == @typeName(Target));
+        return @ptrCast(@alignCast(self.zig_language_data));
+    }
+};
+const LanguageVtable = struct {
+    type_name: [*:0]const u8,
+    setNode: *const fn (self: Language, ctx: *Context, node: ts.Node, node_parent: ?ts.Node) void,
+    highlightCurrentNode: *const fn (self: Language, ctx: *Context, docbyte: u32) Core.SynHlColorScope,
+};
+
+pub const HlZig = struct {
+    ts_language: *ts.Language,
+    znh: ZigNodeHighlighter,
+    cached_node: ?NodeCacheInfo,
+
+    pub fn init(gpa: std.mem.Allocator) HlZig {
+        const ts_language = tree_sitter_zig();
+        return .{ .ts_language = ts_language, .znh = .init(gpa, ts_language), .cached_node = null };
+    }
+    pub fn deinit(self: *HlZig) void {
+        self.znh.deinit();
+    }
+
+    fn setNode(self_any: Language, ctx: *Context, node: ts.Node, node_parent: ?ts.Node) void {
+        const self = self_any.cast(HlZig);
+        self.cached_node = getCacheForNode(&self.znh, ctx, node);
+        _ = node_parent;
+    }
+    fn highlightCurrentNode(self_any: Language, ctx: *Context, offset_into_node: u32) Core.SynHlColorScope {
+        const self = self_any.cast(HlZig);
+        return renderCache(ctx, self.cached_node.?, offset_into_node);
+    }
+
+    const vtable = LanguageVtable{
+        .type_name = @typeName(HlZig),
+        .setNode = setNode,
+        .highlightCurrentNode = highlightCurrentNode,
+    };
+    pub fn language(self: *HlZig) Language {
+        return .{
+            .ts_language = self.ts_language,
+            .zig_language_data = @ptrCast(self),
+            .zig_language_vtable = &vtable,
+        };
+    }
+};
+
 pub const Context = struct {
     alloc: std.mem.Allocator,
     parser: ts.Parser,
     language: *ts.Language,
+    zig_language: Language,
     cached_tree: ts.Tree,
     document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
     tree_needs_reparse: bool,
-    znh: ZigNodeHighlighter,
 
     /// refs document
-    pub fn init(self: *Context, document: db_mod.TypedComponentRef(bi.text_component.TextDocument), alloc: std.mem.Allocator) !void {
+    pub fn init(self: *Context, document: db_mod.TypedComponentRef(bi.text_component.TextDocument), language: Language, alloc: std.mem.Allocator) void {
         document.ref();
-        errdefer document.unref();
-
         const parser = ts.Parser.init();
-        errdefer parser.deinit();
-
-        const lang = tree_sitter_zig().?;
-        try parser.setLanguage(lang);
-
+        const lang = language.ts_language;
+        parser.setLanguage(lang) catch |e| switch (e) {
+            error.VersionMismatch => @panic("Version Mismatch"),
+        };
         self.document = document;
-
         const tree = parser.parse(null, textComponentToTsInput(document.value));
-        errdefer tree.deinit();
-
         self.* = .{
             .alloc = alloc,
             .parser = parser,
             .document = self.document,
             .cached_tree = tree,
             .tree_needs_reparse = false,
-            .znh = undefined,
             .language = lang,
+            .zig_language = language,
         };
-        self.znh.init(alloc, lang);
-        errdefer self.znh.deinit();
 
         document.value.on_before_simple_operation.addListener(.from(self, beforeUpdateCallback));
         errdefer document.value.on_before_simple_operation.removeListener(.from(self, beforeUpdateCallback));
     }
     pub fn deinit(self: *Context) void {
-        self.znh.deinit();
         self.cached_tree.deinit();
         self.parser.deinit();
         self.document.value.on_before_simple_operation.removeListener(.from(self, beforeUpdateCallback));
@@ -71,7 +143,6 @@ pub const Context = struct {
 
     fn beforeUpdateCallback(self: *Context, op: bi.text_component.TextDocument.EmitSimpleOperation) void {
         self.tree_needs_reparse = true;
-        self.znh.clear();
 
         const block = self.document.value;
         const op_position = block.positionFromDocbyte(op.position);
@@ -112,8 +183,7 @@ pub const Context = struct {
     }
 
     pub fn highlight(self: *Context) TreeSitterSyntaxHighlighter {
-        self.znh.beginFrame(self.document.value);
-        return TreeSitterSyntaxHighlighter.init(&self.znh, self.getTree().rootNode());
+        return TreeSitterSyntaxHighlighter.init(self, self.getTree().rootNode());
     }
     pub fn endHighlight(self: *Context) void {
         // self.znh.clear(); // not needed
@@ -133,36 +203,56 @@ pub const Context = struct {
             node = node.?.slowParent();
         }
     }
+
+    pub fn charAt(self: *Context, pos: u32) u8 {
+        if (pos >= self.document.value.length()) return '\x00';
+        return self.document.value.read(self.document.value.positionFromDocbyte(pos))[0];
+    }
 };
 
 pub const TreeSitterSyntaxHighlighter = struct {
-    root_node: ts.Node,
-    znh: *ZigNodeHighlighter,
+    is_fake: bool,
+    ctx: *Context,
     cursor: ts.TreeCursor,
+    last_set_node: ?ts.Node,
 
-    pub fn init(znh: *ZigNodeHighlighter, root_node: ts.Node) TreeSitterSyntaxHighlighter {
-        var cursor: ts.TreeCursor = .init(znh.alloc, root_node);
+    pub fn initPlaintext() TreeSitterSyntaxHighlighter {
+        return .{ .is_fake = true, .ctx = undefined, .cursor = undefined, .last_set_node = undefined };
+    }
+    pub fn init(ctx: *Context, root_node: ts.Node) TreeSitterSyntaxHighlighter {
+        var cursor: ts.TreeCursor = .init(ctx.alloc, root_node);
         cursor.goDeepLhs();
 
         return .{
-            .root_node = root_node,
-            .znh = znh,
+            .is_fake = false,
+            .ctx = ctx,
             .cursor = cursor,
+            .last_set_node = null,
         };
     }
     pub fn deinit(self: *TreeSitterSyntaxHighlighter) void {
+        if (self.is_fake) return;
         self.cursor.deinit();
     }
 
-    pub fn advanceAndRead(syn_hl: *TreeSitterSyntaxHighlighter, idx: usize) Core.SynHlColorScope {
+    pub fn advanceAndRead(self: *TreeSitterSyntaxHighlighter, idx: usize) Core.SynHlColorScope {
+        if (self.is_fake) return .unstyled;
+
         const tctx = tracy.trace(@src());
         defer tctx.end();
 
-        if (idx >= syn_hl.znh.doc.?.length()) return .invalid;
+        if (idx >= self.ctx.document.value.length()) return .invalid;
 
-        const hl_node_idx = syn_hl.cursor.advanceAndFindNodeForByte(@intCast(idx));
-        const hl_node = syn_hl.cursor.stack.items[hl_node_idx];
-        return syn_hl.znh.highlightNode(hl_node, idx);
+        const hl_node_idx = self.cursor.advanceAndFindNodeForByte(@intCast(idx));
+        const hl_node = self.cursor.stack.items[hl_node_idx];
+
+        if (self.last_set_node == null or !self.last_set_node.?.eq(hl_node)) {
+            const hl_node_parent: ?ts.Node = if (hl_node_idx == 0) null else self.cursor.stack.items[hl_node_idx - 1];
+            self.ctx.zig_language.zig_language_vtable.setNode(self.ctx.zig_language, self.ctx, hl_node, hl_node_parent);
+            self.last_set_node = hl_node;
+        }
+
+        return self.ctx.zig_language.zig_language_vtable.highlightCurrentNode(self.ctx.zig_language, self.ctx, @intCast(idx));
     }
 };
 
@@ -271,15 +361,13 @@ const LastNodeCache = struct {
 };
 
 const ZigNodeHighlighter = struct {
-    // why does this thing hold .buffer in it? probably not the right place for that
-    doc: ?*bi.text_component.TextDocument,
     node_id_to_enum_id_map: []const NodeInfo,
     fn_call_id: ts.FieldId,
     alloc: std.mem.Allocator,
 
     last_node_cache: ?LastNodeCache = null,
 
-    pub fn init(self: *ZigNodeHighlighter, alloc: std.mem.Allocator, language: *ts.Language) void {
+    pub fn init(alloc: std.mem.Allocator, language: *ts.Language) ZigNodeHighlighter {
         const node_id_to_enum_id_map = alloc.alloc(NodeInfo, language.symbolCount()) catch @panic("oom");
         for (node_id_to_enum_id_map, 0..) |*item, i| {
             const item_str = language.symbolName(@intCast(i));
@@ -294,8 +382,7 @@ const ZigNodeHighlighter = struct {
                 ._none //
             );
         }
-        self.* = .{
-            .doc = null,
+        return .{
             .node_id_to_enum_id_map = node_id_to_enum_id_map,
             .fn_call_id = language.fieldIdForName("function_call"),
             .alloc = alloc,
@@ -304,32 +391,12 @@ const ZigNodeHighlighter = struct {
     pub fn deinit(self: *ZigNodeHighlighter) void {
         self.alloc.free(self.node_id_to_enum_id_map);
     }
-    pub fn beginFrame(self: *ZigNodeHighlighter, doc: *bi.text_component.TextDocument) void {
-        self.doc = doc;
-    }
-    pub fn clear(self: *ZigNodeHighlighter) void {
-        self.doc = null;
-        self.last_node_cache = null;
-    }
 
     pub fn nodeSymbolToInfo(hl: *ZigNodeHighlighter, info: u16) NodeInfo {
         if (info > hl.node_id_to_enum_id_map.len) return ._none;
         return hl.node_id_to_enum_id_map[info];
     }
 
-    pub fn highlightNode(hl: *ZigNodeHighlighter, node: ts.Node, byte_index: usize) Core.SynHlColorScope {
-        const tctx = tracy.trace(@src());
-        defer tctx.end();
-
-        if (hl.last_node_cache) |cache| {
-            if (cache.node.eq(node)) {
-                return renderCache(hl, cache.cache, byte_index);
-            }
-        }
-        const cache = getCacheForNode(hl, node);
-        hl.last_node_cache = .{ .node = node, .cache = cache };
-        return renderCache(hl, cache, byte_index);
-    }
     pub fn charAt(hl: *ZigNodeHighlighter, pos: u64) u8 {
         const tctx = tracy.trace(@src());
         defer tctx.end();
@@ -344,7 +411,7 @@ const ZigNodeHighlighter = struct {
 fn cs(v: Core.SynHlColorScope) NodeCacheInfo {
     return .{ .color_scope = v };
 }
-fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize) Core.SynHlColorScope {
+fn renderCache(ctx: *Context, cache: NodeCacheInfo, byte_index: u32) Core.SynHlColorScope {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
@@ -352,7 +419,7 @@ fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize)
         .color_scope => |scope| scope,
         .special => |special| blk: {
             const offset: i32 = @as(i32, @intCast(byte_index)) - @as(i32, @intCast(special.start_byte));
-            const char = hl.charAt(byte_index);
+            const char = ctx.charAt(byte_index);
             break :blk switch (special.kind) {
                 .dot => switch (offset) {
                     0 => .punctuation_important,
@@ -402,7 +469,7 @@ fn renderCache(hl: *ZigNodeHighlighter, cache: NodeCacheInfo, byte_index: usize)
         },
     };
 }
-fn getCacheForNode(hl: *ZigNodeHighlighter, node: ts.Node) NodeCacheInfo {
+fn getCacheForNode(hl: *ZigNodeHighlighter, ctx: *Context, node: ts.Node) NodeCacheInfo {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
@@ -440,7 +507,7 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: ts.Node) NodeCacheInfo {
             },
             .INTEGER, .FLOAT => {
                 const start_byte = node.startByte();
-                const c1 = hl.charAt(start_byte);
+                const c1 = ctx.charAt(start_byte + 1);
                 return switch (c1) {
                     'x', 'o', 'b' => .{ .special = .{
                         .start_byte = start_byte,
@@ -485,32 +552,6 @@ fn getCacheForNode(hl: *ZigNodeHighlighter, node: ts.Node) NodeCacheInfo {
     }
 }
 
-// fn displayHlInfo(self: @compileError("TODO")) void {
-//     const start_pos = self.core.cursor_position.left();
-//     const end_pos = self.core.cursor_position.right();
-
-//     // const buf = self.core.block_ref.getDataConst().?.buffer.items;
-
-//     var node = tree_sitter.ts_node_descendant_for_byte_range(tree_sitter.ts_tree_root_node(self.core.tree_sitter_ctx.?.getTree()), @intCast(start_pos), @intCast(end_pos));
-
-//     // imgui.text(imgui.fmt("{s}", .{
-//     //     @tagName( tree_sitter_zig.highlightNodeZig(node, start_pos, buf)),
-//     // }));
-//     while (!tree_sitter.ts_node_is_null(node)) {
-//         const symbol_name = tree_sitter.ts_node_type(node);
-//         const start_byte = tree_sitter.ts_node_start_byte(node);
-//         const end_byte = tree_sitter.ts_node_end_byte(node);
-//         if (imgui.button(imgui.fmt("\"{s}\" : [{d}..{d}]", .{
-//             std.fmt.fmtSliceEscapeLower(std.mem.span(symbol_name)),
-//             start_byte,
-//             end_byte,
-//         }))) {
-//             self.core.select(start_byte, end_byte);
-//         }
-//         node = tree_sitter.ts_node_parent(node);
-//     }
-// }
-
 fn testHighlight(context: *Context, expected_value: []const u8) !void {
     return testHighlightOfsetted(context, 0, expected_value);
 }
@@ -524,7 +565,7 @@ fn testHighlightOfsetted(context: *Context, offset: usize, expected_value: []con
     var prev_color_scope: Core.SynHlColorScope = .invalid;
     for (offset..context.document.value.length()) |i| {
         const read_res = hl.advanceAndRead(i);
-        const char = hl.znh.charAt(i);
+        const char = context.charAt(@intCast(i));
 
         switch (char) {
             ' ', '\n', '\r', '\t' => {
@@ -559,8 +600,11 @@ test Context {
         .insert_text = "const std = @import(\"std\");",
     }, null);
 
+    var lang_zig = HlZig.init(gpa);
+    defer lang_zig.deinit();
+
     var ctx: Context = undefined;
-    try ctx.init(src_component, gpa);
+    ctx.init(src_component, lang_zig.language(), gpa);
     defer ctx.deinit();
 
     try testHighlight(&ctx, "<keyword_storage>const <variable_constant>std <keyword>= @import<punctuation>(\"<literal_string>std<punctuation>\");");
