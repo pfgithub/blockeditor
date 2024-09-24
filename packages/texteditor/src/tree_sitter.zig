@@ -11,6 +11,7 @@ pub const ts = @import("tree_sitter_bindings.zig");
 // https://github.com/tree-sitter/tree-sitter/issues/739
 
 extern fn tree_sitter_zig() ?*ts.Language;
+extern fn tree_sitter_markdown() ?*ts.Language;
 
 fn addPoint(start_point: ts.Point, src: []const u8) ts.Point {
     var result: ts.Point = start_point;

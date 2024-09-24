@@ -48,6 +48,16 @@ pub fn build(b: *std.Build) !void {
     tree_sitter_zig_obj.addCSourceFile(.{ .file = tree_sitter_zig_dep.path("src/parser.c") });
     tree_sitter_zig_obj.addIncludePath(tree_sitter_zig_dep.path("src"));
 
+    const tree_sitter_markdown_dep = b.dependency("tree_sitter_markdown", .{});
+    const tree_sitter_markdown_obj = b.addStaticLibrary(.{
+        .name = "tree_sitter_markdown",
+        .target = target,
+        .optimize = treesitter_target,
+    });
+    tree_sitter_markdown_obj.linkLibC();
+    tree_sitter_markdown_obj.addCSourceFile(.{ .file = tree_sitter_markdown_dep.path("tree-sitter-markdown/src/parser.c") });
+    tree_sitter_markdown_obj.addIncludePath(tree_sitter_markdown_dep.path("tree-sitter-markdown/src"));
+
     const texteditor_mod = b.addModule("texteditor", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,

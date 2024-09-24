@@ -14,6 +14,10 @@
             .url = "git+https://github.com/maxxnino/tree-sitter-zig?ref=main#2bac4cc6c697d46a193905fef6d003bfa0bfabfd",
             .hash = "1220806e8fd2c17753c98bf7bc180ff0d23cd6005ecca28046fb2510a590dfd9e927",
         },
+        .tree_sitter_markdown = .{
+            .url = "git+https://github.com/tree-sitter-grammars/tree-sitter-markdown?ref=split_parser#d9287a6f36347064e55c36858e9e522eb652c1ad",
+            .hash = "12209e3d2e251728540a4005a898615469757e004dcd1dea4e38f5559fb1ee0f3e28",
+        },
         .zls = .{
             .url = "git+https://github.com/zigtools/zls?ref=master#cf9b49a67b15693d62926ea11d17f53efc60be50",
             .hash = "1220f06f9020224a411bdac4a2f527fd367eeec3f918f1b99a8e3964dc09ad499329",
