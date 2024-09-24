@@ -1924,6 +1924,23 @@ test Core {
     tester.editor.executeCommand(.redo);
     try tester.expectContent("|");
 
+    if (false) {
+        for ("const std = @import(\"std\");") |char| {
+            tester.executeCommand(.{ .insert_text = .{ .text = &.{char} } });
+        }
+        try tester.expectContent("const std = @import(\"std\");|");
+        tester.editor.executeCommand(.undo);
+        try tester.expectContent("const std = @import(|");
+        tester.editor.executeCommand(.undo);
+        try tester.expectContent("const std =|");
+        tester.editor.executeCommand(.undo);
+        try tester.expectContent("const std|");
+        tester.editor.executeCommand(.undo);
+        try tester.expectContent("const|");
+        tester.editor.executeCommand(.undo);
+        try tester.expectContent("|");
+    }
+
     // undo everything, see if it works
     while (tester.editor.undo.values.items.len > 0) {
         tester.editor.executeCommand(.undo);
