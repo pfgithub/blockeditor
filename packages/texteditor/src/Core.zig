@@ -329,7 +329,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                 if (switch (char) {
                     // this matches vscode, but vscode only does it because it's automatically
                     // inserting a right bracket at the same time. so not sure if this makes sense to match.
-                    '(', '{', '[', '<' => true,
+                    '(', '{', '[', '<', '\'', '\"' => true,
                     else => false,
                 }) classification = .always_split;
             }
