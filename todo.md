@@ -61,6 +61,8 @@ Tasks:
 - [x] text editor: ctrl+enter from the end of a line inserts two lines below
 - [ ] document: finish replace_and_delete impl, remove replace and remove delete. replace
   and delete will be easier to undo than seperate ops.
+- [ ] applySimpleOperation: if you apply operation A and then B, undo should undo B and then A.
+  this was missed in multi-operation logic.
 
 wishlist:
 

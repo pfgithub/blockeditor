@@ -603,16 +603,14 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
         .undo => {
             const undo_op = self.undo.take() orelse return;
 
-            const rb = self.redo.begin();
-            self.document.applyUndoOperation(undo_op, rb.al);
-            rb.end() catch @panic("oom");
+            const al = self.redo.begin() catch @panic("oom");
+            self.document.applyUndoOperation(undo_op, al);
         },
         .redo => {
             const redo_op = self.redo.take() orelse return;
 
-            const ub = self.undo.begin();
-            self.document.applyUndoOperation(redo_op, ub.al);
-            ub.end() catch @panic("oom");
+            const al = self.undo.begin() catch @panic("oom");
+            self.document.applyUndoOperation(redo_op, al);
         },
         .click => |click_op| {
             self.onClick(click_op.pos, click_op.mode, click_op.extend, click_op.select_ts_node);
@@ -815,11 +813,18 @@ fn onDrag(self: *Core, pos: Position) void {
     }
 }
 
+const UndoToken = struct {};
+pub fn addUndoToken(self: *Core) UndoToken {
+    // save:
+    // - cursor positions
+    //
+    // if the last thing done was insert_text, maybe don't add an undo token
+    _ = self;
+}
 pub fn replaceRange(self: *Core, operation: bi.text_component.TextDocument.SimpleOperation) void {
     self.redo.clear();
-    const ub = self.undo.begin();
-    self.document.applySimpleOperation(operation, ub.al);
-    ub.end() catch @panic("oom");
+    const al = self.undo.begin() catch @panic("oom");
+    self.document.applySimpleOperation(operation, al);
 }
 
 pub fn getCursorPositions(self: *Core) CursorPositions {
@@ -1116,62 +1121,57 @@ pub fn SliceStackAligned(comptime T: type, comptime alignment: ?u29) type {
     return struct {
         const Range = struct { start: usize, end: if (alignment) |_| usize else void };
         const SSA = @This();
-        items: std.ArrayListAligned(T, alignment),
-        ranges: std.ArrayList(Range),
+        values: std.ArrayListAligned(T, alignment),
+        headers: std.ArrayList(Header),
+        const Header = struct {
+            last_item_end: if (alignment) |_| usize else void,
+            this_item_start: usize,
+        };
 
         pub fn init(gpa: std.mem.Allocator) TextStack {
-            return .{ .items = .init(gpa), .ranges = .init(gpa) };
+            return .{ .values = .init(gpa), .headers = .init(gpa) };
         }
         pub fn deinit(self: TextStack) void {
-            self.items.deinit();
-            self.ranges.deinit();
+            self.values.deinit();
+            self.headers.deinit();
         }
 
         pub fn clear(self: *TextStack) void {
-            self.items.clearRetainingCapacity();
-            self.ranges.clearRetainingCapacity();
+            self.values.clearRetainingCapacity();
+            self.headers.clearRetainingCapacity();
         }
 
-        const Begin = struct {
-            ssa: *SSA,
-            al: *std.ArrayListAligned(T, alignment),
-            pos_start: usize,
-
-            pub fn cancel(b: Begin) void {
-                b.ssa.items.items.len = b.pos_start;
+        pub fn begin(self: *TextStack) !*std.ArrayListAligned(T, alignment) {
+            const last_item_end = self.values.items.len;
+            if (alignment) |a| {
+                const aligned_len = std.mem.alignForward(usize, last_item_end, a);
+                try self.values.resize(aligned_len);
             }
-            pub fn end(b: Begin) !void {
-                try b.ssa.ranges.append(.{ .start = b.pos_start, .end = if (alignment) |_| b.ssa.items.items.len else {} });
-                errdefer _ = b.ssa.ranges.pop();
-                if (alignment) |a| {
-                    const aligned_len = std.mem.alignForward(usize, b.ssa.items.items.len, a);
-                    try b.ssa.items.resize(aligned_len);
-                }
-            }
-        };
+            const this_item_start = self.values.items.len;
 
-        /// { const begin = mystack.begin();
-        /// errdefer begin.cancel();
-        /// try begin.al.appendSlice("0123456789ABCDEF");
-        /// try begin.end(); }
-        pub fn begin(self: *TextStack) Begin {
-            return .{ .ssa = self, .al = &self.items, .pos_start = self.items.items.len };
+            try self.headers.append(.{
+                .last_item_end = if (alignment) |_| last_item_end else {},
+                .this_item_start = this_item_start,
+            });
+
+            return &self.values;
         }
-
+        pub fn cancel(self: *TextStack) void {
+            _ = self.take().?;
+        }
         pub fn add(self: *TextStack, value: []const T) !void {
-            try self.ranges.append(.{ .start = self.items.items.len, .end = if (alignment) |_| self.items.items.len + value.len else {} });
-            errdefer _ = self.ranges.pop();
-            const aligned_len = if (alignment) |a| std.mem.alignForward(usize, value.len, a) else value.len;
-            const res_slice = try self.items.addManyAsSlice(aligned_len);
-            @memcpy(res_slice[0..value.len], value);
+            const al = try self.begin();
+            errdefer self.cancel();
+
+            try al.appendSlice(value);
         }
         /// pointer is only valid until next add(), begin(), or deinit() call.
         pub fn take(self: *TextStack) ?(if (alignment) |a| []align(a) T else []T) {
-            if (self.ranges.items.len == 0) return null;
+            if (self.headers.items.len == 0) return null;
 
-            const range = self.ranges.pop();
-            const res = self.items.items[range.start..if (alignment) |_| range.end else self.items.items.len];
-            self.items.items = self.items.items[0..range.start];
+            const header = self.headers.pop();
+            const res = self.values.items[header.this_item_start..];
+            self.values.items = self.values.items[0..if (alignment) |_| header.last_item_end else header.this_item_start];
             return @alignCast(res);
         }
     };
@@ -1183,70 +1183,43 @@ test TextStack {
     var mystack: TextStack = .init(std.testing.allocator);
     defer mystack.deinit();
 
-    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
     try mystack.add("one");
-    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
     try mystack.add("2");
-    try std.testing.expectEqual(@as(usize, 32), mystack.items.items.len);
     try mystack.add("threeee!");
-    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
     try std.testing.expectEqualStrings("threeee!", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 32), mystack.items.items.len);
     try std.testing.expectEqualStrings("2", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
     try mystack.add("five");
-    try std.testing.expectEqual(@as(usize, 32), mystack.items.items.len);
     try std.testing.expectEqualStrings("five", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
     mystack.clear();
-    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
     try std.testing.expectEqualStrings("null", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
 
     try mystack.add("0123456789ABCDEF");
-    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
     try mystack.add("0123456789ABCDEFG");
-    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
     try mystack.add("0123456789ABCDEFGH");
-    try std.testing.expectEqual(@as(usize, 80), mystack.items.items.len);
     try std.testing.expectEqualStrings("0123456789ABCDEFGH", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
     try std.testing.expectEqualStrings("0123456789ABCDEFG", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
     try std.testing.expectEqualStrings("0123456789ABCDEF", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
     try std.testing.expectEqualStrings("null", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
 
     {
-        const begin = mystack.begin();
-        errdefer begin.cancel();
-        try begin.al.appendSlice("0123456789ABCDEF");
-        try begin.end();
+        const al = try mystack.begin();
+        errdefer mystack.cancel();
+        try al.appendSlice("0123456789ABCDEF");
     }
-    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
     {
-        const begin = mystack.begin();
-        errdefer begin.cancel();
-        try begin.al.appendSlice("0123456789ABCDEFG");
-        try begin.end();
+        const al = try mystack.begin();
+        errdefer mystack.cancel();
+        try al.appendSlice("0123456789ABCDEFG");
     }
-    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
     {
-        const begin = mystack.begin();
-        errdefer begin.cancel();
-        try begin.al.appendSlice("0123456789ABCDEFGH");
-        try begin.end();
+        const al = try mystack.begin();
+        errdefer mystack.cancel();
+        try al.appendSlice("0123456789ABCDEFGH");
     }
-    try std.testing.expectEqual(@as(usize, 80), mystack.items.items.len);
     try std.testing.expectEqualStrings("0123456789ABCDEFGH", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 48), mystack.items.items.len);
     try std.testing.expectEqualStrings("0123456789ABCDEFG", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 16), mystack.items.items.len);
     try std.testing.expectEqualStrings("0123456789ABCDEF", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
     try std.testing.expectEqualStrings("null", mystack.take() orelse "null");
-    try std.testing.expectEqual(@as(usize, 0), mystack.items.items.len);
 }
 
 const PositionItem = struct {
@@ -1901,8 +1874,15 @@ test Core {
     tester.editor.executeCommand(.undo);
     try tester.expectContent("\n\n|");
 
+    // tester.executeCommand(.select_all);
+    // try tester.expectContent("[\n\n|");
+    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
+    // try tester.expectContent("|");
+    // tester.editor.executeCommand(.undo);
+    // try tester.expectContent("[\n\n|");
+
     // undo everything, see if it works
-    while (tester.editor.undo.items.items.len > 0) {
+    while (tester.editor.undo.values.items.len > 0) {
         tester.editor.executeCommand(.undo);
     }
     try tester.expectContent("hello!|"); // todo save cursor positions with undo
