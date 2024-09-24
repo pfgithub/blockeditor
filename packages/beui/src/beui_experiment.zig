@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const Beui = @import("Beui.zig");
 
 const BeuiLayout = struct {
@@ -82,7 +84,6 @@ pub const Scroller = struct {
         target_data: ?u128,
     };
 };
-const ID = enum(u128) {};
 
 fn targetScrollApi(layout: *BeuiLayout, scroll_state: *Scroller.State) void {
     const scroller = layout.beginScroll(scroll_state);
@@ -146,3 +147,78 @@ const SampleVirtual = struct {
 // - before sending buffers to the gpu, loop over that array and apply the offsets
 // handling events with items that have been moved after rendering is not easy.
 // - items know where they were last frame, so they can pretend they're still there?
+
+const ID = struct {
+    arena: std.mem.Allocator,
+    value: []const u8,
+    pub fn push(self: ID, src: std.builtin.SourceLocation) ID {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(src.module);
+        hasher.update(src.file);
+        hasher.update(src.fn_name);
+        hasher.update(std.mem.asBytes(&src.line));
+        hasher.update(std.mem.asBytes(&src.column));
+        return self.pushBytes(std.mem.asBytes(&hasher.final()));
+    }
+    pub fn pushBytes(self: ID, str: []const u8) ID {
+        var new_buf = self.arena.alloc(u8, self.value.len + str.len) catch @panic("oom");
+        @memcpy(new_buf[0..self.value.len], self.value);
+        @memcpy(new_buf[self.value.len..], str);
+        return .{ .arena = self.arena, .value = self.value };
+    }
+};
+
+const Demo = struct {};
+const Scrollbox = struct {};
+
+fn beginScrollbox() void {}
+fn renderText() void {}
+
+fn demoScroller(demo: *Demo) void {
+    const scrollbox = beginScrollbox(demo, .y);
+    defer scrollbox.end();
+
+    if (scrollbox.child(@src())) {
+        renderText("item one");
+    }
+    if (scrollbox.child(@src())) {
+        renderText("item two");
+    }
+
+    const strings = &[_][]const u8{ "one", "two", "three" };
+
+    while (scrollbox.virtual(@src(), strings.len, MyVirtual)) |index| {
+        renderText(strings[index.value]);
+    }
+
+    if (scrollbox.child(@src())) {
+        renderText("item three");
+    }
+
+    for (strings, 0..) |string, i| {
+        scrollbox.id.pushLoopKey(i);
+        defer scrollbox.id.popLoopKey();
+
+        if (scrollbox.child(@src())) {
+            renderText(string);
+        }
+    }
+}
+
+const MyVirtual = struct {
+    value: usize,
+    pub fn first(_: usize) ?MyVirtual {
+        return .{ .value = 0 };
+    }
+    pub fn last(len: usize) ?MyVirtual {
+        return .{ .value = len - 1 };
+    }
+    pub fn prev(self: MyVirtual, len: usize) ?MyVirtual {
+        if (self.value == 0) return null;
+        return .{ .value = @min(self.value - 1, len - 1) };
+    }
+    pub fn next(self: MyVirtual, len: usize) ?MyVirtual {
+        if (self.value == len - 1) return null;
+        return .{ .value = @min(self.value + 1, len - 1) };
+    }
+};
