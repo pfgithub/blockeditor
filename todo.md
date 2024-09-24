@@ -64,6 +64,7 @@ Tasks:
 
 wishlist:
 
+- [ ] automatically disable tree sitter once document length passes a certian value, and re-enable it when it gets below the value. this will also prevent crashing for files larger than maxInt(u32).
 - [ ] introduce editor core test recorder. fix a bug or add a feature, then record a session
   and generate tests from it.
 - [x] packages/texteditor should not contain View. Instead, it should be part of beui, and

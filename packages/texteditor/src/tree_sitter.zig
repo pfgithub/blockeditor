@@ -13,18 +13,6 @@ pub const ts = @import("tree_sitter");
 extern fn tree_sitter_zig() ?*ts.Language;
 extern fn tree_sitter_markdown() ?*ts.Language;
 
-fn addPoint(start_point: ts.Point, src: []const u8) ts.Point {
-    var result: ts.Point = start_point;
-    for (src) |char| {
-        result.column += 1;
-        if (char == '\n') {
-            result.row += 1;
-            result.column = 0;
-        }
-    }
-    return result;
-}
-
 fn tsinputRead(block_val: *const bi.text_component.TextDocument, byte_offset: u32, _: ts.Point) []const u8 {
     if (byte_offset >= block_val.length()) return "";
     return block_val.read(block_val.positionFromDocbyte(byte_offset));
@@ -41,8 +29,6 @@ pub const Context = struct {
     document: db_mod.TypedComponentRef(bi.text_component.TextDocument),
     tree_needs_reparse: bool,
     znh: ZigNodeHighlighter,
-
-    old_slice: std.ArrayList(u8),
 
     /// refs document
     pub fn init(self: *Context, document: db_mod.TypedComponentRef(bi.text_component.TextDocument), alloc: std.mem.Allocator) !void {
@@ -67,21 +53,16 @@ pub const Context = struct {
             .cached_tree = tree,
             .tree_needs_reparse = false,
             .znh = undefined,
-            .old_slice = undefined,
             .language = lang,
         };
         self.znh.init(alloc, lang);
         errdefer self.znh.deinit();
-
-        self.old_slice = .init(alloc);
-        errdefer self.old_slice.deinit();
 
         document.value.on_before_simple_operation.addListener(.from(self, beforeUpdateCallback));
         errdefer document.value.on_before_simple_operation.removeListener(.from(self, beforeUpdateCallback));
     }
     pub fn deinit(self: *Context) void {
         self.znh.deinit();
-        self.old_slice.deinit();
         self.cached_tree.deinit();
         self.parser.deinit();
         self.document.value.on_before_simple_operation.removeListener(.from(self, beforeUpdateCallback));
@@ -94,22 +75,29 @@ pub const Context = struct {
 
         const block = self.document.value;
         const op_position = block.positionFromDocbyte(op.position);
-
-        std.debug.assert(self.old_slice.items.len == 0);
-        const res_slice = self.old_slice.addManyAsSlice(op.delete_len) catch @panic("oom");
-        defer self.old_slice.clearRetainingCapacity();
-        block.readSlice(op_position, res_slice);
+        const op_end_position = block.positionFromDocbyte(op.position + op.delete_len);
 
         const start_point_lyncol = block.lynColFromPosition(op_position);
         const start_point: ts.Point = .{ .row = @intCast(start_point_lyncol.lyn), .column = @intCast(start_point_lyncol.col) };
+        const end_point_lyncol = block.lynColFromPosition(op_end_position);
+        const end_point: ts.Point = .{ .row = @intCast(end_point_lyncol.lyn), .column = @intCast(end_point_lyncol.col) };
+
+        var new_end_point: ts.Point = start_point;
+        for (op.insert_text) |char| {
+            new_end_point.column += 1;
+            if (char == '\n') {
+                new_end_point.row += 1;
+                new_end_point.column = 0;
+            }
+        }
 
         self.cached_tree.edit(.{
             .start_byte = @intCast(op.position),
             .old_end_byte = @intCast(op.position + op.delete_len),
             .new_end_byte = @intCast(op.position + op.insert_text.len),
             .start_point = start_point,
-            .old_end_point = addPoint(start_point, res_slice),
-            .new_end_point = addPoint(start_point, op.insert_text),
+            .old_end_point = end_point,
+            .new_end_point = new_end_point,
         });
     }
 
@@ -145,40 +133,6 @@ pub const Context = struct {
             node = node.?.slowParent();
         }
     }
-
-    // pub fn displayExplorer(self: *Context) void {
-    //     const root_node = tree_sitter.ts_tree_root_node(self.getTree());
-
-    //     var cursor: tree_sitter.TSTreeCursor = tree_sitter.ts_tree_cursor_new(root_node);
-    //     defer tree_sitter.ts_tree_cursor_delete(&cursor);
-
-    //     // this is alright but it would be nice to:
-    //     // hover to show what part is in the thing
-
-    //     displayExplorerSub(&cursor);
-    // }
-    // fn displayExplorerSub(cursor: *tree_sitter.TSTreeCursor) void {
-    //     const node_type = std.mem.span(tree_sitter.ts_node_type(tree_sitter.ts_tree_cursor_current_node(cursor)));
-    //     const node_field_name = std.mem.span(tree_sitter.ts_tree_cursor_current_field_name(cursor) orelse @as([]const u8, "").ptr);
-
-    //     const node_fmt = if (node_field_name.len > 0) ( //
-    //         imgui.fmt("{s}: \"{s}\"", .{ std.fmt.fmtSliceEscapeLower(node_field_name), std.fmt.fmtSliceEscapeLower(node_type) }) //
-    //     ) else ( //
-    //         imgui.fmt("\"{s}\"", .{std.fmt.fmtSliceEscapeLower(node_type)}) //
-    //     );
-
-    //     const has_children = tree_sitter.ts_tree_cursor_goto_first_child(cursor);
-    //     defer if (has_children) std.debug.assert(tree_sitter.ts_tree_cursor_goto_parent(cursor));
-
-    //     if (imgui.treeNodeEx(node_fmt.ptr, if (has_children) 0 else imgui.TreeNodeFlags_Leaf | imgui.TreeNodeFlags_NoTreePushOnOpen) and has_children) {
-    //         defer imgui.treePop();
-
-    //         while (true) {
-    //             displayExplorerSub(cursor);
-    //             if (!tree_sitter.ts_tree_cursor_goto_next_sibling(cursor)) break;
-    //         }
-    //     }
-    // }
 };
 
 pub const TreeSitterSyntaxHighlighter = struct {
