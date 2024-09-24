@@ -25,6 +25,28 @@ const BeuiLayout = struct {
     },
 };
 
+const LayoutFormattingRange = struct {
+    length: usize, // must not be 0
+    bold: bool,
+    italic: bool,
+    // font family, font size, etc
+};
+const RenderFormattingRange = struct {
+    length: usize,
+    has_left_cursor: bool,
+    has_selection: bool,
+    color: Beui.Color,
+    background_color: Beui.Color,
+};
+pub fn text(layout: *BeuiLayout, chars: []const u8, layout_formatting_ranges: []LayoutFormattingRange, render_formatting_ranges: []RenderFormattingRange) void {
+    // step 1: read or create layout cache for (chars, formatting_ranges)
+    // step 2: render using (layout_cache, render_formatting_ranges)
+    _ = layout;
+    _ = chars;
+    _ = layout_formatting_ranges;
+    _ = render_formatting_ranges;
+}
+
 // experiment:
 // - fn text() : renders text given (text, cursor_positions, theme_ranges), posts its size and returns the left hovered byte
 
