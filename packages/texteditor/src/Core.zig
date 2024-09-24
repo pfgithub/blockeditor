@@ -1907,7 +1907,6 @@ test Core {
     while (tester.editor.undo.items.items.len > 0) {
         tester.editor.executeCommand(.undo);
     }
-
     try tester.expectContent("hello!");
 }
 

@@ -725,7 +725,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                         try writer.print("[I:{}:\"{}\"->{}]", .{ iop.pos, std.zig.fmtEscapes(iop.text), iop.id });
                     },
                     .replace_and_delete => |rdop| {
-                        try writer.print("[RD:{}:\"{}\",{any}]", .{ rdop.id, std.zig.fmtEscapes(rdop.replace_buffer), rdop.sorted_ranges });
+                        try writer.print("[RD:{}:\"{}\"", .{ rdop.id, std.zig.fmtEscapes(rdop.replace_buffer) });
+                        for (rdop.sorted_ranges) |sr| try writer.print(",{d}-{d}:.{s}", .{ sr.start_segbyte, sr.end_segbyte, @tagName(sr.mode) });
+                        try writer.print("]", .{});
                     },
                     .extend => |xop| {
                         try writer.print("[X:{}:{d}:\"{}\"]", .{ xop.id, xop.prev_len, std.zig.fmtEscapes(xop.text) });
@@ -1301,6 +1303,10 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             const tctx = anywhere.tracy.trace(@src());
             defer tctx.end();
 
+            // std.log.err("state before: {}", .{self});
+            // std.log.err("executing operation: {}", .{op});
+            // defer std.log.err("state after: {}", .{self});
+
             // TODO applyOperation should return the inverse operation for undo
             // insert(3, "hello") -> delete(3, 5)
             // delete(3, 5) -> undelete(3, "hello")
@@ -1703,6 +1709,53 @@ pub fn main() !void {
     std.log.info("- height: {d}", .{testres.final_height});
 }
 pub const std_options = .{ .log_level = .info };
+
+test "undo problem" {
+    const gpa = std.testing.allocator;
+
+    var arena_backing = std.heap.ArenaAllocator.init(gpa);
+    defer arena_backing.deinit();
+    const arena = arena_backing.allocator();
+
+    var block = TextDocument.initEmpty(gpa);
+    defer block.deinit();
+
+    try block.applyOperationStruct(arena, .{
+        // [I:E:"hello!"->@1]
+        .insert = .{ .pos = .end, .id = @enumFromInt(1 << 16), .text = "hello!" },
+    }, null);
+    try std.testing.expectEqualStrings("@1.0\"hello!\" E", try std.fmt.allocPrint(arena, "{}", .{block}));
+
+    try block.applyOperationStruct(arena, .{
+        // [I:@1.0:"abcd!"->@2]
+        .insert = .{ .pos = .{ .id = @enumFromInt(1 << 16), .segbyte = 0 }, .id = @enumFromInt(2 << 16), .text = "abcd!" },
+    }, null);
+    try std.testing.expectEqualStrings("@2.0\"abcd!\" @1.0\"hello!\" E", try std.fmt.allocPrint(arena, "{}", .{block}));
+
+    try block.applyOperationStruct(arena, .{
+        // [RD:@2:"",0-1:.delete]
+        .replace_and_delete = .{ .id = @enumFromInt(2 << 16), .replace_buffer = "", .sorted_ranges = &.{
+            .{ .start_segbyte = 0, .end_segbyte = 1, .mode = .delete },
+        } },
+    }, null);
+    try std.testing.expectEqualStrings("@2.0-1 @2.1\"bcd!\" @1.0\"hello!\" E", try std.fmt.allocPrint(arena, "{}", .{block}));
+
+    try block.applyOperationStruct(arena, .{
+        // [RD:@2:"a",0-1:.replace]
+        .replace_and_delete = .{ .id = @enumFromInt(2 << 16), .replace_buffer = "a", .sorted_ranges = &.{
+            .{ .start_segbyte = 0, .end_segbyte = 1, .mode = .replace },
+        } },
+    }, null);
+    try std.testing.expectEqualStrings("@2.0\"a\" @2.1\"bcd!\" @1.0\"hello!\" E", try std.fmt.allocPrint(arena, "{}", .{block}));
+
+    try block.applyOperationStruct(arena, .{
+        // [RD:@2:"",0-5:.delete]
+        .replace_and_delete = .{ .id = @enumFromInt(2 << 16), .replace_buffer = "", .sorted_ranges = &.{
+            .{ .start_segbyte = 0, .end_segbyte = 5, .mode = .delete },
+        } },
+    }, null);
+    try std.testing.expectEqualStrings("@2.0-1 @2.1-4 @1.0\"hello!\" E", try std.fmt.allocPrint(arena, "{}", .{block}));
+}
 
 fn testSampleBlock(gpa: std.mem.Allocator) !void {
     var block = TextDocument.initEmpty(gpa);
