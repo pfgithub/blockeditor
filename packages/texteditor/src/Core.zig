@@ -56,8 +56,10 @@ pub fn initFromDoc(self: *Core, gpa: std.mem.Allocator, document: db_mod.TypedCo
 }
 pub fn deinit(self: *Core) void {
     if (self.syn_hl_ctx) |*pv| pv.deinit();
+    for (self.undo_tokens.items) |t| self.gpa.free(t.cursor_positions_clone_owned);
     self.undo_tokens.deinit();
     self.undo.deinit();
+    for (self.redo_tokens.items) |t| self.gpa.free(t.cursor_positions_clone_owned);
     self.redo_tokens.deinit();
     self.redo.deinit();
     if (self.clipboard_cache) |*v| {
@@ -623,7 +625,13 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                 else => unreachable,
             };
             const token = take_from_tokens.popOrNull() orelse return;
-            add_to_tokens.append(.{ .index = add_to.headers.items.len }) catch @panic("oom");
+            add_to_tokens.append(.{
+                .index = add_to.headers.items.len,
+                .cursor_positions_clone_owned = token.cursor_positions_clone_owned,
+            }) catch @panic("oom");
+
+            self.cursor_positions.clearRetainingCapacity();
+            self.cursor_positions.appendSlice(token.cursor_positions_clone_owned) catch @panic("oom");
 
             while (take_from.headers.items.len > token.index) {
                 const op = take_from.take() orelse return;
@@ -838,15 +846,18 @@ fn onDrag(self: *Core, pos: Position) void {
 
 const UndoTokenValue = struct {
     index: usize,
+    cursor_positions_clone_owned: []CursorPosition,
 };
 const UndoToken = struct {
     ut_len: usize,
 };
 pub fn addUndoToken(self: *Core) UndoToken {
+    for (self.redo_tokens.items) |item| self.gpa.free(item.cursor_positions_clone_owned);
     self.redo.clear();
     self.redo_tokens.clearRetainingCapacity();
     self.undo_tokens.append(.{
         .index = self.undo.headers.items.len,
+        .cursor_positions_clone_owned = self.gpa.dupe(CursorPosition, self.cursor_positions.items) catch @panic("oom"),
     }) catch @panic("oom");
     return .{ .ut_len = self.undo_tokens.items.len };
 }
@@ -1904,18 +1915,20 @@ test Core {
     tester.editor.executeCommand(.undo);
     try tester.expectContent("\n\n|");
 
-    // tester.executeCommand(.select_all);
-    // try tester.expectContent("[\n\n|");
-    // tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
-    // try tester.expectContent("|");
-    // tester.editor.executeCommand(.undo);
-    // try tester.expectContent("[\n\n|");
+    tester.executeCommand(.select_all);
+    try tester.expectContent("[\n\n|");
+    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
+    try tester.expectContent("|");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("[\n\n|");
+    tester.editor.executeCommand(.redo);
+    try tester.expectContent("|");
 
     // undo everything, see if it works
     while (tester.editor.undo.values.items.len > 0) {
         tester.editor.executeCommand(.undo);
     }
-    try tester.expectContent("hello!|"); // todo save cursor positions with undo
+    try tester.expectContent("|hello!");
 }
 
 fn usi(a: u64) usize {
