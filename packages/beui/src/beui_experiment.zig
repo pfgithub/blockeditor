@@ -138,9 +138,13 @@ pub const Beui2 = struct {
     }
 
     pub fn mouseCaptureResults(self: *Beui2, capture_id: ID) MouseCaptureResults {
-        _ = self;
-        _ = capture_id;
-        return .{ .mouse_left_held = false };
+        var mouse_left_held = false;
+        if (self.persistent.click_target) |ct| {
+            if (ct.eql(self, capture_id)) {
+                mouse_left_held = true;
+            }
+        }
+        return .{ .mouse_left_held = mouse_left_held };
     }
     pub fn scrollCaptureResults(self: *Beui2, capture_id: ID) @Vector(2, f32) {
         if (self.frame.scroll_target) |st| {
@@ -546,13 +550,7 @@ fn textDemo(
     const draw = b2.draw();
 
     const capture_id = b2.id(@src());
-
-    var clicked = false;
-    if (b2.persistent.click_target) |ct| {
-        if (ct.eql(b2, capture_id)) {
-            clicked = true;
-        }
-    }
+    const mouse_res = b2.mouseCaptureResults(capture_id);
 
     var char_pos: @Vector(2, f32) = .{ 0, 0 };
     for (text) |char| {
@@ -563,7 +561,7 @@ fn textDemo(
     draw.addRect(.{
         .pos = .{ 0, 0 },
         .size = .{ @floatFromInt(constraints.width), 10 },
-        .tint = .fromHexRgb(if (clicked) 0x0000FF else 0x000099),
+        .tint = .fromHexRgb(if (mouse_res.mouse_left_held) 0x0000FF else 0x000099),
     });
 
     draw.addMouseEventCapture(capture_id, .{ 0, 0 }, .{ constraints.width, 10 }, .{ .capture_click = true });
