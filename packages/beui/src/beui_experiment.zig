@@ -125,9 +125,9 @@ pub const Beui2 = struct {
             .scroll_target = scroll_target,
         };
     }
-    pub fn endFrame(self: *Beui2, draw_list: *RepositionableDrawList, rdl: ?*render_list.RenderList) void {
-        draw_list.placed = true;
-        draw_list.finalize(rdl, &self.persistent.last_frame_mouse_events, .{ 0, 0 });
+    pub fn endFrame(self: *Beui2, child: StandardChild, renderlist: ?*render_list.RenderList) void {
+        child.rdl.placed = true;
+        child.rdl.finalize(renderlist, &self.persistent.last_frame_mouse_events, .{ 0, 0 });
     }
 
     pub fn draw(self: *Beui2) *RepositionableDrawList {
@@ -226,44 +226,6 @@ pub const Beui2 = struct {
 pub const MouseCaptureResults = struct {
     mouse_left_held: bool,
 };
-
-pub fn demo1(caller_id: CallerID, constraints: Constraints) *RepositionableDrawList {
-    const b2 = caller_id.b2;
-    b2.pushScope(caller_id, @src());
-    defer b2.popScope();
-
-    const result = b2.draw();
-
-    result.place(scrollDemo(b2.callerID(@src()), constraints), .{ 0, 0 });
-
-    return result;
-}
-
-fn demo0(caller_id: CallerID, b2: *Beui2) *RepositionableDrawList {
-    b2.pushScope(caller_id, @src());
-    defer b2.popScope();
-
-    const result = b2.draw();
-
-    const capture_id = b2.id(@src());
-
-    const capture_results = b2.mouseCaptureResults(capture_id);
-
-    const res_color: Beui.Color = switch (capture_results.mouse_left_held) {
-        false => .fromHexRgb(0xFF0000),
-        true => .fromHexRgb(0x00FF00),
-    };
-
-    result.addRect(.{
-        .pos = .{ 10, 10 },
-        .size = .{ 50, 50 },
-        .tint = res_color,
-    });
-
-    result.addMouseEventCapture(capture_id, .{ 10, 10 }, .{ 50, 50 });
-
-    return result;
-}
 
 const IDSegment = union(enum) {
     pub const LoopChildSize = 8 * 3;
@@ -435,9 +397,6 @@ const RepositionableDrawList = struct {
     }
 };
 
-const Constraints = struct {
-    size: @Vector(2, i32),
-};
 const Scroller = struct {
     // fn child() will call some kind of preserveIdTree fn on the id it recieves
     // same with fn virtual()
@@ -445,15 +404,17 @@ const Scroller = struct {
 
     // eventually we'll want to put scrollers inside of scrollers but we're not going to worry about that yet
 
+    b2: *Beui2,
     draw_list: *RepositionableDrawList,
     cursor: i32,
-    constraints: Constraints,
+    constraints: StandardConstraints,
     scroll_event_capture_id: ID,
 
-    pub fn begin(caller_id: CallerID, constraints: Constraints) Scroller {
+    pub fn begin(caller_id: CallerID, constraints: StandardConstraints) Scroller {
+        if (constraints.available_size.w == null or constraints.available_size.h == null) @panic("TODO scroll container with no defined size");
+
         const b2 = caller_id.b2;
         b2.pushScope(caller_id, @src());
-        defer b2.popScope();
 
         const scroll_ev_capture_id = b2.id(@src());
         const scroll_by = b2.scrollCaptureResults(scroll_ev_capture_id);
@@ -463,6 +424,7 @@ const Scroller = struct {
         scroll_state.value.offset += scroll_by[1];
 
         return .{
+            .b2 = b2,
             .draw_list = b2.draw(),
             .cursor = @intFromFloat(@round(-scroll_state.value.offset)),
             .constraints = constraints,
@@ -470,8 +432,8 @@ const Scroller = struct {
         };
     }
 
-    fn scrollerConstraints(self: *Scroller) ScrollerConstraints {
-        return .{ .width = self.constraints.size[0] };
+    fn scrollerConstraints(self: *Scroller) StandardConstraints {
+        return .{ .available_size = .{ .w = self.constraints.available_size.w, .h = null } };
     }
     pub fn child(scroller: *Scroller, caller_id: CallerID) ?ChildFill {
         const b2 = caller_id.b2;
@@ -482,8 +444,8 @@ const Scroller = struct {
     const ChildFill = struct {
         scroller: *Scroller,
         b2: *Beui2,
-        constraints: ScrollerConstraints,
-        pub fn end(self: ChildFill, value: ScrollerChild) void {
+        constraints: StandardConstraints,
+        pub fn end(self: ChildFill, value: StandardChild) void {
             self.b2.popScope();
             self.scroller.placeChild(value);
         }
@@ -511,8 +473,8 @@ const Scroller = struct {
                 pos: Anchor,
                 scroller: *Scroller,
                 b2: *Beui2,
-                constraints: ScrollerConstraints,
-                pub fn end(self: VirtualFill, value: ScrollerChild) void {
+                constraints: StandardConstraints,
+                pub fn end(self: VirtualFill, value: StandardChild) void {
                     self.b2.popLoopValue();
                     self.scroller.placeChild(value);
                 }
@@ -523,26 +485,27 @@ const Scroller = struct {
             }
         };
     }
-    fn placeChild(self: *Scroller, ch: ScrollerChild) void {
+    fn placeChild(self: *Scroller, ch: StandardChild) void {
         self.draw_list.place(ch.rdl, .{ 0, self.cursor });
-        self.cursor += ch.height;
+        self.cursor += ch.size[1];
     }
 
-    pub fn end(self: *Scroller) *RepositionableDrawList {
+    pub fn end(self: *Scroller) StandardChild {
+        self.b2.popScope();
         self.draw_list.addMouseEventCapture(
             self.scroll_event_capture_id,
             .{ 0, 0 },
-            .{ self.constraints.size[0], self.constraints.size[1] },
+            .{ self.constraints.available_size.w.?, self.constraints.available_size.h.? },
             .{ .capture_scroll = .{ .y = true } },
         );
-        return self.draw_list;
+        return .{ .size = .{ self.constraints.available_size.w.?, self.constraints.available_size.h.? }, .rdl = self.draw_list };
     }
 };
 fn textDemo(
     caller_id: CallerID,
     text: []const u8,
-    constraints: ScrollerConstraints,
-) ScrollerChild {
+    constraints: StandardConstraints,
+) StandardChild {
     const b2 = caller_id.b2;
     b2.pushScope(caller_id, @src());
     defer b2.popScope();
@@ -552,6 +515,8 @@ fn textDemo(
     const capture_id = b2.id(@src());
     const mouse_res = b2.mouseCaptureResults(capture_id);
 
+    _ = constraints; // todo wrap
+
     var char_pos: @Vector(2, f32) = .{ 0, 0 };
     for (text) |char| {
         draw.addChar(char, char_pos, .fromHexRgb(0xFFFF00));
@@ -560,32 +525,116 @@ fn textDemo(
 
     draw.addRect(.{
         .pos = .{ 0, 0 },
-        .size = .{ @floatFromInt(constraints.width), 10 },
+        .size = .{ char_pos[0], 10 },
         .tint = .fromHexRgb(if (mouse_res.mouse_left_held) 0x0000FF else 0x000099),
     });
 
-    draw.addMouseEventCapture(capture_id, .{ 0, 0 }, .{ constraints.width, 10 }, .{ .capture_click = true });
+    draw.addMouseEventCapture(capture_id, .{ 0, 0 }, .{ @intFromFloat(char_pos[0]), 10 }, .{ .capture_click = true });
 
     return .{
-        .height = 10,
+        .size = .{ @intFromFloat(char_pos[0]), 10 },
         .rdl = draw,
     };
 }
-
-const ScrollerConstraints = struct {
-    width: i32,
-};
-const ScrollerChild = struct {
-    height: i32,
-    rdl: *RepositionableDrawList,
-};
 
 const CallerID = struct {
     b2: *Beui2,
     src: std.builtin.SourceLocation,
 };
 
-fn scrollDemo(caller_id: CallerID, constraints: Constraints) *RepositionableDrawList {
+const ListIndex = struct {
+    i: usize,
+    pub fn first(len: usize) ?ListIndex {
+        if (len == 0) return null;
+        return .{ .i = 0 };
+    }
+    pub fn last(len: usize) ?ListIndex {
+        if (len == 0) return null;
+        return .{ .i = 0 };
+    }
+    pub fn prev(len: usize, itm: ListIndex) ?ListIndex {
+        if (itm.i == 0) return null;
+        if (len == 0) return null;
+        return .{ .i = @min(itm.i - 1, len - 1) };
+    }
+    pub fn next(len: usize, itm: ListIndex) ?ListIndex {
+        if (len == 0) return null;
+        if (itm.i == len - 1) return null;
+        return .{ .i = @min(itm.i + 1, len - 1) };
+    }
+};
+
+const StandardConstraints = struct {
+
+    // so for each axis, we have:
+    // target width, max available width
+    // if target width is 0, that means to use intrinsic width
+
+    // rendering a button:
+    // - the child will be measured given the same constraints, minus any
+    //   padding for the target width
+    // - then, if the child width is less than the target width, the button
+    //   will expand to fill the target width and center the child
+    // but will the child width ever be less than the target width? won't
+    // every child try to fill its target space?
+
+    // so the item will be as small as possible
+    // if you want it bigger, you'll need to add some kind of expander
+    // ie for a button:
+    // Button( BG(.blue, HLayout( Text("hello", .white), 1fr ) ) )
+    // HLayout in that case uses all available space because of the '1fr'
+
+    available_size: struct { w: ?i32, h: ?i32 },
+};
+const StandardChild = struct {
+    size: @Vector(2, i32),
+    rdl: *RepositionableDrawList,
+};
+
+pub const Button = struct {
+    b2: *Beui2,
+    itkn: Itkn,
+    constraints: StandardConstraints,
+
+    pub const Itkn = struct {
+        // is an interaction token necessary?
+        // the point of an interaction token is to get values before calling Button.begin()
+        // is that necessary?
+        b2: *Beui2,
+        id: ID,
+        pub fn init(caller_id: CallerID) Itkn {
+            const b2 = caller_id.b2;
+            b2.pushScope(caller_id, @src());
+            defer b2.popScope();
+
+            return .{ .id = b2.id(@src()) };
+        }
+
+        pub fn active(self: Itkn) bool {
+            return self.b2.mouseCaptureResults(self.id).mouse_left_held;
+        }
+    };
+
+    fn begin(caller_id: CallerID, itkn_in: ?Itkn, constraints: StandardConstraints) Button {
+        const b2 = caller_id.b2;
+        b2.pushScope(caller_id, @src());
+        const itkn = itkn_in orelse Itkn.init(b2.callerID(@src()));
+        return .{
+            .b2 = b2,
+            .itkn = itkn,
+            .constraints = constraints,
+        };
+    }
+    fn end(self: Button, child: StandardChild) StandardChild {
+        self.b2.popScope();
+        const draw = self.b2.draw();
+        draw.place(child, .{ 0, 0 });
+        draw.addMouseEventCapture(self.itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });
+        return .{ .size = child.size, .rdl = draw };
+    }
+};
+
+pub fn scrollDemo(caller_id: CallerID, constraints: StandardConstraints) StandardChild {
     const b2 = caller_id.b2;
     b2.pushScope(caller_id, @src());
     defer b2.popScope();
@@ -610,24 +659,38 @@ fn scrollDemo(caller_id: CallerID, constraints: Constraints) *RepositionableDraw
 
     return scroller.end();
 }
-const ListIndex = struct {
-    i: usize,
-    pub fn first(len: usize) ?ListIndex {
-        if (len == 0) return null;
-        return .{ .i = 0 };
-    }
-    pub fn last(len: usize) ?ListIndex {
-        if (len == 0) return null;
-        return .{ .i = 0 };
-    }
-    pub fn prev(len: usize, itm: ListIndex) ?ListIndex {
-        if (itm.i == 0) return null;
-        if (len == 0) return null;
-        return .{ .i = @min(itm.i - 1, len - 1) };
-    }
-    pub fn next(len: usize, itm: ListIndex) ?ListIndex {
-        if (len == 0) return null;
-        if (itm.i == len - 1) return null;
-        return .{ .i = @min(itm.i + 1, len - 1) };
-    }
-};
+
+// so for a button:
+// - we want to render the button as small as possible in the
+
+// and then here's the question: do we want to allow interaction tokens above the button itself
+// like var itkn = Button.InteractionToken.init(b2.id(@src()));
+// then Button.begin(itkn)
+// that way we can see if the button is clicked before even calling .begin()
+// - do we care?
+//   - a component wrapping Button() needs to see if the button is clicked so it can return
+//     the clicked state. so yes we care :/
+
+// for rendering a button, we would like to support:
+// oh eew
+
+// you know a hack? Button(.begin(b2.callerID(@src()))), null, constraints, child);
+
+// btn: {
+//     const btn = Button.begin(b2.callerID(@src()), null, constraints);
+//     break :btn btn.end( bg: {
+//         const bg = BG.begin(b2.callerID(@src()), .fromHexRgb(0x0000FF));
+//         break :bg bg.end(Text( b2.callerID(@src()), btn.constraints, "hello", .fromHexRgb(0xFFFF00) ))
+//     } );
+// }
+// might as well put id in there too. BG.begin(btn.id.sub(@src())), bg.end(Text(bg.id.sub(@src())))
+// we need stack capturing macro so badly
+
+// if(Button.begin( b2.callerID(@src()) )) |btn| {
+//     btn.end( Text("hello world") );
+// }
+
+// so a problem is. yeah that if. eew.
+// we would like to say Button(Text("hello"))
+// but what needs to happen is pushButton() Text() popButton()
+// stack-capturing macros are the solution :/ but they're dead
