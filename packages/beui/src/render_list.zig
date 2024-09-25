@@ -177,29 +177,4 @@ pub const RenderList = struct {
             0, 3, 2,
         }, .{ 0, 0 });
     }
-
-    pub fn addChar(self: *RenderList, char: u8, pos: @Vector(2, f32), color: Beui.Color) void {
-        const conv: @Vector(2, u4) = @bitCast(char);
-        const tile_id: @Vector(2, f32) = .{ @floatFromInt(conv[0]), @floatFromInt(conv[1]) };
-        const tile_pos: @Vector(2, f32) = tile_id * @Vector(2, f32){ 6, 10 } + @Vector(2, f32){ 1, 1 };
-        const tile_size: @Vector(2, f32) = .{ 5, 9 };
-        const font_size: @Vector(2, f32) = .{ 256, 256 };
-        const tile_uv_pos = tile_pos / font_size;
-        const tile_uv_size = tile_size / font_size;
-        self.addRect(pos, tile_size, .{
-            .uv_pos = tile_uv_pos,
-            .uv_size = tile_uv_size,
-            .image = .beui_font,
-            .tint = color,
-        });
-    }
-    pub fn getCharAdvance(self: *RenderList, char: u8) f32 {
-        _ = self;
-        _ = char;
-        return 6;
-    }
-    pub fn getCharHeight(self: *RenderList) f32 {
-        _ = self;
-        return 10;
-    }
 };

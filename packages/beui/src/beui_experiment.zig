@@ -48,31 +48,71 @@ pub const Beui2 = struct {
         _ = capture_id;
         return .{ .mouse_left_held = false };
     }
+    pub fn scrollCaptureResults(self: *Beui2, capture_id: ID) @Vector(2, f32) {
+        _ = self;
+        _ = capture_id;
+        return .{ 0, 0 };
+    }
     pub fn pushScope(self: *Beui2, caller_id: ID, src: std.builtin.SourceLocation) void {
         if (caller_id.str.len != self.persistent.id_scopes.items.len + 1) @panic("bad caller id");
         self.persistent.id_scopes.append(caller_id.str[caller_id.str.len - 1]) catch @panic("oom");
         self.persistent.id_scopes.append(.fromSrc(src)) catch @panic("oom");
     }
     pub fn popScope(self: *Beui2) void {
-        _ = self.persistent.id_scopes.popOrNull() orelse @panic("popScope() called without matching pushScope");
+        const p0 = self.persistent.id_scopes.popOrNull() orelse @panic("popScope() called without matching pushScope");
+        std.debug.assert(p0 == .src);
         _ = self.persistent.id_scopes.popOrNull() orelse @panic("popScope() called without matching pushScope");
     }
-
-    pub fn rootID(self: *Beui2, src: std.builtin.SourceLocation) ID {
-        return .{ .str = self.frame.arena.dupe(IDSegment, &.{.fromSrc(src)}) catch @panic("oom") };
+    pub fn pushLoop(self: *Beui2, src: std.builtin.SourceLocation, comptime ChildT: type) void {
+        if (@sizeOf(ChildT) > IDSegment.LoopChildSize) @compileError("loop ChildT size > max size");
+        self._pushLoopTypeName(src, @typeName(ChildT));
+    }
+    pub fn popLoop(self: *Beui2) void {
+        const p0 = self.persistent.id_scopes.popOrNull() orelse @panic("popLoop() called without matching pushLoop()");
+        std.debug.assert(p0 == .loop);
+        const p1 = self.persistent.id_scopes.popOrNull() orelse @panic("popLoop() called without matching pushLoop()");
+        std.debug.assert(p1 == .src);
+    }
+    fn _pushLoopTypeName(self: *Beui2, src: std.builtin.SourceLocation, child: [*:0]const u8) void {
+        self.persistent.id_scopes.append(.fromSrc(src)) catch @panic("oom");
+        self.persistent.id_scopes.append(.{ .loop = .{ .child_t = child } }) catch @panic("oom");
+    }
+    pub fn pushLoopValue(self: *Beui2, src: std.builtin.SourceLocation, child_t: anytype) void {
+        self._pushLoopValueSlice(src, @typeName(@TypeOf(child_t)), std.mem.asBytes(&child_t));
+    }
+    pub fn popLoopValue(self: *Beui2) void {
+        const p0 = self.persistent.id_scopes.popOrNull() orelse @panic("popLoopValue() called without matching pushLoopValue()");
+        std.debug.assert(p0 == .loop_child);
+        const p1 = self.persistent.id_scopes.popOrNull() orelse @panic("popLoopValue() called without matching pushLoopValue()");
+        std.debug.assert(p1 == .src);
+    }
+    fn _pushLoopValueSlice(self: *Beui2, src: std.builtin.SourceLocation, child_t: [*:0]const u8, child_v: []const u8) void {
+        const last = self.persistent.id_scopes.getLastOrNull() orelse @panic("pushLoopValue called without pushLoop");
+        if (last != .loop) @panic("pushLoopValue called but last push was not pushLoop");
+        if (last.loop.child_t != child_t) @panic("pushLoopValue called with different type than set in pushLoop");
+        std.debug.assert(child_v.len <= IDSegment.LoopChildSize);
+        self.persistent.id_scopes.append(.fromSrc(src)) catch @panic("oom");
+        const added = self.persistent.id_scopes.addOne() catch @panic("oom");
+        added.* = .{ .loop_child = .{} };
+        @memcpy(added.loop_child.value[0..child_v.len], child_v);
     }
 
     pub fn id(self: *Beui2, src: std.builtin.SourceLocation) ID {
         const seg: IDSegment = .fromSrc(src);
-        const emsg = "pushScope has not been called for this function. last called for: {s}";
-        const last_scope = self.persistent.id_scopes.getLastOrNull() orelse @panic(self.fmt(emsg, .{"never called. for first id must use .rootID()"}));
-        if (last_scope.fn_name != seg.fn_name) @panic(self.fmt(emsg, .{std.mem.span(last_scope.fn_name)}));
 
         const result_buf = self.frame.arena.alloc(IDSegment, self.persistent.id_scopes.items.len + 1) catch @panic("oom");
         @memcpy(result_buf[0..self.persistent.id_scopes.items.len], self.persistent.id_scopes.items);
         result_buf[self.persistent.id_scopes.items.len] = seg;
 
         return .{ .str = result_buf };
+    }
+    pub fn state(self: *Beui2, self_id: ID, comptime StateType: type) StateResult(StateType) {
+        _ = self_id;
+        const cht = self.frame.arena.create(StateType) catch @panic("oom");
+        return .{ .initialized = false, .value = cht };
+    }
+    fn StateResult(comptime StateType: type) type {
+        return struct { initialized: bool, value: *StateType };
     }
 
     pub fn fmt(self: *Beui2, comptime format: []const u8, args: anytype) []const u8 {
@@ -84,13 +124,13 @@ pub const MouseCaptureResults = struct {
     mouse_left_held: bool,
 };
 
-pub fn demo1(caller_id: ID, b2: *Beui2) *RepositionableDrawList {
+pub fn demo1(caller_id: ID, b2: *Beui2, constraints: Constraints) *RepositionableDrawList {
     b2.pushScope(caller_id, @src());
     defer b2.popScope();
 
     const result = b2.draw();
 
-    result.place(demo0(b2.id(@src()), b2), .{ 25, 25 });
+    result.place(scrollDemo(b2.id(@src()), b2, constraints), .{ 0, 0 });
 
     return result;
 }
@@ -121,14 +161,23 @@ fn demo0(caller_id: ID, b2: *Beui2) *RepositionableDrawList {
     return result;
 }
 
-const IDSegment = struct {
-    filename: [*:0]const u8,
-    fn_name: [*:0]const u8,
-    line: u32,
-    col: u32,
+const IDSegment = union(enum) {
+    pub const LoopChildSize = 8 * 3;
+    src: struct {
+        filename: [*:0]const u8,
+        fn_name: [*:0]const u8,
+        line: u32,
+        col: u32,
+    },
+    loop: struct {
+        child_t: [*:0]const u8,
+    },
+    loop_child: struct {
+        value: [LoopChildSize]u8 = [_]u8{0} ** IDSegment.LoopChildSize,
+    },
 
     pub fn fromSrc(src: std.builtin.SourceLocation) IDSegment {
-        return .{ .filename = src.file.ptr, .fn_name = src.fn_name.ptr, .line = src.line, .col = src.column };
+        return .{ .src = .{ .filename = src.file.ptr, .fn_name = src.fn_name.ptr, .line = src.line, .col = src.column } };
     }
 };
 const ID = struct {
@@ -139,6 +188,11 @@ const MouseEventEntry = struct {
     id: ID,
     pos: @Vector(2, i32),
     size: @Vector(2, i32),
+    cfg: MouseEventCaptureConfig,
+};
+const MouseEventCaptureConfig = struct {
+    capture_click: bool,
+    capture_scroll: struct { x: bool, y: bool },
 };
 const RepositionableDrawList = struct {
     const RepositionableDrawChild = union(enum) {
@@ -151,6 +205,7 @@ const RepositionableDrawList = struct {
             pos: @Vector(2, i32),
             size: @Vector(2, i32),
             id: ID,
+            cfg: MouseEventCaptureConfig,
         },
         embed: struct {
             child: *RepositionableDrawList,
@@ -211,8 +266,25 @@ const RepositionableDrawList = struct {
             0, 3, 2,
         });
     }
-    pub fn addMouseEventCapture(self: *RepositionableDrawList, id: ID, pos: @Vector(2, i32), size: @Vector(2, i32)) void {
-        self.content.append(.{ .mouse = .{ .pos = pos, .size = size, .id = id } }) catch @panic("oom");
+    pub fn addChar(self: *RepositionableDrawList, char: u8, pos: @Vector(2, f32), color: Beui.Color) void {
+        const conv: @Vector(2, u4) = @bitCast(char);
+        const tile_id: @Vector(2, f32) = .{ @floatFromInt(conv[0]), @floatFromInt(conv[1]) };
+        const tile_pos: @Vector(2, f32) = tile_id * @Vector(2, f32){ 6, 10 } + @Vector(2, f32){ 1, 1 };
+        const tile_size: @Vector(2, f32) = .{ 5, 9 };
+        const font_size: @Vector(2, f32) = .{ 256, 256 };
+        const tile_uv_pos = tile_pos / font_size;
+        const tile_uv_size = tile_size / font_size;
+        self.addRect(.{
+            .pos = pos,
+            .size = tile_size,
+            .uv_pos = tile_uv_pos,
+            .uv_size = tile_uv_size,
+            .image = .beui_font,
+            .tint = color,
+        });
+    }
+    pub fn addMouseEventCapture(self: *RepositionableDrawList, id: ID, pos: @Vector(2, i32), size: @Vector(2, i32), cfg: MouseEventCaptureConfig) void {
+        self.content.append(.{ .mouse = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
     }
 
     pub fn finalize(self: *RepositionableDrawList, out_list: ?*render_list.RenderList, out_events: ?*std.ArrayList(MouseEventEntry), offset_pos: @Vector(2, i32)) void {
@@ -226,6 +298,7 @@ const RepositionableDrawList = struct {
                         .id = mev.id,
                         .pos = mev.pos + offset_pos,
                         .size = mev.size,
+                        .cfg = mev.cfg,
                     }) catch @panic("oom");
                 },
                 .embed => |eev| {
@@ -236,7 +309,9 @@ const RepositionableDrawList = struct {
     }
 };
 
-const Constraints = struct {};
+const Constraints = struct {
+    size: @Vector(2, i32),
+};
 const Scroller = struct {
     // fn child() will call some kind of preserveIdTree fn on the id it recieves
     // same with fn virtual()
@@ -244,24 +319,48 @@ const Scroller = struct {
 
     draw_list: *RepositionableDrawList,
     cursor: i32,
+    constraints: Constraints,
+    scroll_event_capture_id: ID,
 
+    pub fn begin(caller_id: ID, b2: *Beui2, constraints: Constraints) Scroller {
+        b2.pushScope(caller_id, @src());
+        defer b2.popScope();
+
+        const scroll_ev_capture_id = b2.id(@src());
+        const scroll_by = b2.scrollCaptureResults(scroll_ev_capture_id);
+
+        const scroll_state = b2.state(b2.id(@src()), struct { offset: f32, anchor: usize });
+        if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = 0 };
+        scroll_state.value.offset += scroll_by[1];
+
+        return .{
+            .draw_list = b2.draw(),
+            .cursor = @intFromFloat(@round(-scroll_state.value.offset)),
+            .constraints = constraints,
+            .scroll_event_capture_id = scroll_ev_capture_id,
+        };
+    }
+
+    fn scrollerConstraints(self: *Scroller) ScrollerConstraints {
+        return .{ .width = self.constraints.size[0] };
+    }
     pub fn child(scroller: *Scroller, caller_id: ID, b2: *Beui2) ?ChildFill {
         b2.pushScope(caller_id, @src());
 
-        return .{ .scroller = scroller, .b2 = b2 };
+        return .{ .scroller = scroller, .b2 = b2, .constraints = scroller.scrollerConstraints() };
     }
     const ChildFill = struct {
         scroller: *Scroller,
         b2: *Beui2,
+        constraints: ScrollerConstraints,
         pub fn end(self: ChildFill, value: ScrollerChild) void {
             self.b2.popScope();
-            self.scroller.draw_list.place(value.rdl, .{ 25, 25 });
-            self.scroller.cursor += value.height;
+            self.scroller.placeChild(value);
         }
     };
     pub fn virtual(scroller: *Scroller, caller_id: ID, b2: *Beui2, ctx: anytype, comptime Anchor: type) VirtualIter(@TypeOf(ctx), Anchor) {
         b2.pushScope(caller_id, @src());
-        b2.pushLoop(Anchor);
+        b2.pushLoop(@src(), Anchor);
 
         return .{ .ctx = ctx, .b2 = b2, .scroller = scroller, .pos = Anchor.first(ctx) };
     }
@@ -273,27 +372,38 @@ const Scroller = struct {
             pos: ?Anchor,
             pub fn next(self: *@This()) ?VirtualFill {
                 if (self.pos == null) return null;
-                self.b2.pushLoopIndex(self.pos.?);
+                self.b2.pushLoopValue(@src(), self.pos.?);
                 defer self.pos = Anchor.next(self.ctx, self.pos.?);
-                return .{ .scroller = self.scroller, .b2 = self.b2 };
+                return .{ .pos = self.pos.?, .scroller = self.scroller, .b2 = self.b2, .constraints = self.scroller.scrollerConstraints() };
             }
             const VirtualFill = struct {
+                pos: Anchor,
                 scroller: *Scroller,
                 b2: *Beui2,
+                constraints: ScrollerConstraints,
                 pub fn end(self: VirtualFill, value: ScrollerChild) void {
-                    self.b2.popLoopIndex();
-                    self.scroller.draw_list.place(value.rdl, .{ 25, 25 });
-                    self.scroller.cursor += value.height;
+                    self.b2.popLoopValue();
+                    self.scroller.placeChild(value);
                 }
             };
-            pub fn deinit(self: *@This()) void {
+            pub fn end(self: *@This()) void {
                 self.b2.popLoop();
                 self.b2.popScope();
             }
         };
     }
+    fn placeChild(self: *Scroller, ch: ScrollerChild) void {
+        self.draw_list.place(ch.rdl, .{ 0, self.cursor });
+        self.cursor += ch.height;
+    }
 
     pub fn end(self: *Scroller) *RepositionableDrawList {
+        self.draw_list.addMouseEventCapture(
+            self.scroll_event_capture_id,
+            .{ 0, 0 },
+            .{ self.constraints.size[0], @min(self.cursor, self.constraints.size[1]) },
+            .{ .capture_click = false, .capture_scroll = .{ .x = false, .y = true } },
+        );
         return self.draw_list;
     }
 };
@@ -308,13 +418,17 @@ fn textDemo(
 
     const draw = b2.draw();
 
+    var char_pos: @Vector(2, f32) = .{ 0, 0 };
+    for (text) |char| {
+        draw.addChar(char, char_pos, .fromHexRgb(0xFFFF00));
+        char_pos += .{ 6, 0 };
+    }
+
     draw.addRect(.{
         .pos = .{ 0, 0 },
         .size = .{ @floatFromInt(constraints.width), 10 },
         .tint = .fromHexRgb(0x0000FF),
     });
-
-    _ = text;
 
     return .{
         .height = 10,
@@ -334,7 +448,7 @@ fn scrollDemo(caller_id: ID, b2: *Beui2, constraints: Constraints) *Repositionab
     b2.pushScope(caller_id, @src());
     defer b2.popScope();
 
-    var scroller = Scroller.begin(b2, constraints);
+    var scroller = Scroller.begin(b2.id(@src()), b2, constraints);
 
     if (scroller.child(b2.id(@src()), b2)) |c| {
         c.end(textDemo(b2.id(@src()), b2, "hello", c.constraints));
@@ -348,7 +462,7 @@ fn scrollDemo(caller_id: ID, b2: *Beui2, constraints: Constraints) *Repositionab
         var virtual = scroller.virtual(b2.id(@src()), b2, my_list.len, ListIndex);
         defer virtual.end();
         while (virtual.next()) |c| {
-            c.end(textDemo(b2.id(@src()), b2, my_list[c.v.i]), c.constraints);
+            c.end(textDemo(b2.id(@src()), b2, my_list[c.pos.i], c.constraints));
         }
     }
 

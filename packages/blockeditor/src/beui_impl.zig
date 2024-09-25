@@ -808,7 +808,7 @@ pub fn main() !void {
         const fb_height = gctx.swapchain_descriptor.height;
 
         // Beui.beui_experiment.runExperiment(&beui, fb_width, fb_height);
-        const demo1_res = Beui.beui_experiment.demo1(b2.rootID(@src()), &b2);
+        const demo1_res = Beui.beui_experiment.demo1(b2.id(@src()), &b2, .{ .size = .{ @intCast(fb_width), @intCast(fb_height) } });
         demo1_res.finalize(&draw_list, null, .{ 0, 0 });
 
         my_text_editor.gui(&beui, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });
