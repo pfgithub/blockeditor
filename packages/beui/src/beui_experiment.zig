@@ -168,6 +168,18 @@ pub const Beui2 = struct {
         return struct { initialized: bool, value: *StateType };
     }
 
+    // if we need to pass context, it's fine as long as it's arena allocated. because deinit fn will be called
+    // update is called every frame the context is alive <- maybe don't do this. if we need to store IDs, we can clone them and deinit them.
+    // state will be deleted if the id is not around for one frame.
+    // - to preserve state, call beui2.preserveStateTree(root_id). only call this if you're not going to render the item.
+    //   ie: {const showhide_state = .sub(@src()); if(show) {renderItem(showhide_state)} else {preserveStateTree(showhide_state)}
+    pub fn state2(self: *Beui2, self_id: ID, comptime StateType: type, comptime initFn: fn () StateType, comptime deinitFn: fn (child: StateType) void) StateType {
+        _ = self;
+        _ = self_id;
+        _ = deinitFn;
+        return initFn();
+    }
+
     pub fn fmt(self: *Beui2, comptime format: []const u8, args: anytype) []const u8 {
         return std.fmt.allocPrint(self.frame.arena, format, args) catch @panic("oom");
     }
