@@ -705,7 +705,8 @@ pub fn main() !void {
     var beui: Beui = .{};
     window.setUserPointer(@ptrCast(@alignCast(&beui)));
 
-    var b2 = Beui.beui_experiment.Beui2.init(gpa);
+    var b2: Beui.beui_experiment.Beui2 = undefined;
+    b2.init(gpa);
     defer b2.deinit();
 
     _ = window.setPosCallback(null);
@@ -809,7 +810,7 @@ pub fn main() !void {
             const b2ft = tracy.traceNamed(@src(), "b2 frame");
             defer b2ft.end();
 
-            b2.newFrame(.{});
+            b2.newFrame(&beui, .{});
             const demo1_res = Beui.beui_experiment.demo1(b2.callerID(@src()), .{ .size = .{ @intCast(fb_width), @intCast(fb_height) } });
             b2.endFrame(demo1_res, &draw_list);
         }

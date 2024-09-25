@@ -3,51 +3,126 @@ const std = @import("std");
 const Beui = @import("Beui.zig");
 const render_list = @import("render_list.zig");
 
+fn IdMap(comptime V: type) type {
+    const IDContext = struct {
+        b2: *Beui2,
+        pub fn hash(self: @This(), id: ID) u64 {
+            id.assertValid(self.b2);
+            var hasher = std.hash.Wyhash.init(0);
+            for (id.str) |seg| std.hash.autoHash(&hasher, seg);
+            return hasher.final();
+        }
+        pub fn eql(self: @This(), a: ID, b: ID) bool {
+            return a.eql(self.b2, b);
+        }
+    };
+    return std.HashMap(ID, V, IDContext, std.hash_map.default_max_load_percentage);
+}
+
 const Beui2FrameCfg = struct {};
-const Beui2Frame = struct {
-    arena: std.mem.Allocator,
-    frame_cfg: Beui2FrameCfg,
+const Beui2Frame = struct { arena: std.mem.Allocator, frame_cfg: Beui2FrameCfg, scroll_target: ?ScrollTarget };
+const ScrollTarget = struct {
+    id: ID,
+    scroll: @Vector(2, f32),
 };
 const Beui2Persistent = struct {
     gpa: std.mem.Allocator,
-    arena_backing: std.heap.ArenaAllocator,
+
+    arenas: [2]std.heap.ArenaAllocator,
+    current_arena: u1 = 0,
+
     id_scopes: std.ArrayList(IDSegment),
     draw_lists: std.ArrayList(*RepositionableDrawList),
     last_frame_mouse_events: std.ArrayList(MouseEventEntry),
+    prev_frame_mouse_event_to_offset: IdMap(@Vector(2, i32)),
+    click_target: ?ID = null,
+
+    frame_num: u64 = 0,
 };
 pub const Beui2 = struct {
     frame: Beui2Frame,
     persistent: Beui2Persistent,
 
-    pub fn init(gpa: std.mem.Allocator) Beui2 {
-        return .{
+    pub fn init(self: *Beui2, gpa: std.mem.Allocator) void {
+        self.* = .{
             .frame = undefined,
             .persistent = .{
                 .gpa = gpa,
-                .arena_backing = .init(gpa),
+                .arenas = .{ .init(gpa), .init(gpa) },
                 .id_scopes = .init(gpa),
                 .draw_lists = .init(gpa),
                 .last_frame_mouse_events = .init(gpa),
+                .prev_frame_mouse_event_to_offset = undefined,
             },
         };
+        self.persistent.prev_frame_mouse_event_to_offset = .initContext(gpa, .{ .b2 = self });
     }
     pub fn deinit(self: *Beui2) void {
+        self.persistent.prev_frame_mouse_event_to_offset.deinit();
         self.persistent.last_frame_mouse_events.deinit();
-        self.persistent.arena_backing.deinit();
+        for (&self.persistent.arenas) |*a| a.deinit();
         self.persistent.id_scopes.deinit();
         self.persistent.draw_lists.deinit();
     }
 
-    pub fn newFrame(self: *Beui2, frame_cfg: Beui2FrameCfg) void {
+    pub fn newFrame(self: *Beui2, beui: *Beui, frame_cfg: Beui2FrameCfg) void {
+        // handle events
+        // - scroll: if there is a scroll event, hit test to find which handler it touched
+        const mousepos_int: @Vector(2, i32) = @intFromFloat(beui.persistent.mouse_pos);
+        var scroll_target: ?ScrollTarget = null;
+        if (@reduce(.Or, @abs(beui.frame.scroll_px) > @as(@Vector(2, f32), @splat(0.0)))) {
+            for (self.persistent.last_frame_mouse_events.items) |item| {
+                if (item.cfg.capture_scroll.x or item.cfg.capture_scroll.y) {
+                    if (item.coversPoint(mousepos_int)) {
+                        // found. its id is still valid for one more frame.
+                        scroll_target = .{ .id = item.id, .scroll = beui.frame.scroll_px };
+                        break;
+                    }
+                }
+            }
+        }
+        // - mouse: store offsets
+        self.persistent.prev_frame_mouse_event_to_offset.clearRetainingCapacity();
+        for (self.persistent.last_frame_mouse_events.items) |item| {
+            if (item.cfg.capture_click) {
+                self.persistent.prev_frame_mouse_event_to_offset.putNoClobber(item.id, item.pos) catch @panic("oom");
+            }
+        }
+        // - mouse: store focus
+        if (beui.isKeyPressed(.mouse_left)) {
+            self.persistent.click_target = null;
+            // find click target
+            for (self.persistent.last_frame_mouse_events.items) |item| {
+                if (item.cfg.capture_click) {
+                    if (item.coversPoint(mousepos_int)) {
+                        // found.
+                        self.persistent.click_target = item.id;
+                    }
+                }
+            }
+        } else if (beui.isKeyHeld(.mouse_left)) {
+            // refresh click target to keep its id valid
+            if (self.persistent.click_target) |*target| {
+                target.* = target.refresh(self);
+            }
+        } else {
+            // remove click target, not clicking.
+            self.persistent.click_target = null;
+        }
+
         for (self.persistent.draw_lists.items) |pdl| if (!pdl.placed) @panic("not all draw lists were placed last frame.");
         self.persistent.draw_lists.clearRetainingCapacity();
         if (self.persistent.id_scopes.items.len != 0) @panic("not all scopes were popped last frame. maybe missing popScope()?");
-        self.persistent.last_frame_mouse_events.clearRetainingCapacity(); // all ids in here die after the next call
-        // ^ maybe if we toggle between two arenas, we could keep last frame's ids around for one extra frame always?
-        _ = self.persistent.arena_backing.reset(.retain_capacity);
+        self.persistent.last_frame_mouse_events.clearRetainingCapacity();
+
+        self.persistent.current_arena +%= 1;
+        const next_arena = &self.persistent.arenas[self.persistent.current_arena];
+        _ = next_arena.reset(.retain_capacity);
+        self.persistent.frame_num += 1;
         self.frame = .{
-            .arena = self.persistent.arena_backing.allocator(),
+            .arena = next_arena.allocator(),
             .frame_cfg = frame_cfg,
+            .scroll_target = scroll_target,
         };
     }
     pub fn endFrame(self: *Beui2, draw_list: *RepositionableDrawList, rdl: ?*render_list.RenderList) void {
@@ -68,8 +143,11 @@ pub const Beui2 = struct {
         return .{ .mouse_left_held = false };
     }
     pub fn scrollCaptureResults(self: *Beui2, capture_id: ID) @Vector(2, f32) {
-        _ = self;
-        _ = capture_id;
+        if (self.frame.scroll_target) |st| {
+            if (st.id.eql(self, capture_id)) {
+                return st.scroll;
+            }
+        }
         return .{ 0, 0 };
     }
     pub fn pushScope(self: *Beui2, caller_id: CallerID, src: std.builtin.SourceLocation) void {
@@ -125,7 +203,7 @@ pub const Beui2 = struct {
         @memcpy(result_buf[0..self.persistent.id_scopes.items.len], self.persistent.id_scopes.items);
         result_buf[self.persistent.id_scopes.items.len] = seg;
 
-        return .{ .str = result_buf };
+        return .{ .frame = self.persistent.frame_num, .str = result_buf };
     }
     pub fn state(self: *Beui2, self_id: ID, comptime StateType: type) StateResult(StateType) {
         _ = self_id;
@@ -203,7 +281,24 @@ const IDSegment = union(enum) {
     }
 };
 const ID = struct {
+    frame: u64,
     str: []const IDSegment,
+    pub fn assertValid(self: ID, b2: *Beui2) void {
+        std.debug.assert(self.frame == b2.persistent.frame_num or self.frame + 1 == b2.persistent.frame_num);
+    }
+    pub fn eql(self: ID, b2: *Beui2, other: ID) bool {
+        self.assertValid(b2);
+        other.assertValid(b2);
+        if (self.str.len != other.str.len) return false;
+        if (self.str.ptr == other.str.ptr) return true;
+        for (self.str, other.str) |a, b| if (!std.meta.eql(a, b)) return false;
+        return true;
+    }
+    pub fn refresh(self: ID, b2: *Beui2) ID {
+        self.assertValid(b2);
+        const self_cp = b2.frame.arena.dupe(IDSegment, self.str) catch @panic("oom");
+        return .{ .str = self_cp, .frame = b2.persistent.frame_num };
+    }
 };
 
 const MouseEventEntry = struct {
@@ -211,10 +306,14 @@ const MouseEventEntry = struct {
     pos: @Vector(2, i32),
     size: @Vector(2, i32),
     cfg: MouseEventCaptureConfig,
+
+    pub fn coversPoint(self: MouseEventEntry, point: @Vector(2, i32)) bool {
+        return @reduce(.And, point >= self.pos) and @reduce(.And, point < self.pos + self.size);
+    }
 };
 const MouseEventCaptureConfig = struct {
-    capture_click: bool,
-    capture_scroll: struct { x: bool, y: bool },
+    capture_click: bool = false,
+    capture_scroll: struct { x: bool = false, y: bool = false } = .{},
 };
 const RepositionableDrawList = struct {
     const RepositionableDrawChild = union(enum) {
@@ -339,6 +438,8 @@ const Scroller = struct {
     // same with fn virtual()
     // because we don't want to lose state when a child isn't rendered
 
+    // eventually we'll want to put scrollers inside of scrollers but we're not going to worry about that yet
+
     draw_list: *RepositionableDrawList,
     cursor: i32,
     constraints: Constraints,
@@ -426,8 +527,8 @@ const Scroller = struct {
         self.draw_list.addMouseEventCapture(
             self.scroll_event_capture_id,
             .{ 0, 0 },
-            .{ self.constraints.size[0], @min(self.cursor, self.constraints.size[1]) },
-            .{ .capture_click = false, .capture_scroll = .{ .x = false, .y = true } },
+            .{ self.constraints.size[0], self.constraints.size[1] },
+            .{ .capture_scroll = .{ .y = true } },
         );
         return self.draw_list;
     }
@@ -443,6 +544,15 @@ fn textDemo(
 
     const draw = b2.draw();
 
+    const capture_id = b2.id(@src());
+
+    var clicked = false;
+    if (b2.persistent.click_target) |ct| {
+        if (ct.eql(b2, capture_id)) {
+            clicked = true;
+        }
+    }
+
     var char_pos: @Vector(2, f32) = .{ 0, 0 };
     for (text) |char| {
         draw.addChar(char, char_pos, .fromHexRgb(0xFFFF00));
@@ -452,8 +562,10 @@ fn textDemo(
     draw.addRect(.{
         .pos = .{ 0, 0 },
         .size = .{ @floatFromInt(constraints.width), 10 },
-        .tint = .fromHexRgb(0x0000FF),
+        .tint = .fromHexRgb(if (clicked) 0x0000FF else 0x000099),
     });
+
+    draw.addMouseEventCapture(capture_id, .{ 0, 0 }, .{ constraints.width, 10 }, .{ .capture_click = true });
 
     return .{
         .height = 10,
