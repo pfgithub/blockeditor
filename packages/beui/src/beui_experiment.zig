@@ -12,6 +12,8 @@ const Beui2Persistent = struct {
     gpa: std.mem.Allocator,
     arena_backing: std.heap.ArenaAllocator,
     id_scopes: std.ArrayList(IDSegment),
+    draw_lists: std.ArrayList(*RepositionableDrawList),
+    last_frame_mouse_events: std.ArrayList(MouseEventEntry),
 };
 pub const Beui2 = struct {
     frame: Beui2Frame,
@@ -20,26 +22,43 @@ pub const Beui2 = struct {
     pub fn init(gpa: std.mem.Allocator) Beui2 {
         return .{
             .frame = undefined,
-            .persistent = .{ .gpa = gpa, .arena_backing = .init(gpa), .id_scopes = .init(gpa) },
+            .persistent = .{
+                .gpa = gpa,
+                .arena_backing = .init(gpa),
+                .id_scopes = .init(gpa),
+                .draw_lists = .init(gpa),
+                .last_frame_mouse_events = .init(gpa),
+            },
         };
     }
     pub fn deinit(self: *Beui2) void {
+        self.persistent.last_frame_mouse_events.deinit();
         self.persistent.arena_backing.deinit();
         self.persistent.id_scopes.deinit();
+        self.persistent.draw_lists.deinit();
     }
 
     pub fn newFrame(self: *Beui2, frame_cfg: Beui2FrameCfg) void {
+        for (self.persistent.draw_lists.items) |pdl| if (!pdl.placed) @panic("not all draw lists were placed last frame.");
+        self.persistent.draw_lists.clearRetainingCapacity();
         if (self.persistent.id_scopes.items.len != 0) @panic("not all scopes were popped last frame. maybe missing popScope()?");
+        self.persistent.last_frame_mouse_events.clearRetainingCapacity(); // all ids in here die after the next call
+        // ^ maybe if we toggle between two arenas, we could keep last frame's ids around for one extra frame always?
         _ = self.persistent.arena_backing.reset(.retain_capacity);
         self.frame = .{
             .arena = self.persistent.arena_backing.allocator(),
             .frame_cfg = frame_cfg,
         };
     }
+    pub fn endFrame(self: *Beui2, draw_list: *RepositionableDrawList, rdl: ?*render_list.RenderList) void {
+        draw_list.placed = true;
+        draw_list.finalize(rdl, &self.persistent.last_frame_mouse_events, .{ 0, 0 });
+    }
 
     pub fn draw(self: *Beui2) *RepositionableDrawList {
         const res = self.frame.arena.create(RepositionableDrawList) catch @panic("oom");
         res.* = .{ .b2 = self, .content = .init(self.frame.arena) }; // not the best to use an arena for an arraylist
+        self.persistent.draw_lists.append(res) catch @panic("oom");
         return res;
     }
 
@@ -287,7 +306,7 @@ const RepositionableDrawList = struct {
         self.content.append(.{ .mouse = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
     }
 
-    pub fn finalize(self: *RepositionableDrawList, out_list: ?*render_list.RenderList, out_events: ?*std.ArrayList(MouseEventEntry), offset_pos: @Vector(2, i32)) void {
+    fn finalize(self: *RepositionableDrawList, out_list: ?*render_list.RenderList, out_events: ?*std.ArrayList(MouseEventEntry), offset_pos: @Vector(2, i32)) void {
         for (self.content.items) |item| {
             switch (item) {
                 .geometry => |geo| {
