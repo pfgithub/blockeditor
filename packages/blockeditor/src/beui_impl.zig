@@ -810,8 +810,8 @@ pub fn main() !void {
             const b2ft = tracy.traceNamed(@src(), "b2 frame");
             defer b2ft.end();
 
-            b2.newFrame(&beui, .{});
-            const demo1_res = Beui.beui_experiment.scrollDemo(b2.callerID(@src()), .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } });
+            const id = b2.newFrame(&beui, .{});
+            const demo1_res = Beui.beui_experiment.scrollDemo(id.sub(@src()), .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } });
             b2.endFrame(demo1_res, &draw_list);
         }
 

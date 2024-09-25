@@ -5,15 +5,11 @@ const render_list = @import("render_list.zig");
 
 fn IdMap(comptime V: type) type {
     const IDContext = struct {
-        b2: *Beui2,
-        pub fn hash(self: @This(), id: ID) u64 {
-            id.assertValid(self.b2);
-            var hasher = std.hash.Wyhash.init(0);
-            for (id.str) |seg| std.hash.autoHash(&hasher, seg);
-            return hasher.final();
+        pub fn hash(_: @This(), id: ID) u64 {
+            return id.hash();
         }
-        pub fn eql(self: @This(), a: ID, b: ID) bool {
-            return a.eql(self.b2, b);
+        pub fn eql(_: @This(), a: ID, b: ID) bool {
+            return a.eql(b);
         }
     };
     return std.HashMap(ID, V, IDContext, std.hash_map.default_max_load_percentage);
@@ -35,6 +31,7 @@ const Beui2Persistent = struct {
     draw_lists: std.ArrayList(*RepositionableDrawList),
     last_frame_mouse_events: std.ArrayList(MouseEventEntry),
     prev_frame_mouse_event_to_offset: IdMap(@Vector(2, i32)),
+    this_frame_ids: IdMap(void),
     click_target: ?ID = null,
 
     frame_num: u64 = 0,
@@ -52,12 +49,13 @@ pub const Beui2 = struct {
                 .id_scopes = .init(gpa),
                 .draw_lists = .init(gpa),
                 .last_frame_mouse_events = .init(gpa),
-                .prev_frame_mouse_event_to_offset = undefined,
+                .prev_frame_mouse_event_to_offset = .init(gpa),
+                .this_frame_ids = .init(gpa),
             },
         };
-        self.persistent.prev_frame_mouse_event_to_offset = .initContext(gpa, .{ .b2 = self });
     }
     pub fn deinit(self: *Beui2) void {
+        self.persistent.this_frame_ids.deinit();
         self.persistent.prev_frame_mouse_event_to_offset.deinit();
         self.persistent.last_frame_mouse_events.deinit();
         for (&self.persistent.arenas) |*a| a.deinit();
@@ -65,7 +63,7 @@ pub const Beui2 = struct {
         self.persistent.draw_lists.deinit();
     }
 
-    pub fn newFrame(self: *Beui2, beui: *Beui, frame_cfg: Beui2FrameCfg) void {
+    pub fn newFrame(self: *Beui2, beui: *Beui, frame_cfg: Beui2FrameCfg) ID {
         // handle events
         // - scroll: if there is a scroll event, hit test to find which handler it touched
         const mousepos_int: @Vector(2, i32) = @intFromFloat(beui.persistent.mouse_pos);
@@ -103,7 +101,7 @@ pub const Beui2 = struct {
         } else if (beui.isKeyHeld(.mouse_left)) {
             // refresh click target to keep its id valid
             if (self.persistent.click_target) |*target| {
-                target.* = target.refresh(self);
+                target.* = target.refresh();
             }
         } else {
             // remove click target, not clicking.
@@ -115,6 +113,7 @@ pub const Beui2 = struct {
         if (self.persistent.id_scopes.items.len != 0) @panic("not all scopes were popped last frame. maybe missing popScope()?");
         self.persistent.last_frame_mouse_events.clearRetainingCapacity();
 
+        self.persistent.this_frame_ids.clearRetainingCapacity();
         self.persistent.current_arena +%= 1;
         const next_arena = &self.persistent.arenas[self.persistent.current_arena];
         _ = next_arena.reset(.retain_capacity);
@@ -123,6 +122,12 @@ pub const Beui2 = struct {
             .arena = next_arena.allocator(),
             .frame_cfg = frame_cfg,
             .scroll_target = scroll_target,
+        };
+
+        return .{
+            .b2 = self,
+            .frame = self.persistent.frame_num,
+            .str = &.{},
         };
     }
     pub fn endFrame(self: *Beui2, child: StandardChild, renderlist: ?*render_list.RenderList) void {
@@ -140,7 +145,7 @@ pub const Beui2 = struct {
     pub fn mouseCaptureResults(self: *Beui2, capture_id: ID) MouseCaptureResults {
         var mouse_left_held = false;
         if (self.persistent.click_target) |ct| {
-            if (ct.eql(self, capture_id)) {
+            if (ct.eql(capture_id)) {
                 mouse_left_held = true;
             }
         }
@@ -148,66 +153,11 @@ pub const Beui2 = struct {
     }
     pub fn scrollCaptureResults(self: *Beui2, capture_id: ID) @Vector(2, f32) {
         if (self.frame.scroll_target) |st| {
-            if (st.id.eql(self, capture_id)) {
+            if (st.id.eql(capture_id)) {
                 return st.scroll;
             }
         }
         return .{ 0, 0 };
-    }
-    pub fn pushScope(self: *Beui2, caller_id: CallerID, src: std.builtin.SourceLocation) void {
-        self.persistent.id_scopes.append(.fromSrc(caller_id.src)) catch @panic("oom");
-        self.persistent.id_scopes.append(.fromSrc(src)) catch @panic("oom");
-    }
-    pub fn popScope(self: *Beui2) void {
-        const p0 = self.persistent.id_scopes.popOrNull() orelse @panic("popScope() called without matching pushScope");
-        std.debug.assert(p0 == .src);
-        _ = self.persistent.id_scopes.popOrNull() orelse @panic("popScope() called without matching pushScope");
-    }
-    pub fn pushLoop(self: *Beui2, src: std.builtin.SourceLocation, comptime ChildT: type) void {
-        if (@sizeOf(ChildT) > IDSegment.LoopChildSize) @compileError("loop ChildT size > max size");
-        self._pushLoopTypeName(src, @typeName(ChildT));
-    }
-    pub fn popLoop(self: *Beui2) void {
-        const p0 = self.persistent.id_scopes.popOrNull() orelse @panic("popLoop() called without matching pushLoop()");
-        std.debug.assert(p0 == .loop);
-        const p1 = self.persistent.id_scopes.popOrNull() orelse @panic("popLoop() called without matching pushLoop()");
-        std.debug.assert(p1 == .src);
-    }
-    fn _pushLoopTypeName(self: *Beui2, src: std.builtin.SourceLocation, child: [*:0]const u8) void {
-        self.persistent.id_scopes.append(.fromSrc(src)) catch @panic("oom");
-        self.persistent.id_scopes.append(.{ .loop = .{ .child_t = child } }) catch @panic("oom");
-    }
-    pub fn pushLoopValue(self: *Beui2, src: std.builtin.SourceLocation, child_t: anytype) void {
-        self._pushLoopValueSlice(src, @typeName(@TypeOf(child_t)), std.mem.asBytes(&child_t));
-    }
-    pub fn popLoopValue(self: *Beui2) void {
-        const p0 = self.persistent.id_scopes.popOrNull() orelse @panic("popLoopValue() called without matching pushLoopValue()");
-        std.debug.assert(p0 == .loop_child);
-        const p1 = self.persistent.id_scopes.popOrNull() orelse @panic("popLoopValue() called without matching pushLoopValue()");
-        std.debug.assert(p1 == .src);
-    }
-    fn _pushLoopValueSlice(self: *Beui2, src: std.builtin.SourceLocation, child_t: [*:0]const u8, child_v: []const u8) void {
-        const last = self.persistent.id_scopes.getLastOrNull() orelse @panic("pushLoopValue called without pushLoop");
-        if (last != .loop) @panic("pushLoopValue called but last push was not pushLoop");
-        if (last.loop.child_t != child_t) @panic("pushLoopValue called with different type than set in pushLoop");
-        std.debug.assert(child_v.len <= IDSegment.LoopChildSize);
-        self.persistent.id_scopes.append(.fromSrc(src)) catch @panic("oom");
-        const added = self.persistent.id_scopes.addOne() catch @panic("oom");
-        added.* = .{ .loop_child = .{} };
-        @memcpy(added.loop_child.value[0..child_v.len], child_v);
-    }
-
-    pub fn callerID(self: *Beui2, src: std.builtin.SourceLocation) CallerID {
-        return .{ .b2 = self, .src = src };
-    }
-    pub fn id(self: *Beui2, src: std.builtin.SourceLocation) ID {
-        const seg: IDSegment = .fromSrc(src);
-
-        const result_buf = self.frame.arena.alloc(IDSegment, self.persistent.id_scopes.items.len + 1) catch @panic("oom");
-        @memcpy(result_buf[0..self.persistent.id_scopes.items.len], self.persistent.id_scopes.items);
-        result_buf[self.persistent.id_scopes.items.len] = seg;
-
-        return .{ .frame = self.persistent.frame_num, .str = result_buf };
     }
     pub fn state(self: *Beui2, self_id: ID, comptime StateType: type) StateResult(StateType) {
         _ = self_id;
@@ -247,24 +197,70 @@ const IDSegment = union(enum) {
     }
 };
 const ID = struct {
+    b2: *Beui2,
     frame: u64,
     /// DO NOT READ POINTER WITHOUT CALLING .assertValid() FIRST.
     str: []const IDSegment,
-    pub fn assertValid(self: ID, b2: *Beui2) void {
-        std.debug.assert(self.frame == b2.persistent.frame_num or self.frame + 1 == b2.persistent.frame_num);
+    pub fn assertValid(self: ID) void {
+        std.debug.assert(self.frame == self.b2.persistent.frame_num or self.frame + 1 == self.b2.persistent.frame_num);
     }
-    pub fn eql(self: ID, b2: *Beui2, other: ID) bool {
-        self.assertValid(b2);
-        other.assertValid(b2);
+    pub fn hash(self: ID) u64 {
+        self.assertValid();
+        var hasher = std.hash.Wyhash.init(0);
+        for (self.str) |seg| std.hash.autoHash(&hasher, seg);
+        return hasher.final();
+    }
+    pub fn eql(self: ID, other: ID) bool {
+        self.assertValid();
+        other.assertValid();
         if (self.str.len != other.str.len) return false;
         if (self.str.ptr == other.str.ptr) return true;
         for (self.str, other.str) |a, b| if (!std.meta.eql(a, b)) return false;
         return true;
     }
-    pub fn refresh(self: ID, b2: *Beui2) ID {
-        self.assertValid(b2);
-        const self_cp = b2.frame.arena.dupe(IDSegment, self.str) catch @panic("oom");
-        return .{ .str = self_cp, .frame = b2.persistent.frame_num };
+    pub fn refresh(self: ID) ID {
+        self.assertValid();
+        const self_cp = self.b2.frame.arena.dupe(IDSegment, self.str) catch @panic("oom");
+        return .{ .b2 = self.b2, .frame = self.b2.persistent.frame_num, .str = self_cp };
+    }
+
+    fn _addInternal(self: ID, items: []const IDSegment) ID {
+        self.assertValid();
+        const self_cp = self.b2.frame.arena.alloc(IDSegment, self.str.len + items.len) catch @panic("oom");
+        @memcpy(self_cp[0..self.str.len], self.str);
+        @memcpy(self_cp[self.str.len..], items);
+        const result: ID = .{ .b2 = self.b2, .frame = self.b2.persistent.frame_num, .str = self_cp };
+        if (std.debug.runtime_safety) self.b2.persistent.this_frame_ids.putNoClobber(result, {}) catch @panic("oom"); // if this fails then there is a duplicate id
+        return result;
+    }
+
+    pub fn pushLoop(self: ID, src: std.builtin.SourceLocation, comptime ChildT: type) ID {
+        comptime {
+            if (@sizeOf(ChildT) > IDSegment.LoopChildSize) @compileError("loop ChildT size > max size");
+            if (!std.meta.hasUniqueRepresentation(ChildT)) @compileError("loop ChildT must have unique representation");
+        }
+        return self._pushLoopTypeName(src, @typeName(ChildT));
+    }
+    fn _pushLoopTypeName(self: ID, src: std.builtin.SourceLocation, child_t: [*:0]const u8) ID {
+        return self._addInternal(&.{ .fromSrc(src), .{ .loop = .{ .child_t = child_t } } });
+    }
+    pub fn pushLoopValue(self: ID, src: std.builtin.SourceLocation, child_t: anytype) ID {
+        return self._pushLoopValueSlice(src, @typeName(@TypeOf(child_t)), std.mem.asBytes(&child_t));
+    }
+    fn _pushLoopValueSlice(self: ID, src: std.builtin.SourceLocation, child_t: [*:0]const u8, child_v: []const u8) ID {
+        self.assertValid();
+        if (self.str.len == 0) @panic("pushLoopValue called without pushLoop");
+        const last = self.str[self.str.len - 1];
+        if (last != .loop) @panic("pushLoopValue called but last push was not pushLoop");
+        if (last.loop.child_t != child_t) @panic("pushLoopValue called with different type than from pushLoop");
+        std.debug.assert(child_v.len <= IDSegment.LoopChildSize);
+        var added: IDSegment = .{ .loop_child = .{} };
+        @memcpy(added.loop_child.value[0..child_v.len], child_v);
+        return self._addInternal(&.{ .fromSrc(src), added });
+    }
+
+    pub fn sub(self: ID, src: std.builtin.SourceLocation) ID {
+        return self._addInternal(&.{.fromSrc(src)});
     }
 };
 
@@ -409,17 +405,18 @@ const Scroller = struct {
     cursor: i32,
     constraints: StandardConstraints,
     scroll_event_capture_id: ID,
+    id: ID,
 
-    pub fn begin(caller_id: CallerID, constraints: StandardConstraints) Scroller {
+    pub fn begin(caller_id: ID, constraints: StandardConstraints) Scroller {
         if (constraints.available_size.w == null or constraints.available_size.h == null) @panic("TODO scroll container with no defined size");
 
         const b2 = caller_id.b2;
-        b2.pushScope(caller_id, @src());
+        const id = caller_id.sub(@src());
 
-        const scroll_ev_capture_id = b2.id(@src());
+        const scroll_ev_capture_id = id.sub(@src());
         const scroll_by = b2.scrollCaptureResults(scroll_ev_capture_id);
 
-        const scroll_state = b2.state(b2.id(@src()), struct { offset: f32, anchor: usize });
+        const scroll_state = b2.state(id.sub(@src()), struct { offset: f32, anchor: usize });
         if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = 0 };
         scroll_state.value.offset += scroll_by[1];
 
@@ -429,60 +426,52 @@ const Scroller = struct {
             .cursor = @intFromFloat(@round(-scroll_state.value.offset)),
             .constraints = constraints,
             .scroll_event_capture_id = scroll_ev_capture_id,
+            .id = id,
         };
     }
 
     fn scrollerConstraints(self: *Scroller) StandardConstraints {
         return .{ .available_size = .{ .w = self.constraints.available_size.w, .h = null } };
     }
-    pub fn child(scroller: *Scroller, caller_id: CallerID) ?ChildFill {
-        const b2 = caller_id.b2;
-        b2.pushScope(caller_id, @src());
+    pub fn child(scroller: *Scroller, caller_id: ID) ?ChildFill {
+        const id = caller_id.sub(@src());
 
-        return .{ .scroller = scroller, .b2 = b2, .constraints = scroller.scrollerConstraints() };
+        return .{ .id = id, .scroller = scroller, .constraints = scroller.scrollerConstraints() };
     }
     const ChildFill = struct {
+        id: ID,
         scroller: *Scroller,
-        b2: *Beui2,
         constraints: StandardConstraints,
         pub fn end(self: ChildFill, value: StandardChild) void {
-            self.b2.popScope();
             self.scroller.placeChild(value);
         }
     };
-    pub fn virtual(scroller: *Scroller, caller_id: CallerID, ctx: anytype, comptime Anchor: type) VirtualIter(@TypeOf(ctx), Anchor) {
-        const b2 = caller_id.b2;
-        b2.pushScope(caller_id, @src());
-        b2.pushLoop(@src(), Anchor);
+    pub fn virtual(scroller: *Scroller, caller_id: ID, ctx: anytype, comptime Anchor: type) VirtualIter(@TypeOf(ctx), Anchor) {
+        const id = caller_id.pushLoop(@src(), Anchor);
 
-        return .{ .ctx = ctx, .b2 = b2, .scroller = scroller, .pos = Anchor.first(ctx) };
+        return .{ .ctx = ctx, .id = id, .scroller = scroller, .pos = Anchor.first(ctx) };
     }
     fn VirtualIter(comptime Context: type, comptime Anchor: type) type {
         return struct {
-            b2: *Beui2,
+            id: ID,
             scroller: *Scroller,
             ctx: Context,
             pos: ?Anchor,
             pub fn next(self: *@This()) ?VirtualFill {
                 if (self.pos == null) return null;
-                self.b2.pushLoopValue(@src(), self.pos.?);
+
                 defer self.pos = Anchor.next(self.ctx, self.pos.?);
-                return .{ .pos = self.pos.?, .scroller = self.scroller, .b2 = self.b2, .constraints = self.scroller.scrollerConstraints() };
+                return .{ .id = self.id.pushLoopValue(@src(), self.pos.?), .pos = self.pos.?, .scroller = self.scroller, .constraints = self.scroller.scrollerConstraints() };
             }
             const VirtualFill = struct {
+                id: ID,
                 pos: Anchor,
                 scroller: *Scroller,
-                b2: *Beui2,
                 constraints: StandardConstraints,
                 pub fn end(self: VirtualFill, value: StandardChild) void {
-                    self.b2.popLoopValue();
                     self.scroller.placeChild(value);
                 }
             };
-            pub fn end(self: *@This()) void {
-                self.b2.popLoop();
-                self.b2.popScope();
-            }
         };
     }
     fn placeChild(self: *Scroller, ch: StandardChild) void {
@@ -491,7 +480,6 @@ const Scroller = struct {
     }
 
     pub fn end(self: *Scroller) StandardChild {
-        self.b2.popScope();
         self.draw_list.addMouseEventCapture(
             self.scroll_event_capture_id,
             .{ 0, 0 },
@@ -502,17 +490,16 @@ const Scroller = struct {
     }
 };
 fn textDemo(
-    caller_id: CallerID,
+    caller_id: ID,
     text: []const u8,
     constraints: StandardConstraints,
 ) StandardChild {
     const b2 = caller_id.b2;
-    b2.pushScope(caller_id, @src());
-    defer b2.popScope();
+    const id = caller_id.sub(@src());
 
     const draw = b2.draw();
 
-    const capture_id = b2.id(@src());
+    const capture_id = id.sub(@src());
     const mouse_res = b2.mouseCaptureResults(capture_id);
 
     _ = constraints; // todo wrap
@@ -537,12 +524,10 @@ fn textDemo(
     };
 }
 
-const CallerID = struct {
-    b2: *Beui2,
-    src: std.builtin.SourceLocation,
-};
-
 const ListIndex = struct {
+    comptime {
+        std.debug.assert(std.meta.hasUniqueRepresentation(ListIndex));
+    }
     i: usize,
     pub fn first(len: usize) ?ListIndex {
         if (len == 0) return null;
@@ -592,7 +577,7 @@ const StandardChild = struct {
 };
 
 pub const Button = struct {
-    b2: *Beui2,
+    id: ID,
     itkn: Itkn,
     constraints: StandardConstraints,
 
@@ -602,12 +587,8 @@ pub const Button = struct {
         // is that necessary?
         b2: *Beui2,
         id: ID,
-        pub fn init(caller_id: CallerID) Itkn {
-            const b2 = caller_id.b2;
-            b2.pushScope(caller_id, @src());
-            defer b2.popScope();
-
-            return .{ .id = b2.id(@src()) };
+        pub fn init(caller_id: ID) Itkn {
+            return .{ .id = caller_id.sub(@src()) };
         }
 
         pub fn active(self: Itkn) bool {
@@ -615,12 +596,11 @@ pub const Button = struct {
         }
     };
 
-    fn begin(caller_id: CallerID, itkn_in: ?Itkn, constraints: StandardConstraints) Button {
-        const b2 = caller_id.b2;
-        b2.pushScope(caller_id, @src());
-        const itkn = itkn_in orelse Itkn.init(b2.callerID(@src()));
+    fn begin(caller_id: ID, itkn_in: ?Itkn, constraints: StandardConstraints) Button {
+        const id = caller_id.sub(@src());
+        const itkn = itkn_in orelse Itkn.init(id.sub(@src()));
         return .{
-            .b2 = b2,
+            .id = id,
             .itkn = itkn,
             .constraints = constraints,
         };
@@ -634,26 +614,23 @@ pub const Button = struct {
     }
 };
 
-pub fn scrollDemo(caller_id: CallerID, constraints: StandardConstraints) StandardChild {
-    const b2 = caller_id.b2;
-    b2.pushScope(caller_id, @src());
-    defer b2.popScope();
+pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild {
+    const root_id = caller_id.sub(@src());
 
-    var scroller = Scroller.begin(b2.callerID(@src()), constraints);
+    var scroller = Scroller.begin(root_id.sub(@src()), constraints);
 
-    if (scroller.child(b2.callerID(@src()))) |c| {
-        c.end(textDemo(b2.callerID(@src()), "hello", c.constraints));
+    if (scroller.child(scroller.id.sub(@src()))) |c| {
+        c.end(textDemo(c.id.sub(@src()), "hello", c.constraints));
     }
-    if (scroller.child(b2.callerID(@src()))) |c| {
-        c.end(textDemo(b2.callerID(@src()), "world", c.constraints));
+    if (scroller.child(scroller.id.sub(@src()))) |c| {
+        c.end(textDemo(c.id.sub(@src()), "world", c.constraints));
     }
     const my_list = &[_][]const u8{ "1", "2", "3" };
 
     {
-        var virtual = scroller.virtual(b2.callerID(@src()), my_list.len, ListIndex);
-        defer virtual.end();
+        var virtual = scroller.virtual(scroller.id.sub(@src()), my_list.len, ListIndex);
         while (virtual.next()) |c| {
-            c.end(textDemo(b2.callerID(@src()), my_list[c.pos.i], c.constraints));
+            c.end(textDemo(c.id.sub(@src()), my_list[c.pos.i], c.constraints));
         }
     }
 
