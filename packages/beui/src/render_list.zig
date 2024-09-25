@@ -98,14 +98,21 @@ pub const RenderList = struct {
         return &self.commands.items[self.commands.items.len - 1];
     }
 
-    fn addVertices(self: *RenderList, image: ?RenderListImage, vertices: []const RenderListVertex, indices: []const RenderListIndex) void {
+    pub fn addVertices(self: *RenderList, image: ?RenderListImage, vertices: []const RenderListVertex, indices: []const RenderListIndex, offset_pos: @Vector(2, f32)) void {
         const tctx = tracy.trace(@src());
         defer tctx.end();
 
         var cmd = self.getCmd(image, vertices.len);
 
         const prev_vertices_len: u16 = @intCast(cmd.vertex_count); // vertices len can never be larger than (maxInt(u16) - vertices.len)
-        self.vertices.appendSlice(vertices) catch @panic("oom");
+        self.vertices.ensureUnusedCapacity(vertices.len) catch @panic("oom");
+        for (vertices) |vtx| {
+            self.vertices.appendAssumeCapacity(.{
+                .pos = vtx.pos + offset_pos,
+                .uv = vtx.uv,
+                .tint = vtx.tint,
+            });
+        }
         self.indices.ensureUnusedCapacity(indices.len) catch @panic("oom");
         for (indices) |index| {
             std.debug.assert(index < vertices.len);
@@ -168,7 +175,7 @@ pub const RenderList = struct {
         }, &.{
             0, 1, 3,
             0, 3, 2,
-        });
+        }, .{ 0, 0 });
     }
 
     pub fn addChar(self: *RenderList, char: u8, pos: @Vector(2, f32), color: Beui.Color) void {
