@@ -810,7 +810,7 @@ pub fn main() !void {
             defer b2ft.end();
 
             b2.newFrame(.{});
-            const demo1_res = Beui.beui_experiment.demo1(b2.id(@src()), &b2, .{ .size = .{ @intCast(fb_width), @intCast(fb_height) } });
+            const demo1_res = Beui.beui_experiment.demo1(b2.callerID(@src()), .{ .size = .{ @intCast(fb_width), @intCast(fb_height) } });
             b2.endFrame(demo1_res, &draw_list);
         }
 

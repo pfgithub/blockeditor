@@ -72,9 +72,8 @@ pub const Beui2 = struct {
         _ = capture_id;
         return .{ 0, 0 };
     }
-    pub fn pushScope(self: *Beui2, caller_id: ID, src: std.builtin.SourceLocation) void {
-        if (caller_id.str.len != self.persistent.id_scopes.items.len + 1) @panic("bad caller id");
-        self.persistent.id_scopes.append(caller_id.str[caller_id.str.len - 1]) catch @panic("oom");
+    pub fn pushScope(self: *Beui2, caller_id: CallerID, src: std.builtin.SourceLocation) void {
+        self.persistent.id_scopes.append(.fromSrc(caller_id.src)) catch @panic("oom");
         self.persistent.id_scopes.append(.fromSrc(src)) catch @panic("oom");
     }
     pub fn popScope(self: *Beui2) void {
@@ -116,6 +115,9 @@ pub const Beui2 = struct {
         @memcpy(added.loop_child.value[0..child_v.len], child_v);
     }
 
+    pub fn callerID(self: *Beui2, src: std.builtin.SourceLocation) CallerID {
+        return .{ .b2 = self, .src = src };
+    }
     pub fn id(self: *Beui2, src: std.builtin.SourceLocation) ID {
         const seg: IDSegment = .fromSrc(src);
 
@@ -143,18 +145,19 @@ pub const MouseCaptureResults = struct {
     mouse_left_held: bool,
 };
 
-pub fn demo1(caller_id: ID, b2: *Beui2, constraints: Constraints) *RepositionableDrawList {
+pub fn demo1(caller_id: CallerID, constraints: Constraints) *RepositionableDrawList {
+    const b2 = caller_id.b2;
     b2.pushScope(caller_id, @src());
     defer b2.popScope();
 
     const result = b2.draw();
 
-    result.place(scrollDemo(b2.id(@src()), b2, constraints), .{ 0, 0 });
+    result.place(scrollDemo(b2.callerID(@src()), constraints), .{ 0, 0 });
 
     return result;
 }
 
-fn demo0(caller_id: ID, b2: *Beui2) *RepositionableDrawList {
+fn demo0(caller_id: CallerID, b2: *Beui2) *RepositionableDrawList {
     b2.pushScope(caller_id, @src());
     defer b2.popScope();
 
@@ -341,7 +344,8 @@ const Scroller = struct {
     constraints: Constraints,
     scroll_event_capture_id: ID,
 
-    pub fn begin(caller_id: ID, b2: *Beui2, constraints: Constraints) Scroller {
+    pub fn begin(caller_id: CallerID, constraints: Constraints) Scroller {
+        const b2 = caller_id.b2;
         b2.pushScope(caller_id, @src());
         defer b2.popScope();
 
@@ -363,7 +367,8 @@ const Scroller = struct {
     fn scrollerConstraints(self: *Scroller) ScrollerConstraints {
         return .{ .width = self.constraints.size[0] };
     }
-    pub fn child(scroller: *Scroller, caller_id: ID, b2: *Beui2) ?ChildFill {
+    pub fn child(scroller: *Scroller, caller_id: CallerID) ?ChildFill {
+        const b2 = caller_id.b2;
         b2.pushScope(caller_id, @src());
 
         return .{ .scroller = scroller, .b2 = b2, .constraints = scroller.scrollerConstraints() };
@@ -377,7 +382,8 @@ const Scroller = struct {
             self.scroller.placeChild(value);
         }
     };
-    pub fn virtual(scroller: *Scroller, caller_id: ID, b2: *Beui2, ctx: anytype, comptime Anchor: type) VirtualIter(@TypeOf(ctx), Anchor) {
+    pub fn virtual(scroller: *Scroller, caller_id: CallerID, ctx: anytype, comptime Anchor: type) VirtualIter(@TypeOf(ctx), Anchor) {
+        const b2 = caller_id.b2;
         b2.pushScope(caller_id, @src());
         b2.pushLoop(@src(), Anchor);
 
@@ -427,11 +433,11 @@ const Scroller = struct {
     }
 };
 fn textDemo(
-    caller_id: ID,
-    b2: *Beui2,
+    caller_id: CallerID,
     text: []const u8,
     constraints: ScrollerConstraints,
 ) ScrollerChild {
+    const b2 = caller_id.b2;
     b2.pushScope(caller_id, @src());
     defer b2.popScope();
 
@@ -463,25 +469,31 @@ const ScrollerChild = struct {
     rdl: *RepositionableDrawList,
 };
 
-fn scrollDemo(caller_id: ID, b2: *Beui2, constraints: Constraints) *RepositionableDrawList {
+const CallerID = struct {
+    b2: *Beui2,
+    src: std.builtin.SourceLocation,
+};
+
+fn scrollDemo(caller_id: CallerID, constraints: Constraints) *RepositionableDrawList {
+    const b2 = caller_id.b2;
     b2.pushScope(caller_id, @src());
     defer b2.popScope();
 
-    var scroller = Scroller.begin(b2.id(@src()), b2, constraints);
+    var scroller = Scroller.begin(b2.callerID(@src()), constraints);
 
-    if (scroller.child(b2.id(@src()), b2)) |c| {
-        c.end(textDemo(b2.id(@src()), b2, "hello", c.constraints));
+    if (scroller.child(b2.callerID(@src()))) |c| {
+        c.end(textDemo(b2.callerID(@src()), "hello", c.constraints));
     }
-    if (scroller.child(b2.id(@src()), b2)) |c| {
-        c.end(textDemo(b2.id(@src()), b2, "world", c.constraints));
+    if (scroller.child(b2.callerID(@src()))) |c| {
+        c.end(textDemo(b2.callerID(@src()), "world", c.constraints));
     }
     const my_list = &[_][]const u8{ "1", "2", "3" };
 
     {
-        var virtual = scroller.virtual(b2.id(@src()), b2, my_list.len, ListIndex);
+        var virtual = scroller.virtual(b2.callerID(@src()), my_list.len, ListIndex);
         defer virtual.end();
         while (virtual.next()) |c| {
-            c.end(textDemo(b2.id(@src()), b2, my_list[c.pos.i], c.constraints));
+            c.end(textDemo(b2.callerID(@src()), my_list[c.pos.i], c.constraints));
         }
     }
 
