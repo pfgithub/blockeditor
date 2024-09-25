@@ -282,6 +282,7 @@ const IDSegment = union(enum) {
 };
 const ID = struct {
     frame: u64,
+    /// DO NOT READ POINTER WITHOUT CALLING .assertValid() FIRST.
     str: []const IDSegment,
     pub fn assertValid(self: ID, b2: *Beui2) void {
         std.debug.assert(self.frame == b2.persistent.frame_num or self.frame + 1 == b2.persistent.frame_num);
