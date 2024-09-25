@@ -535,6 +535,38 @@ fn textDemo(
         .rdl = draw,
     };
 }
+fn textOnly(
+    caller_id: ID,
+    text: []const u8,
+    constraints: StandardConstraints,
+    color: Beui.Color,
+    bg: Beui.Color,
+) StandardChild {
+    const b2 = caller_id.b2;
+    const id = caller_id.sub(@src());
+    _ = id;
+
+    const draw = b2.draw();
+
+    _ = constraints; // todo wrap
+
+    var char_pos: @Vector(2, f32) = .{ 0, 0 };
+    for (text) |char| {
+        draw.addChar(char, char_pos, color);
+        char_pos += .{ 6, 0 };
+    }
+
+    draw.addRect(.{
+        .pos = .{ 0, 0 },
+        .size = .{ char_pos[0], 10 },
+        .tint = bg,
+    });
+
+    return .{
+        .size = .{ @intFromFloat(char_pos[0]), 10 },
+        .rdl = draw,
+    };
+}
 
 const ListIndex = struct {
     comptime {
@@ -597,14 +629,13 @@ pub const Button = struct {
         // is an interaction token necessary?
         // the point of an interaction token is to get values before calling Button.begin()
         // is that necessary?
-        b2: *Beui2,
         id: ID,
         pub fn init(caller_id: ID) Itkn {
             return .{ .id = caller_id.sub(@src()) };
         }
 
         pub fn active(self: Itkn) bool {
-            return self.b2.mouseCaptureResults(self.id).mouse_left_held;
+            return self.id.b2.mouseCaptureResults(self.id).mouse_left_held;
         }
     };
 
@@ -618,9 +649,8 @@ pub const Button = struct {
         };
     }
     fn end(self: Button, child: StandardChild) StandardChild {
-        self.b2.popScope();
-        const draw = self.b2.draw();
-        draw.place(child, .{ 0, 0 });
+        const draw = self.id.b2.draw();
+        draw.place(child.rdl, .{ 0, 0 });
         draw.addMouseEventCapture(self.itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });
         return .{ .size = child.size, .rdl = draw };
     }
@@ -636,6 +666,14 @@ pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild
     }
     if (scroller.child(scroller.id.sub(@src()))) |c| {
         c.end(textDemo(c.id.sub(@src()), "world", c.constraints));
+    }
+    if (scroller.child(scroller.id.sub(@src()))) |c| {
+        c.end(btn: {
+            var btn = Button.begin(c.id.sub(@src()), null, c.constraints);
+            break :btn btn.end(
+                textOnly(btn.id.sub(@src()), "test button", btn.constraints, .fromHexRgb(0xFFFF00), if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099)),
+            );
+        });
     }
     const my_list = &[_][]const u8{ "1", "2", "3" };
 
