@@ -802,7 +802,7 @@ pub fn main() !void {
         const fb_width = gctx.swapchain_descriptor.width;
         const fb_height = gctx.swapchain_descriptor.height;
 
-        Beui.beui_experiment.runExperiment(&beui, fb_width, fb_height);
+        // Beui.beui_experiment.runExperiment(&beui, fb_width, fb_height);
 
         my_text_editor.gui(&beui, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });
 
