@@ -3,17 +3,6 @@ const std = @import("std");
 const Beui = @import("Beui.zig");
 const render_list = @import("render_list.zig");
 
-// if we would like to be able to reposition results, we can do that just fine as long as we
-// have consistent ids! to recieve mouse events, an object draws a rectangle to the
-// event_draw_list, which is repositioned and next frame it recieves events
-// - this introduces one frame of delay from when an item is first rendered and when
-//   it can know where the mouse is. and if a node is moving every frame, there's
-//   a frame of extra lag for the mouse position it knows. otherwise, it introduces
-//   no delay.
-
-// as long as we have consistent ids, we have everything
-// repositioning just costs loopoing over the results after we're done with them
-
 const Beui2FrameCfg = struct {};
 const Beui2Frame = struct {
     arena: std.mem.Allocator,
@@ -170,8 +159,11 @@ const RepositionableDrawList = struct {
     };
     b2: *Beui2,
     content: std.ArrayList(RepositionableDrawChild),
+    placed: bool = false,
     pub fn place(self: *RepositionableDrawList, child: *RepositionableDrawList, offset_pos: @Vector(2, i32)) void {
+        std.debug.assert(!child.placed);
         self.content.append(.{ .embed = .{ .child = child, .offset = offset_pos } }) catch @panic("oom");
+        child.placed = true;
     }
     pub fn addVertices(self: *RepositionableDrawList, image: ?render_list.RenderListImage, vertices: []const render_list.RenderListVertex, indices: []const render_list.RenderListIndex) void {
         self.content.append(.{
@@ -241,5 +233,145 @@ const RepositionableDrawList = struct {
                 },
             }
         }
+    }
+};
+
+const Constraints = struct {};
+const Scroller = struct {
+    // fn child() will call some kind of preserveIdTree fn on the id it recieves
+    // same with fn virtual()
+    // because we don't want to lose state when a child isn't rendered
+
+    draw_list: *RepositionableDrawList,
+    cursor: i32,
+
+    pub fn child(scroller: *Scroller, caller_id: ID, b2: *Beui2) ?ChildFill {
+        b2.pushScope(caller_id, @src());
+
+        return .{ .scroller = scroller, .b2 = b2 };
+    }
+    const ChildFill = struct {
+        scroller: *Scroller,
+        b2: *Beui2,
+        pub fn end(self: ChildFill, value: ScrollerChild) void {
+            self.b2.popScope();
+            self.scroller.draw_list.place(value.rdl, .{ 25, 25 });
+            self.scroller.cursor += value.height;
+        }
+    };
+    pub fn virtual(scroller: *Scroller, caller_id: ID, b2: *Beui2, ctx: anytype, comptime Anchor: type) VirtualIter(@TypeOf(ctx), Anchor) {
+        b2.pushScope(caller_id, @src());
+        b2.pushLoop(Anchor);
+
+        return .{ .ctx = ctx, .b2 = b2, .scroller = scroller, .pos = Anchor.first(ctx) };
+    }
+    fn VirtualIter(comptime Context: type, comptime Anchor: type) type {
+        return struct {
+            b2: *Beui2,
+            scroller: *Scroller,
+            ctx: Context,
+            pos: ?Anchor,
+            pub fn next(self: *@This()) ?VirtualFill {
+                if (self.pos == null) return null;
+                self.b2.pushLoopIndex(self.pos.?);
+                defer self.pos = Anchor.next(self.ctx, self.pos.?);
+                return .{ .scroller = self.scroller, .b2 = self.b2 };
+            }
+            const VirtualFill = struct {
+                scroller: *Scroller,
+                b2: *Beui2,
+                pub fn end(self: VirtualFill, value: ScrollerChild) void {
+                    self.b2.popLoopIndex();
+                    self.scroller.draw_list.place(value.rdl, .{ 25, 25 });
+                    self.scroller.cursor += value.height;
+                }
+            };
+            pub fn deinit(self: *@This()) void {
+                self.b2.popLoop();
+                self.b2.popScope();
+            }
+        };
+    }
+
+    pub fn end(self: *Scroller) *RepositionableDrawList {
+        return self.draw_list;
+    }
+};
+fn textDemo(
+    caller_id: ID,
+    b2: *Beui2,
+    text: []const u8,
+    constraints: ScrollerConstraints,
+) ScrollerChild {
+    b2.pushScope(caller_id, @src());
+    defer b2.popScope();
+
+    const draw = b2.draw();
+
+    draw.addRect(.{
+        .pos = .{ 0, 0 },
+        .size = .{ @floatFromInt(constraints.width), 10 },
+        .tint = .fromHexRgb(0x0000FF),
+    });
+
+    _ = text;
+
+    return .{
+        .height = 10,
+        .rdl = draw,
+    };
+}
+
+const ScrollerConstraints = struct {
+    width: i32,
+};
+const ScrollerChild = struct {
+    height: i32,
+    rdl: *RepositionableDrawList,
+};
+
+fn scrollDemo(caller_id: ID, b2: *Beui2, constraints: Constraints) *RepositionableDrawList {
+    b2.pushScope(caller_id, @src());
+    defer b2.popScope();
+
+    var scroller = Scroller.begin(b2, constraints);
+
+    if (scroller.child(b2.id(@src()), b2)) |c| {
+        c.end(textDemo(b2.id(@src()), b2, "hello", c.constraints));
+    }
+    if (scroller.child(b2.id(@src()), b2)) |c| {
+        c.end(textDemo(b2.id(@src()), b2, "world", c.constraints));
+    }
+    const my_list = &[_][]const u8{ "1", "2", "3" };
+
+    {
+        var virtual = scroller.virtual(b2.id(@src()), b2, my_list.len, ListIndex);
+        defer virtual.end();
+        while (virtual.next()) |c| {
+            c.end(textDemo(b2.id(@src()), b2, my_list[c.v.i]), c.constraints);
+        }
+    }
+
+    return scroller.end();
+}
+const ListIndex = struct {
+    i: usize,
+    pub fn first(len: usize) ?ListIndex {
+        if (len == 0) return null;
+        return .{ .i = 0 };
+    }
+    pub fn last(len: usize) ?ListIndex {
+        if (len == 0) return null;
+        return .{ .i = 0 };
+    }
+    pub fn prev(len: usize, itm: ListIndex) ?ListIndex {
+        if (itm.i == 0) return null;
+        if (len == 0) return null;
+        return .{ .i = @min(itm.i - 1, len - 1) };
+    }
+    pub fn next(len: usize, itm: ListIndex) ?ListIndex {
+        if (len == 0) return null;
+        if (itm.i == len - 1) return null;
+        return .{ .i = @min(itm.i + 1, len - 1) };
     }
 };
