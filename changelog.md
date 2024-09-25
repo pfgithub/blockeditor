@@ -63,4 +63,27 @@ start using it right now to do editing. It feels pretty nice.
 
 ## 2024-09-23
 
+- finish replace_and_delete operation
+- change genoperations to write to an operations writer rather than writing an array of structs
+- add tracing frames to alloc calls wrapped in a tracy allocator
+- remove old replace op and delete op
+- impl undo support for replace_and_delete
+- add tree sitter markdown package
+- package tree_sitter into its own module with bindings seperate from text_editor
+- move advanceAndRead fn to tree sitter
+- get tree sitter ready for multi language + syn hl reorganization
+- begin markdown highlighter
 
+## 2024-09-24
+
+- not ready to implement markdown yet - we'll wait until beui text rendering and then do manual
+  queries in Core rather than having it be its own module
+- fix undoing every item at the end of the core test not working right
+- change TextStack to no longer require ending items
+- make undo preserve cursor position
+- batch undos for text insert operations and delete operations
+- automatically connect tracy when running with -Dtracy
+- start on the real plan for beui_experiment. this will work. and it will be soo nice. well not
+  that nice, it's a bit ugly and verbose. but maybe we'll port it to qxc eventually and there
+  it will be nice, and here it will be acceptable. it will still be so nice once text editor
+  rendering is literally a generic virtualized list render with nothing special about it.
