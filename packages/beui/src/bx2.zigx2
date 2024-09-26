@@ -67,39 +67,40 @@ fn button(caller: DefaultComponentCallInfo, child: Component(DefaultComponentCal
 }
 const Button = struct {
     pub const Arg0 = DefaultComponentCallInfo;
-    pub const Arg1 = struct {pub const Arg0 = DefaultComponentCallInfo; pub const Arg1 = void; pub const Ret = DefaultComponentResult;};
+    pub const Arg1 = Component(DefaultComponentCallInfo, void, DefaultComponentResult);
     pub const call = button;
 };
 
-const DemoSource = struct {
-    const DemoUseButton = %(%: DefaultComponentCallInfo, color: Beui.Color) DefaultComponentResult {
-        // implicit: const ui = call_info.ui(@src());
-        %struct { color: Beui.Color };
-        // implicit: var ctx: ctx_type = undefined;
+// transform implementation:
+// 1. map '%(args) ret '
+// - while rendering, when we encounter a '%{}' block, add it to a list. then when we are done with the
+// fn body, do the next one in the list.
 
-        %.* = .{.color = color};
-        // implicitly sets first argument to 'ui.call(@src())'
-        return %Button(%_ {
-            // implicitly sets first argument to 'ui.call(@src())'
-            return %Text("hello, world!", .fromHexRgb(0xFFFFFF));
-        });
-    };
+const DemoUseButton = %(%: DefaultComponentCallInfo, color: Beui.Color) DefaultComponentResult {
+    %struct { color: Beui.Color };
+
+    %.* = .{.color = color};
+    return %Button(%_ {
+        return %Text("hello, world!", .fromHexRgb(0xFFFFFF));
+    });
 };
-const DemoCompiled = struct {
-    pub const Arg0 = Beui.Color;
+const DemoUseButton_compiled = struct {
+    pub const __Arg0 = DefaultComponentCallInfo;
+    pub const __Arg1 = Beui.Color;
+    const __Context = struct {color: Beui.Color};
+    const __Component0 = Button;
+    const __Component1 = Text;
+    pub fn __call(__call_info: DefaultComponentCallInfo, color: Beui.Color) DefaultComponentResult {
+        const __ui = __call_info.ui(@src());
+        var ctx: __Context = undefined;
 
-    const demoUseButton_context = struct{color: Beui.Color};
-    fn call(call_info: DefaultComponentCallInfo, color: Arg0) DefaultComponentResult {
-        const ui = call_info.ui(@src());
-        var ctx: demoUseButton_context = undefined;
         ctx.* = .{.color = color};
-
-        return Button.call(_1.call(@src()), .from(&ctx, demoUseButton_1));
+        return __Component0.__call(__ui.call(@src()), .from(&ctx, __call_1));
     }
-    fn demoUseButton_1(ctx: *demoUseButton_context, call_info: Button.Arg1.Arg0, _: Button.Arg1.Arg1) Button.Arg1.Ret {
-        const ui = call_info.ui(@src());
+    pub fn __call_1(__ctx: *__Context, __call_info: __Component0.__Arg1.Arg0, _: __Component0.__Arg1.Arg1) __Component0.Arg1.Ret {
+        const __ui = __call_info.ui(@src());
 
-        return ui.text(_1.call(@src()), "hello world!", ctx.color);
+        return __Component1.__call("hello, world!", .fromHexRgb(0xFFFFFF));
     }
 };
 
