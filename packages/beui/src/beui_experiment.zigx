@@ -668,12 +668,9 @@ pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild
         c.end(textDemo(c.id.sub(@src()), "world", c.constraints));
     }
     if (scroller.child(scroller.id.sub(@src()))) |c| {
-        c.end(btn: {
-            var btn = Button.begin(c.id.sub(@src()), null, c.constraints);
-            break :btn btn.end(
-                textOnly(btn.id.sub(@src()), "test button", btn.constraints, .fromHexRgb(0xFFFF00), if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099)),
-            );
-        });
+        c.end(Button(c.id.sub(@src()), null, c.constraints, |btn| ( //
+            textOnly(btn.id.sub(@src()), "test button", btn.constraints, .fromHexRgb(0xFFFF00), if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099))) //
+        ));
     }
     const my_list = &[_][]const u8{ "1", "2", "3" };
 
