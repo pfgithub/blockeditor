@@ -314,9 +314,11 @@ fn fmtPathFile(
         const stdout = std.io.getStdOut().writer();
         try stdout.writeAll("Errors:\n");
         for (tree.errors) |err| {
+            try stdout.print("token idx {d}: ", .{err.token});
             try tree.renderError(err, stdout);
             try stdout.writeAll("\n");
         }
+        fatal("Format had errors", .{});
         return;
         // END EDIT
     }

@@ -61,3 +61,11 @@ does not support (yet?):
 - loops (no `.iterate(|item| item + 2)`)
 - multi arg (no `.sort(|lhs, rhs| lhs < rhs)`)
 - nice definition (`fn use(value: @StackCapturingMacro()) i32 { return value(); }`)
+
+
+
+to make proper, we need:
+
+- loops (call child many times or not at all)
+
+that's probably not too hard if we switch to a while
