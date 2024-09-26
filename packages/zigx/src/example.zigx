@@ -1,0 +1,16 @@
+const std = @import("std");
+
+const Demo = struct {
+    value: i32,
+    fn begin(value: i32) Demo {
+        return .{ .value = value };
+    }
+    fn end(self: Demo, result: i32) i32 {
+        _ = self;
+        return result;
+    }
+};
+
+test "zigx" {
+    try std.testing.expectEqual(@as(i32, 10), Demo(6, |val| val.value + 4));
+}

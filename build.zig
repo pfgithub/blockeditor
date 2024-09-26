@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) void {
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
     const tracy_dep = b.dependency("tracy", .{ .target = target, .optimize = optimize });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
+    const zigx_dep = b.dependency("zigx", .{ .target = target, .optimize = optimize });
 
     b.installArtifact(blockeditor_dep.artifact("blockeditor"));
     b.installArtifact(blocks_net_dep.artifact("server"));
@@ -40,6 +41,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(sheen_bidi_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);
+    test_step.dependOn(&b.addRunArtifact(zigx_dep.artifact("test")).step);
 
     const multirun_exe = b.addExecutable(.{
         .name = "multirun",
