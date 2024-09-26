@@ -4,13 +4,34 @@ pub const pkgs = struct {
     pub const tree_sitter = @import("tree_sitter");
 };
 
+const fmt_paths = &.{};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     const enable_tracy = b.option(bool, "tracy", "Enable tracy?") orelse false;
 
-    const fmt_all = b.addFmt(.{ .paths = &.{ "packages", "build.zig", "build.zig.zon" }, .check = b.option(bool, "ci", "") orelse false });
+    const fmt_all = b.addFmt(.{
+        .paths = &.{
+            // zig fmt: off
+            "packages/anywhere/src", "packages/anywhere/build.zig",
+            // skip beui
+            "packages/blockeditor/src", "packages/blockeditor/build.zig", "packages/blockeditor/build.zig.zon",
+            "packages/blocks/src", "packages/blocks/build.zig", "packages/blocks/build.zig.zon",
+            "packages/blocks_net/src", "packages/blocks_net/build.zig", "packages/blocks_net/build.zig.zon",
+            "packages/loadimage/src", "packages/loadimage/build.zig", "packages/blocks_net/build.zig.zon",
+            "packages/sheen_bidi/src", "packages/sheen_bidi/build.zig", "packages/blocks_net/build.zig.zon",
+            "packages/texteditor/src", "packages/texteditor/build.zig", "packages/blocks_net/build.zig.zon",
+            "packages/tracy/src", "packages/tracy/build.zig", "packages/blocks_net/build.zig.zon",
+            "packages/tree_sitter/src", "packages/tree_sitter/build.zig", "packages/blocks_net/build.zig.zon",
+            "packages/unicode_segmentation/src", "packages/unicode_segmentation/build.zig", "packages/blocks_net/build.zig.zon",
+            // skip zigx
+            "build.zig","build.zig.zon",
+            // zig fmt: on
+        },
+        .check = b.option(bool, "ci", "") orelse false,
+    });
     b.getInstallStep().dependOn(&fmt_all.step);
 
     const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });

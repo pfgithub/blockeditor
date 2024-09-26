@@ -346,14 +346,30 @@ fn fmtPathFile(
     }
 
     // BEGIN EDIT
-    if (std.mem.endsWith(u8, file_path, ".zigx")) {
+    if (std.mem.endsWith(u8, file_path, ".zigx")) outofif: {
         fmt.out_buffer.shrinkRetainingCapacity(0);
         try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
         try tree.renderToArrayList(&fmt.out_buffer, .{ .render_to_zig = true });
 
-        const res_path = try std.fmt.allocPrint(fmt.out_buffer.allocator, "{s}.zig", .{sub_path});
-        defer fmt.out_buffer.allocator.free(res_path);
+        const res_path = try std.fmt.allocPrint(gpa, "{s}.zig", .{sub_path});
+        defer gpa.free(res_path);
+
+        blk: {
+            const result_file = dir.openFile(res_path, .{}) catch break :blk;
+            defer result_file.close();
+            const stat2 = result_file.stat() catch break :blk;
+            const cont = std.zig.readSourceFileToEndAlloc(gpa, result_file, stat2.size) catch break :blk;
+            defer gpa.free(cont);
+
+            if (std.mem.eql(u8, fmt.out_buffer.items, cont)) {
+                break :outofif;
+            }
+            // else {
+            //     std.testing.expectEqualStrings(fmt.out_buffer.items, cont) catch @panic("not eql");
+            // }
+        }
+
         var af = try dir.atomicFile(res_path, .{ .mode = stat.mode });
         defer af.deinit();
 
