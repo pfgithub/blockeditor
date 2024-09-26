@@ -1,3 +1,24 @@
+## usage
+
+```
+    const run_zigx_fmt = b.addRunArtifact(b.dependency("zigx").artifact("zigx_fmt"));
+    run_zigx_fmt.setCwd(b.path("."));
+    run_zigx_fmt.addArgs(&.{ "src", "build.zig", "build.zig.zon" });
+    const beforeall = &run_zigx_fmt.step;
+    const beforeall_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
+    beforeall_genf.* = .{
+        .step = beforeall,
+        .path = b.path("build.zig").getPath(b),
+    };
+    const beforeall_lazypath: std.Build.LazyPath = .{ .generated = .{ .file = beforeall_genf } };
+    const beforeall_mod = b.createModule(.{ .root_source_file = beforeall_lazypath });
+```
+
+then, import beforeall_mod or depend on beforeall step before any steps that depend on source
+code containing zigx files
+
+## what
+
 adds syntax sugar for limited stack-capturing macros with shadowing arg names
 
 ```

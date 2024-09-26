@@ -20,5 +20,6 @@
         .anywhere = .{ .path = "../anywhere" },
         .blocks = .{ .path = "../blocks" },
         .texteditor = .{ .path = "../texteditor" },
+        .zigx = .{ .path = "../zigx" },
     },
 }
