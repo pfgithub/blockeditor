@@ -1,45 +1,5 @@
 const std = @import("std");
 
-const ui = struct {};
-
-
-fn scrollDemo2(caller: std.builtin.SourceLocation) value {
-    // this works until you need context, and then it becomes annoying
-    // what works well about this is we can actually compose components
-    const Context = struct {};
-    var ctx = Context{};
-
-    return ui.scroller(%, %{
-        scroller.child(%, %{
-            return ui.textDemo(%, "hello");
-        });
-        scroller.child(%, %{
-            return ui.textDemo(%, "world");
-        });
-        scroller.child(%, %{
-            return ui.button(%, %{
-                return ui.background(%, ui.COLOR, %{
-                    return ui.text(%, "test button", .white);
-                });
-            });
-        });
-    });
-    // codegen output would put all those inner ones into their own outer fns
-}
-fn composedDemo(caller: DefaultComponentCallInfo, child: Component(void, ChildRetTy)) void {
-    const Context = struct {child: Component(void, ChildRetTy)};
-    var ctx = Context{.child = child};
-
-    return ui.button(%, %{
-        return ui.background(%, ui.COLOR, %{
-            return ctx.child(%);
-        });
-    });
-}
-
-// '%' is shorthand for @src(), _default_ui_arg
-// ^ instead of @src(), we could generate a uuid based on the file's hash
-
 const DefaultComponentCallInfo = struct {
     called_from: std.builtin.SourceLocation,
     _internal_ui: DefaultComponentInfo,
