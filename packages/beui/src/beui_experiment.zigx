@@ -454,7 +454,7 @@ const Scroller = struct {
     fn scrollerConstraints(self: *Scroller) StandardConstraints {
         return .{ .available_size = .{ .w = self.constraints.available_size.w, .h = null } };
     }
-    pub fn child(self: *Scroller, caller_id: ID) ?ChildFill {
+    pub fn child(self: *Scroller, caller_id: ID) ChildFill {
         const id = caller_id.sub(@src());
 
         return .{ .id = id, .scroller = self, .constraints = self.scrollerConstraints() };
@@ -463,8 +463,16 @@ const Scroller = struct {
         id: ID,
         scroller: *Scroller,
         constraints: StandardConstraints,
-        pub fn end(self: ChildFill, value: StandardChild) void {
-            self.scroller.placeChild(value);
+        posted: ?StandardChild = null,
+        pub fn next(self: *ChildFill) ?*ChildFill {
+            if (self.posted != null) return null;
+            return self;
+        }
+        pub fn post(self: *ChildFill, value: StandardChild) void {
+            self.posted = value;
+        }
+        pub fn end(self: *ChildFill) void {
+            self.scroller.placeChild(self.posted.?);
         }
     };
     pub fn virtual(self: *Scroller, caller_id: ID, ctx: anytype, comptime Anchor: type) VirtualIter(@TypeOf(ctx), Anchor) {
@@ -700,19 +708,19 @@ pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild
     const root_id = caller_id.sub(@src());
 
     return scroller(root_id.sub(@src()), constraints, |s| {
-        if (s.child(s.id.sub(@src()))) |c| {
-            c.end(textDemo(c.id.sub(@src()), "hello", c.constraints));
-        }
-        if (s.child(s.id.sub(@src()))) |c| {
-            c.end(textDemo(c.id.sub(@src()), "world", c.constraints));
-        }
-        if (s.child(s.id.sub(@src()))) |c| {
-            c.end(button(c.id.sub(@src()), null, c.constraints, |btn| btn: {
+        _ = s.child(s.id.sub(@src()), |c| blk: {
+            break :blk textDemo(c.id.sub(@src()), "hello", c.constraints);
+        });
+        _ = s.child(s.id.sub(@src()), |c| blk: {
+            break :blk textDemo(c.id.sub(@src()), "world", c.constraints);
+        });
+        _ = s.child(s.id.sub(@src()), |c| blk: {
+            break :blk (button(c.id.sub(@src()), null, c.constraints, |btn| btn: {
                 break :btn setBackground(btn.id.sub(@src()), btn.constraints, if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099), |sbg| sbg: { //
                     break :sbg textOnly(sbg.id.sub(@src()), "test button", sbg.constraints, .fromHexRgb(0xFFFF00));
                 });
             }));
-        }
+        });
         const my_list = &[_][]const u8{ "1", "2", "3" };
 
         _ = s.virtual(s.id.sub(@src()), my_list.len, ListIndex, |c| blk: {
