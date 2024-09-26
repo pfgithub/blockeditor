@@ -1,0 +1,99 @@
+const std = @import("std");
+
+const ui = struct {};
+
+
+fn scrollDemo2(caller: std.builtin.SourceLocation) value {
+    // this works until you need context, and then it becomes annoying
+    // what works well about this is we can actually compose components
+    const Context = struct {};
+    var ctx = Context{};
+
+    return ui.scroller(%, %{
+        scroller.child(%, %{
+            return ui.textDemo(%, "hello");
+        });
+        scroller.child(%, %{
+            return ui.textDemo(%, "world");
+        });
+        scroller.child(%, %{
+            return ui.button(%, %{
+                return ui.background(%, ui.COLOR, %{
+                    return ui.text(%, "test button", .white);
+                });
+            });
+        });
+    });
+    // codegen output would put all those inner ones into their own outer fns
+}
+fn composedDemo(caller: DefaultComponentCallInfo, child: Component(void, ChildRetTy)) void {
+    const Context = struct {child: Component(void, ChildRetTy)};
+    var ctx = Context{.child = child};
+
+    return ui.button(%, %{
+        return ui.background(%, ui.COLOR, %{
+            return ctx.child(%);
+        });
+    });
+}
+
+// '%' is shorthand for @src(), _default_ui_arg
+// ^ instead of @src(), we could generate a uuid based on the file's hash
+
+const DefaultComponentCallInfo = struct {
+    called_from: std.builtin.SourceLocation,
+    _internal_ui: DefaultComponentInfo,
+};
+const DefaultComponentInfo = struct {
+    constraints: struct {},
+    id: struct {},
+};
+
+const DefaultComponentResult = struct {
+    size: struct {},
+    rdl: struct {},
+};
+
+fn button(caller: DefaultComponentCallInfo, child: Component(DefaultComponentCallInfo, void, DefaultComponentResult)) void {
+    const ui = caller.ui(@src());
+
+    const child_value = child(ui.call(@src()), {});
+
+    const draw = ui.draw();
+    draw.place(child_value.rdl, .{0, 0});
+    draw.addMouseEventCapture(self.itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });
+
+    return .{.rdl = draw, .size = child.size};
+}
+const Button = struct {
+    pub const Arg0 = struct {pub const Arg0 = DefaultComponentCallInfo; pub const Arg1 = void; pub const Ret = DefaultComponentResult;};
+    pub const call = button;
+};
+
+const DemoSource = struct {
+    const DemoUseButton = %(%: DefaultComponentCallInfo, color: Beui.Color) DefaultComponentResult {
+        %struct { color: Beui.Color };
+
+        %.* = .{.color = color};
+        return %Button(%_ {
+            return ui.text(%, "hello, world!", .fromHexRgb(0xFFFFFF));
+        });
+    };
+};
+const DemoCompiled = struct {
+    pub const Arg0 = Beui.Color;
+
+    const demoUseButton_context = struct{color: Beui.Color};
+    fn call(call_info: DefaultComponentCallInfo, color: Arg0) DefaultComponentResult {
+        const ui = call_info.ui(@src());
+        var ctx: demoUseButton_context = undefined;
+        ctx.* = .{.color = color};
+
+        return Button.call(_1.call(@src()), .from(&ctx, demoUseButton_1));
+    }
+    fn demoUseButton_1(ctx: *demoUseButton_context, call_info: Button.Arg0.Arg0, _: Button.Arg0.Arg1) Button.Arg0.Ret {
+        const ui = call_info.ui(@src());
+
+        return ui.text(_1.call(@src()), "hello world!", ctx.color);
+    }
+};

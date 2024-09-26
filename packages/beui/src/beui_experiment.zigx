@@ -715,11 +715,11 @@ pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild
             break :blk textDemo(c.id.sub(@src()), "world", c.constraints);
         });
         _ = s.child(s.id.sub(@src()), |c| blk: {
-            break :blk (button(c.id.sub(@src()), null, c.constraints, |btn| btn: {
+            break :blk button(c.id.sub(@src()), null, c.constraints, |btn| btn: {
                 break :btn setBackground(btn.id.sub(@src()), btn.constraints, if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099), |sbg| sbg: { //
                     break :sbg textOnly(sbg.id.sub(@src()), "test button", sbg.constraints, .fromHexRgb(0xFFFF00));
                 });
-            }));
+            });
         });
         const my_list = &[_][]const u8{ "1", "2", "3" };
 
