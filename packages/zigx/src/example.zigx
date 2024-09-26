@@ -1,16 +1,25 @@
 const std = @import("std");
 
 const Demo = struct {
-    value: i32,
+    value: ?i32,
+    posted: ?i32,
     fn begin(value: i32) Demo {
-        return .{ .value = value };
+        return .{ .value = value, .posted = null };
     }
-    fn end(self: Demo, result: i32) i32 {
-        _ = self;
-        return result;
+    fn next(self: *Demo) ?i32 {
+        defer self.value = null;
+        return self.value;
+    }
+    fn post(self: *Demo, value: i32) void {
+        self.posted = value;
+    }
+    fn end(self: Demo) i32 {
+        std.debug.assert(self.value == null);
+        std.debug.assert(self.posted != null);
+        return self.posted.?;
     }
 };
 
 test "zigx" {
-    try std.testing.expectEqual(@as(i32, 10), Demo(6, |val| val.value + 4));
+    try std.testing.expectEqual(@as(i32, 10), Demo(6, |val| val + 4));
 }

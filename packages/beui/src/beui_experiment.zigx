@@ -613,15 +613,25 @@ const StandardChild = struct {
     rdl: *RepositionableDrawList,
 };
 
-const SetBackground = struct {
+pub const SetBackground = struct {
     id: ID,
     constraints: StandardConstraints,
     color: Beui.Color,
-    fn begin(caller_id: ID, constraints: StandardConstraints, color: Beui.Color) SetBackground {
+    result: ?StandardChild = null,
+    pub fn begin(caller_id: ID, constraints: StandardConstraints, color: Beui.Color) SetBackground {
         const id = caller_id.sub(@src());
         return .{ .id = id, .constraints = constraints, .color = color };
     }
-    fn end(self: SetBackground, child: StandardChild) StandardChild {
+    pub fn next(self: *SetBackground) ?*SetBackground {
+        if (self.result != null) return null;
+        return self;
+    }
+    pub fn post(self: *SetBackground, value: StandardChild) void {
+        std.debug.assert(self.result == null);
+        self.result = value;
+    }
+    pub fn end(self: *SetBackground) StandardChild {
+        const child = self.result.?;
         const draw = self.id.b2.draw();
         draw.place(child.rdl, .{ 0, 0 });
         draw.addRect(.{ .pos = .{ 0, 0 }, .size = @floatFromInt(child.size), .tint = self.color });
@@ -633,6 +643,7 @@ pub const Button = struct {
     id: ID,
     itkn: Itkn,
     constraints: StandardConstraints,
+    result: ?StandardChild = null,
 
     pub const Itkn = struct {
         // is an interaction token necessary?
@@ -648,7 +659,7 @@ pub const Button = struct {
         }
     };
 
-    fn begin(caller_id: ID, itkn_in: ?Itkn, constraints: StandardConstraints) Button {
+    pub fn begin(caller_id: ID, itkn_in: ?Itkn, constraints: StandardConstraints) Button {
         const id = caller_id.sub(@src());
         const itkn = itkn_in orelse Itkn.init(id.sub(@src()));
         return .{
@@ -657,7 +668,16 @@ pub const Button = struct {
             .constraints = constraints,
         };
     }
-    fn end(self: Button, child: StandardChild) StandardChild {
+    pub fn next(self: *Button) ?*Button {
+        if (self.result != null) return null;
+        return self;
+    }
+    pub fn post(self: *Button, value: StandardChild) void {
+        std.debug.assert(self.result == null);
+        self.result = value;
+    }
+    pub fn end(self: *Button) StandardChild {
+        const child = self.result.?;
         const draw = self.id.b2.draw();
         draw.place(child.rdl, .{ 0, 0 });
         draw.addMouseEventCapture(self.itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });

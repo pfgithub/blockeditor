@@ -22,29 +22,39 @@ code containing zigx files
 adds syntax sugar for limited stack-capturing macros with shadowing arg names
 
 ```
-const result = MyFn(12, |arg| arg.value + 25)
+const result = Demo(6, |val| val + 4);
 ```
 
 transforms to:
 
-```
+```zig
 const result = _0: {
-    const arg = MyFn.begin(12);
-    break :_0 arg.end(arg.value + 25);
+    var _0 = (Demo).begin(6);
+    while(_0.next()) |val| _0.post(val + 4);
+    break :_0 _0.end();
 };
 ```
 
 for usage with a struct like
 
 ```
-const MyFn = struct {
-    value: i32,
-    pub fn begin(value: i32) MyFn {
-        return .{.value = value};
+const Demo = struct {
+    value: ?i32,
+    posted: ?i32,
+    fn begin(value: i32) Demo {
+        return .{ .value = value, .posted = null };
     }
-    pub fn end(self: MyFn, value: i32) i32 {
-        _ = self;
-        return value;
+    fn next(self: *Demo) ?i32 {
+        defer self.value = null;
+        return self.value;
+    }
+    fn post(self: *Demo, value: i32) void {
+        self.posted = value;
+    }
+    fn end(self: Demo) i32 {
+        std.debug.assert(self.value == null);
+        std.debug.assert(self.posted != null);
+        return self.posted.?;
     }
 };
 ```
@@ -58,14 +68,5 @@ todo support:
 
 does not support (yet?):
 
-- loops (no `.iterate(|item| item + 2)`)
 - multi arg (no `.sort(|lhs, rhs| lhs < rhs)`)
-- nice definition (`fn use(value: @StackCapturingMacro()) i32 { return value(); }`)
-
-
-
-to make proper, we need:
-
-- loops (call child many times or not at all)
-
-that's probably not too hard if we switch to a while
+- nice definition (`fn use(value: @StackCapturingMacro(i32, i32)) i32 { return value(10); }`)
