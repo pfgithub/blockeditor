@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "*.zigx": "zig",
+        "*.zigx.zig": "plaintext",
+    },
+    "files.exclude": {
+        "**/*.zigx.zig": true,
+    }
+}

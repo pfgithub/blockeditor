@@ -473,16 +473,16 @@ const Scroller = struct {
                 if (self.pos == null) return null;
 
                 defer self.pos = Anchor.next(self.ctx, self.pos.?);
-                return .{ .id = self.id.pushLoopValue(@src(), self.pos.?), .pos = self.pos.?, .scroller = self.scroller, .constraints = self.scroller.scrollerConstraints() };
+                return .{ .id = self.id.pushLoopValue(@src(), self.pos.?), .pos = self.pos.?, .constraints = self.scroller.scrollerConstraints() };
             }
+            pub fn post(self: *@This(), chv: StandardChild) void {
+                self.scroller.placeChild(chv);
+            }
+            pub fn end(_: *@This()) void {}
             const VirtualFill = struct {
                 id: ID,
                 pos: Anchor,
-                scroller: *Scroller,
                 constraints: StandardConstraints,
-                pub fn end(self: VirtualFill, value: StandardChild) void {
-                    self.scroller.placeChild(value);
-                }
             };
         };
     }
@@ -707,12 +707,9 @@ pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild
     }
     const my_list = &[_][]const u8{ "1", "2", "3" };
 
-    {
-        var virtual = scroller.virtual(scroller.id.sub(@src()), my_list.len, ListIndex);
-        while (virtual.next()) |c| {
-            c.end(textDemo(c.id.sub(@src()), my_list[c.pos.i], c.constraints));
-        }
-    }
+    _ = scroller.virtual(scroller.id.sub(@src()), my_list.len, ListIndex, |c| blk: {
+        break :blk textDemo(c.id.sub(@src()), my_list[c.pos.i], c.constraints);
+    });
 
     return scroller.end();
 }
