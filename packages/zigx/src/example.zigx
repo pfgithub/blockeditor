@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const demo = Demo.begin;
 const Demo = struct {
     value: ?i32,
     posted: ?i32,
@@ -21,5 +22,5 @@ const Demo = struct {
 };
 
 test "zigx" {
-    try std.testing.expectEqual(@as(i32, 10), Demo(6, |val| val + 4));
+    try std.testing.expectEqual(@as(i32, 10), demo(6, |val| val + 4));
 }

@@ -613,6 +613,7 @@ const StandardChild = struct {
     rdl: *RepositionableDrawList,
 };
 
+pub const setBackground = SetBackground.begin;
 pub const SetBackground = struct {
     id: ID,
     constraints: StandardConstraints,
@@ -639,6 +640,7 @@ pub const SetBackground = struct {
     }
 };
 
+const button = Button.begin;
 pub const Button = struct {
     id: ID,
     itkn: Itkn,
@@ -697,8 +699,8 @@ pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild
         c.end(textDemo(c.id.sub(@src()), "world", c.constraints));
     }
     if (scroller.child(scroller.id.sub(@src()))) |c| {
-        c.end(Button(c.id.sub(@src()), null, c.constraints, |btn| btn: {
-            break :btn SetBackground(btn.id.sub(@src()), btn.constraints, if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099), |sbg| sbg: { //
+        c.end(button(c.id.sub(@src()), null, c.constraints, |btn| btn: {
+            break :btn setBackground(btn.id.sub(@src()), btn.constraints, if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099), |sbg| sbg: { //
                 break :sbg textOnly(sbg.id.sub(@src()), "test button", sbg.constraints, .fromHexRgb(0xFFFF00));
             });
         }));

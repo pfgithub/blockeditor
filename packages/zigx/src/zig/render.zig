@@ -2588,9 +2588,8 @@ fn renderCall(
             const scm_expr = scm_data.rhs;
             const block_index = r.disambiguator;
             r.disambiguator += 1;
-            try r.ais.writer().print("_{d}: {{ var _{d} = (", .{ block_index, block_index });
+            try r.ais.writer().print("_{d}: {{ var _{d} = ", .{ block_index, block_index });
             try renderExpression(r, call.ast.fn_expr, .none);
-            try r.ais.writer().print(").begin", .{});
             try renderParamList_internal(r, call.ast.lparen, call.ast.params[0..stack_capturing_macro_param_idx], .none, call.ast.params[call.ast.params.len - 1]);
             try r.ais.writer().print("; while(_{d}.next()) |", .{block_index});
             try renderIdentifier(r, scm_name, .none, .preserve_when_shadowing);

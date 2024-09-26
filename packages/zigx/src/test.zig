@@ -51,7 +51,7 @@ test "zigx" {
         \\const UI = @import("UI");
         \\
         \\fn demo(ui0: UI) void {
-        \\    _ = UI.Button(ui0.id, |ui1| blk: {
+        \\    _ = UI.button(ui0.id, |ui1| blk: {
         \\        break :blk UI.Text("hello", ui1.id);
         \\    });
         \\}
@@ -60,7 +60,7 @@ test "zigx" {
         \\const UI = @import("UI");
         \\
         \\fn demo(ui0: UI) void {
-        \\    _ = _0: { var _0 = (UI.Button).begin(ui0.id); while(_0.next()) |ui1| _0.post(blk: {
+        \\    _ = _0: { var _0 = UI.button(ui0.id); while(_0.next()) |ui1| _0.post(blk: {
         \\        break :blk UI.Text("hello", ui1.id);
         \\    }); break :_0 _0.end();};
         \\}
