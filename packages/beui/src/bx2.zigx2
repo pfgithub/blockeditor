@@ -61,13 +61,28 @@ const DefaultComponentResult = struct {
 // fn body, do the next one in the list.
 
 const Button = %(%: DefaultComponentCallInfo, Child: Component(DefaultComponentCallInfo, void, DefaultComponentResult)) DefaultComponentResult {
-    const child_value = %Child({});
+    const child_value = Child(%, {});
 
     const draw = %%.draw();
     draw.place(child_value.rdl, .{0, 0});
     draw.addMouseEventCapture(self.itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });
 
     return .{.rdl = draw, .size = child.size};
+};
+const Button_compiled = struct {
+    pub const __Arg0 = DefaultComponentCallInfo;
+    pub const __Arg1 = Component(DefaultComponentCallInfo, void, DefaultComponentResult);
+    pub const __Ret = DefaultComponentResult;
+    pub fn __call(__call_info: __Arg0, Child: __Arg1) __Ret {
+        const __ui = __call_info.ui(@src());
+
+        const child_value = Child(__ui.call(@src()));
+
+        const draw = __ui.draw();
+        draw.addMouseEventCapture(self.itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });
+
+        return .{.rdl = draw, .size = child.size};
+    }
 };
 const DemoUseButton = %(%: DefaultComponentCallInfo, color: Beui.Color) DefaultComponentResult {
     %struct { color: Beui.Color };
@@ -80,10 +95,11 @@ const DemoUseButton = %(%: DefaultComponentCallInfo, color: Beui.Color) DefaultC
 const DemoUseButton_compiled = struct {
     pub const __Arg0 = DefaultComponentCallInfo;
     pub const __Arg1 = Beui.Color;
+    pub const __Ret = DefaultComponentResult;
     const __Context = struct {color: Beui.Color};
     const __Component0 = Button;
     const __Component1 = Text;
-    pub fn __call(__call_info: DefaultComponentCallInfo, color: Beui.Color) DefaultComponentResult {
+    pub fn __call(__call_info: __Arg0, color: __Arg1) __Ret {
         const __ui = __call_info.ui(@src());
         var ctx: __Context = undefined;
 
