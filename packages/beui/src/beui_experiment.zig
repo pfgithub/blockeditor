@@ -518,53 +518,15 @@ const Scroller = struct {
         return .{ .size = .{ self.constraints.available_size.w.?, self.constraints.available_size.h.? }, .rdl = self.draw_list };
     }
 };
-fn textDemo(
-    caller_id: ID,
-    text: []const u8,
-    constraints: StandardConstraints,
-) StandardChild {
-    const b2 = caller_id.b2;
-    const id = caller_id.sub(@src());
-
-    const draw = b2.draw();
-
-    const capture_id = id.sub(@src());
-    const mouse_res = b2.mouseCaptureResults(capture_id);
-
-    _ = constraints; // todo wrap
-
-    var char_pos: @Vector(2, f32) = .{ 0, 0 };
-    for (text) |char| {
-        draw.addChar(char, char_pos, .fromHexRgb(0xFFFF00));
-        char_pos += .{ 6, 0 };
-    }
-
-    draw.addRect(.{
-        .pos = .{ 0, 0 },
-        .size = .{ char_pos[0], 10 },
-        .tint = .fromHexRgb(if (mouse_res.mouse_left_held) 0x0000FF else 0x000099),
-    });
-
-    draw.addMouseEventCapture(capture_id, .{ 0, 0 }, .{ @intFromFloat(char_pos[0]), 10 }, .{ .capture_click = true });
-
-    return .{
-        .size = .{ @intFromFloat(char_pos[0]), 10 },
-        .rdl = draw,
-    };
-}
 fn textOnly(
-    caller_id: ID,
+    call_info: StandardCallInfo,
     text: []const u8,
-    constraints: StandardConstraints,
     color: Beui.Color,
 ) StandardChild {
-    const b2 = caller_id.b2;
-    const id = caller_id.sub(@src());
-    _ = id;
+    const ui = call_info.ui(@src());
+    const b2 = ui.id.b2;
 
     const draw = b2.draw();
-
-    _ = constraints; // todo wrap
 
     var char_pos: @Vector(2, f32) = .{ 0, 0 };
     for (text) |char| {
@@ -630,79 +592,6 @@ const StandardChild = struct {
     rdl: *RepositionableDrawList,
 };
 
-pub const setBackground = SetBackground.begin;
-pub const SetBackground = struct {
-    id: ID,
-    constraints: StandardConstraints,
-    color: Beui.Color,
-    result: ?StandardChild = null,
-    pub fn begin(caller_id: ID, constraints: StandardConstraints, color: Beui.Color) SetBackground {
-        const id = caller_id.sub(@src());
-        return .{ .id = id, .constraints = constraints, .color = color };
-    }
-    pub fn next(self: *SetBackground) ?*SetBackground {
-        if (self.result != null) return null;
-        return self;
-    }
-    pub fn post(self: *SetBackground, value: StandardChild) void {
-        std.debug.assert(self.result == null);
-        self.result = value;
-    }
-    pub fn end(self: *SetBackground) StandardChild {
-        const child = self.result.?;
-        const draw = self.id.b2.draw();
-        draw.place(child.rdl, .{ 0, 0 });
-        draw.addRect(.{ .pos = .{ 0, 0 }, .size = @floatFromInt(child.size), .tint = self.color });
-        return .{ .size = child.size, .rdl = draw };
-    }
-};
-
-const button = Button.begin;
-pub const Button = struct {
-    id: ID,
-    itkn: Itkn,
-    constraints: StandardConstraints,
-    result: ?StandardChild = null,
-
-    pub const Itkn = struct {
-        // is an interaction token necessary?
-        // the point of an interaction token is to get values before calling Button.begin()
-        // is that necessary?
-        id: ID,
-        pub fn init(caller_id: ID) Itkn {
-            return .{ .id = caller_id.sub(@src()) };
-        }
-
-        pub fn active(self: Itkn) bool {
-            return self.id.b2.mouseCaptureResults(self.id).mouse_left_held;
-        }
-    };
-
-    pub fn begin(caller_id: ID, itkn_in: ?Itkn, constraints: StandardConstraints) Button {
-        const id = caller_id.sub(@src());
-        const itkn = itkn_in orelse Itkn.init(id.sub(@src()));
-        return .{
-            .id = id,
-            .itkn = itkn,
-            .constraints = constraints,
-        };
-    }
-    pub fn next(self: *Button) ?*Button {
-        if (self.result != null) return null;
-        return self;
-    }
-    pub fn post(self: *Button, value: StandardChild) void {
-        std.debug.assert(self.result == null);
-        self.result = value;
-    }
-    pub fn end(self: *Button) StandardChild {
-        const child = self.result.?;
-        const draw = self.id.b2.draw();
-        draw.place(child.rdl, .{ 0, 0 });
-        draw.addMouseEventCapture(self.itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });
-        return .{ .size = child.size, .rdl = draw };
-    }
-};
 const StandardCallInfo = struct {
     caller_id: ID,
     constraints: StandardConstraints,
@@ -736,13 +625,46 @@ fn Component(comptime Arg1: type, comptime Arg2: type, comptime Ret: type) type 
         }
     };
 }
-fn button2(call_info: StandardCallInfo, itkn_in: ?Button.Itkn, child_component: Component(StandardCallInfo, Button.Itkn, StandardChild)) StandardChild {
+pub const Button_Itkn = struct {
+    id: ID,
+    pub fn init(caller_id: ID) Button_Itkn {
+        return .{ .id = caller_id.sub(@src()) };
+    }
+
+    pub fn active(self: Button_Itkn) bool {
+        return self.id.b2.mouseCaptureResults(self.id).mouse_left_held;
+    }
+};
+fn defaultTextButton(call_info: StandardCallInfo, itkn_in: ?Button_Itkn) StandardChild {
     const ui = call_info.ui(@src());
-    const itkn = itkn_in orelse Button.Itkn.init(ui.id.sub(@src()));
+    return button(ui.sub(@src()), itkn_in, .from(&{}, defaultTextButton_1));
+}
+fn defaultTextButton_1(_: *const void, caller_id: StandardCallInfo, itkn: Button_Itkn) StandardChild {
+    const ui = caller_id.ui(@src());
+    const color: Beui.Color = if (itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099);
+    return setBackground(ui.sub(@src()), color, .from(&{}, scrollDemo_2));
+}
+fn defaultTextButton_2(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
+    const ui = caller_id.ui(@src());
+    return textOnly(ui.sub(@src()), "test button", .fromHexRgb(0xFFFF00));
+}
+
+fn button(call_info: StandardCallInfo, itkn_in: ?Button_Itkn, child_component: Component(StandardCallInfo, Button_Itkn, StandardChild)) StandardChild {
+    const ui = call_info.ui(@src());
+    const itkn = itkn_in orelse Button_Itkn.init(ui.id.sub(@src()));
     const child = child_component.call(ui.sub(@src()), itkn);
     const draw = ui.id.b2.draw();
     draw.place(child.rdl, .{ 0, 0 });
     draw.addMouseEventCapture(itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });
+    return .{ .size = child.size, .rdl = draw };
+}
+fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
+    const ui = call_info.ui(@src());
+    const child = child_component.call(ui.sub(@src()), {});
+
+    const draw = ui.id.b2.draw();
+    draw.place(child.rdl, .{ 0, 0 });
+    draw.addRect(.{ .pos = .{ 0, 0 }, .size = @floatFromInt(child.size), .tint = color });
     return .{ .size = child.size, .rdl = draw };
 }
 
@@ -754,43 +676,38 @@ pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild
         while (_0.next()) |s| _0.post({
             _ = _1: {
                 var _1 = s.child(s.id.sub(@src()));
-                while (_1.next()) |c| _1.post(blk: {
-                    break :blk textDemo(c.id.sub(@src()), "hello", c.constraints);
-                });
+                while (_1.next()) |c| _1.post(defaultTextButton(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, "hello"));
                 break :_1 _1.end();
             };
             _ = _2: {
                 var _2 = s.child(s.id.sub(@src()));
-                while (_2.next()) |c| _2.post(blk: {
-                    break :blk textDemo(c.id.sub(@src()), "world", c.constraints);
-                });
+                while (_2.next()) |c| _2.post(defaultTextButton(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, "hello"));
                 break :_2 _2.end();
             };
             _ = _3: {
                 var _3 = s.child(s.id.sub(@src()));
-                while (_3.next()) |c| _3.post(button2(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, null, .from(&{}, scrollDemo_1)));
+                while (_3.next()) |c| _3.post(button(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, null, .from(&{}, scrollDemo_1)));
                 break :_3 _3.end();
             };
             const my_list = &[_][]const u8{ "1", "2", "3" };
 
             _ = _6: {
                 var _6 = s.virtual(s.id.sub(@src()), my_list.len, ListIndex);
-                while (_6.next()) |c| _6.post(blk: {
-                    break :blk textDemo(c.id.sub(@src()), my_list[c.pos.i], c.constraints);
-                });
+                while (_6.next()) |c| _6.post(defaultTextButton(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, "hello"));
                 break :_6 _6.end();
             };
         });
         break :_0 _0.end();
     };
 }
-fn scrollDemo_1(_: *const void, caller_id: StandardCallInfo, itkn: Button.Itkn) StandardChild {
+fn scrollDemo_1(_: *const void, caller_id: StandardCallInfo, itkn: Button_Itkn) StandardChild {
     const ui = caller_id.ui(@src());
-    var _5 = setBackground(ui.id.sub(@src()), ui.constraints, if (itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099));
-    while (_5.next()) |sbg| _5.post(sbg: { //
-        break :sbg textOnly(sbg.id.sub(@src()), "test button", sbg.constraints, .fromHexRgb(0xFFFF00));
-    });
-    return _5.end();
+    const color: Beui.Color = if (itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099);
+    return setBackground(ui.sub(@src()), color, .from(&{}, scrollDemo_2));
+}
+fn scrollDemo_2(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
+    const ui = caller_id.ui(@src());
+    return textOnly(ui.sub(@src()), "test button", .fromHexRgb(0xFFFF00));
 }
 
 // so for a button:
