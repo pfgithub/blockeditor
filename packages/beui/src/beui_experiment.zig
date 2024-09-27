@@ -405,119 +405,6 @@ const RepositionableDrawList = struct {
     }
 };
 
-const scroller = Scroller.begin;
-const Scroller = struct {
-    // fn child() will call some kind of preserveIdTree fn on the id it recieves
-    // same with fn virtual()
-    // because we don't want to lose state when a child isn't rendered
-
-    // eventually we'll want to put scrollers inside of scrollers but we're not going to worry about that yet
-
-    b2: *Beui2,
-    draw_list: *RepositionableDrawList,
-    cursor: i32,
-    constraints: StandardConstraints,
-    scroll_event_capture_id: ID,
-    id: ID,
-    posted: bool = false,
-
-    pub fn begin(caller_id: ID, constraints: StandardConstraints) Scroller {
-        if (constraints.available_size.w == null or constraints.available_size.h == null) @panic("TODO scroll container with no defined size");
-
-        const b2 = caller_id.b2;
-        const id = caller_id.sub(@src());
-
-        const scroll_ev_capture_id = id.sub(@src());
-        const scroll_by = b2.scrollCaptureResults(scroll_ev_capture_id);
-
-        const scroll_state = b2.state(id.sub(@src()), struct { offset: f32, anchor: usize });
-        if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = 0 };
-        scroll_state.value.offset += scroll_by[1];
-
-        return .{
-            .b2 = b2,
-            .draw_list = b2.draw(),
-            .cursor = @intFromFloat(@round(-scroll_state.value.offset)),
-            .constraints = constraints,
-            .scroll_event_capture_id = scroll_ev_capture_id,
-            .id = id,
-        };
-    }
-    pub fn next(self: *Scroller) ?*Scroller {
-        if (self.posted) return null;
-        return self;
-    }
-    pub fn post(self: *Scroller, _: void) void {
-        self.posted = true;
-    }
-
-    fn scrollerConstraints(self: *Scroller) StandardConstraints {
-        return .{ .available_size = .{ .w = self.constraints.available_size.w, .h = null } };
-    }
-    pub fn child(self: *Scroller, caller_id: ID) ChildFill {
-        const id = caller_id.sub(@src());
-
-        return .{ .id = id, .scroller = self, .constraints = self.scrollerConstraints() };
-    }
-    const ChildFill = struct {
-        id: ID,
-        scroller: *Scroller,
-        constraints: StandardConstraints,
-        posted: ?StandardChild = null,
-        pub fn next(self: *ChildFill) ?*ChildFill {
-            if (self.posted != null) return null;
-            return self;
-        }
-        pub fn post(self: *ChildFill, value: StandardChild) void {
-            self.posted = value;
-        }
-        pub fn end(self: *ChildFill) void {
-            self.scroller.placeChild(self.posted.?);
-        }
-    };
-    pub fn virtual(self: *Scroller, caller_id: ID, ctx: anytype, comptime Anchor: type) VirtualIter(@TypeOf(ctx), Anchor) {
-        const id = caller_id.pushLoop(@src(), Anchor);
-
-        return .{ .ctx = ctx, .id = id, .scroller = self, .pos = Anchor.first(ctx) };
-    }
-    fn VirtualIter(comptime Context: type, comptime Anchor: type) type {
-        return struct {
-            id: ID,
-            scroller: *Scroller,
-            ctx: Context,
-            pos: ?Anchor,
-            pub fn next(self: *@This()) ?VirtualFill {
-                if (self.pos == null) return null;
-
-                defer self.pos = Anchor.next(self.ctx, self.pos.?);
-                return .{ .id = self.id.pushLoopValue(@src(), self.pos.?), .pos = self.pos.?, .constraints = self.scroller.scrollerConstraints() };
-            }
-            pub fn post(self: *@This(), chv: StandardChild) void {
-                self.scroller.placeChild(chv);
-            }
-            pub fn end(_: *@This()) void {}
-            const VirtualFill = struct {
-                id: ID,
-                pos: Anchor,
-                constraints: StandardConstraints,
-            };
-        };
-    }
-    fn placeChild(self: *Scroller, ch: StandardChild) void {
-        self.draw_list.place(ch.rdl, .{ 0, self.cursor });
-        self.cursor += ch.size[1];
-    }
-
-    pub fn end(self: *Scroller) StandardChild {
-        self.draw_list.addMouseEventCapture(
-            self.scroll_event_capture_id,
-            .{ 0, 0 },
-            .{ self.constraints.available_size.w.?, self.constraints.available_size.h.? },
-            .{ .capture_scroll = .{ .y = true } },
-        );
-        return .{ .size = .{ self.constraints.available_size.w.?, self.constraints.available_size.h.? }, .rdl = self.draw_list };
-    }
-};
 fn textOnly(
     call_info: StandardCallInfo,
     text: []const u8,
@@ -553,12 +440,12 @@ const ListIndex = struct {
         if (len == 0) return null;
         return .{ .i = 0 };
     }
-    pub fn prev(len: usize, itm: ListIndex) ?ListIndex {
+    pub fn prev(itm: ListIndex, len: usize) ?ListIndex {
         if (itm.i == 0) return null;
         if (len == 0) return null;
         return .{ .i = @min(itm.i - 1, len - 1) };
     }
-    pub fn next(len: usize, itm: ListIndex) ?ListIndex {
+    pub fn next(itm: ListIndex, len: usize) ?ListIndex {
         if (len == 0) return null;
         if (itm.i == len - 1) return null;
         return .{ .i = @min(itm.i + 1, len - 1) };
@@ -635,18 +522,18 @@ pub const Button_Itkn = struct {
         return self.id.b2.mouseCaptureResults(self.id).mouse_left_held;
     }
 };
-fn defaultTextButton(call_info: StandardCallInfo, itkn_in: ?Button_Itkn) StandardChild {
+fn defaultTextButton(call_info: StandardCallInfo, msg: []const u8, itkn_in: ?Button_Itkn) StandardChild {
     const ui = call_info.ui(@src());
-    return button(ui.sub(@src()), itkn_in, .from(&{}, defaultTextButton_1));
+    return button(ui.sub(@src()), itkn_in, .from(&msg, defaultTextButton_1));
 }
-fn defaultTextButton_1(_: *const void, caller_id: StandardCallInfo, itkn: Button_Itkn) StandardChild {
+fn defaultTextButton_1(msg: *const []const u8, caller_id: StandardCallInfo, itkn: Button_Itkn) StandardChild {
     const ui = caller_id.ui(@src());
     const color: Beui.Color = if (itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099);
-    return setBackground(ui.sub(@src()), color, .from(&{}, scrollDemo_2));
+    return setBackground(ui.sub(@src()), color, .from(msg, defaultTextButton_2));
 }
-fn defaultTextButton_2(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
+fn defaultTextButton_2(msg: *const []const u8, caller_id: StandardCallInfo, _: void) StandardChild {
     const ui = caller_id.ui(@src());
-    return textOnly(ui.sub(@src()), "test button", .fromHexRgb(0xFFFF00));
+    return textOnly(ui.sub(@src()), msg.*, .fromHexRgb(0xFFFF00));
 }
 
 fn button(call_info: StandardCallInfo, itkn_in: ?Button_Itkn, child_component: Component(StandardCallInfo, Button_Itkn, StandardChild)) StandardChild {
@@ -667,47 +554,99 @@ fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component
     draw.addRect(.{ .pos = .{ 0, 0 }, .size = @floatFromInt(child.size), .tint = color });
     return .{ .size = child.size, .rdl = draw };
 }
+const PostScrollChild = struct {
+    rdl: *RepositionableDrawList,
+    cursor: i32,
+    fn add(self: *PostScrollChild, call_info: StandardCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) void {
+        const ui = call_info.ui(@src());
+        const child = child_component.call(ui.sub(@src()), {});
+        self.rdl.place(child.rdl, .{ 0, self.cursor });
+        self.cursor += child.size[1];
+    }
+    fn addVirtual(self: *PostScrollChild, call_info: StandardCallInfo, context: anytype, comptime Index: type, child_component: Component(StandardCallInfo, Index, StandardChild)) void {
+        const ui = call_info.ui(@src());
+
+        var idx = Index.first(context);
+        const loop_index = ui.id.pushLoop(@src(), Index);
+        while (idx != null) {
+            const child = child_component.call(.{ .caller_id = loop_index.pushLoopValue(@src(), idx.?), .constraints = ui.constraints }, idx.?);
+
+            self.rdl.place(child.rdl, .{ 0, self.cursor });
+            self.cursor += child.size[1];
+
+            idx = idx.?.next(context);
+        }
+    }
+};
+fn scroller(call_info: StandardCallInfo, child_component: Component(StandardCallInfo, *PostScrollChild, void)) StandardChild {
+    const ui = call_info.ui(@src());
+    if (ui.constraints.available_size.w == null or ui.constraints.available_size.h == null) @panic("scroller2 requires known available size");
+    var psc: PostScrollChild = .{
+        .rdl = ui.id.b2.draw(),
+        .cursor = 0,
+    };
+
+    const scroll_ev_capture_id = ui.id.sub(@src());
+    {
+        const scroll_by = ui.id.b2.scrollCaptureResults(scroll_ev_capture_id);
+
+        const scroll_state = ui.id.b2.state(ui.id.sub(@src()), struct { offset: f32, anchor: usize });
+        if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = 0 };
+        scroll_state.value.offset += scroll_by[1];
+    }
+
+    var subui = ui.sub(@src());
+    subui.constraints.available_size.h = null;
+    child_component.call(subui, &psc);
+
+    psc.rdl.addMouseEventCapture(
+        scroll_ev_capture_id,
+        .{ 0, 0 },
+        .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? },
+        .{ .capture_scroll = .{ .y = true } },
+    );
+
+    return .{ .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? }, .rdl = psc.rdl };
+}
 
 pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild {
     const root_id = caller_id.sub(@src());
 
-    return _0: {
-        var _0 = scroller(root_id.sub(@src()), constraints);
-        while (_0.next()) |s| _0.post({
-            _ = _1: {
-                var _1 = s.child(s.id.sub(@src()));
-                while (_1.next()) |c| _1.post(defaultTextButton(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, "hello"));
-                break :_1 _1.end();
-            };
-            _ = _2: {
-                var _2 = s.child(s.id.sub(@src()));
-                while (_2.next()) |c| _2.post(defaultTextButton(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, "hello"));
-                break :_2 _2.end();
-            };
-            _ = _3: {
-                var _3 = s.child(s.id.sub(@src()));
-                while (_3.next()) |c| _3.post(button(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, null, .from(&{}, scrollDemo_1)));
-                break :_3 _3.end();
-            };
-            const my_list = &[_][]const u8{ "1", "2", "3" };
-
-            _ = _6: {
-                var _6 = s.virtual(s.id.sub(@src()), my_list.len, ListIndex);
-                while (_6.next()) |c| _6.post(defaultTextButton(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, "hello"));
-                break :_6 _6.end();
-            };
-        });
-        break :_0 _0.end();
-    };
+    return scroller(.{ .caller_id = root_id.sub(@src()), .constraints = constraints }, .from(&{}, scrollDemo_0));
 }
-fn scrollDemo_1(_: *const void, caller_id: StandardCallInfo, itkn: Button_Itkn) StandardChild {
+fn scrollDemo_0(_: *const void, caller_id: StandardCallInfo, s: *PostScrollChild) void {
+    const ui = caller_id.ui(@src());
+
+    s.add(ui.sub(@src()), .from(&{}, scrollDemo_0_0));
+    s.add(ui.sub(@src()), .from(&{}, scrollDemo_0_1));
+    s.add(ui.sub(@src()), .from(&{}, scrollDemo_0_2));
+    const my_list: []const []const u8 = &[_][]const u8{ "apple", "banana", "cherry" };
+    s.addVirtual(ui.sub(@src()), my_list.len, ListIndex, .from(&my_list, scrollDemo_0_3));
+}
+fn scrollDemo_0_0(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
+    const ui = caller_id.ui(@src());
+    return defaultTextButton(ui.sub(@src()), "hello", null);
+}
+fn scrollDemo_0_1(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
+    const ui = caller_id.ui(@src());
+    return defaultTextButton(ui.sub(@src()), "world", null);
+}
+fn scrollDemo_0_2(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
+    const ui = caller_id.ui(@src());
+    return button(ui.sub(@src()), null, .from(&{}, scrollDemo_0_2_0));
+}
+fn scrollDemo_0_2_0(_: *const void, caller_id: StandardCallInfo, itkn: Button_Itkn) StandardChild {
     const ui = caller_id.ui(@src());
     const color: Beui.Color = if (itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099);
-    return setBackground(ui.sub(@src()), color, .from(&{}, scrollDemo_2));
+    return setBackground(ui.sub(@src()), color, .from(&{}, scrollDemo_0_2_1));
 }
-fn scrollDemo_2(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
+fn scrollDemo_0_2_1(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
     const ui = caller_id.ui(@src());
     return textOnly(ui.sub(@src()), "test button", .fromHexRgb(0xFFFF00));
+}
+fn scrollDemo_0_3(my_list: *const []const []const u8, caller_id: StandardCallInfo, index: ListIndex) StandardChild {
+    const ui = caller_id.ui(@src());
+    return defaultTextButton(ui.sub(@src()), my_list.*[index.i], null);
 }
 
 // so for a button:
