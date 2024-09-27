@@ -7,17 +7,10 @@ pub fn build(b: *std.Build) void {
     const tool_target = b.resolveTargetQuery(.{});
     const tool_optimize: std.builtin.OptimizeMode = .Debug;
 
-    const run_zigx_fmt = b.addRunArtifact(b.dependency("zigx", .{}).artifact("zigx_fmt"));
-    run_zigx_fmt.setCwd(b.path("."));
-    run_zigx_fmt.addArgs(&.{ "src", "build.zig", "build.zig.zon" });
-    const beforeall = &run_zigx_fmt.step;
-    const beforeall_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
-    beforeall_genf.* = .{
-        .step = beforeall,
-        .path = b.path("build.zig").getPath(b),
-    };
-    const beforeall_lazypath: std.Build.LazyPath = .{ .generated = .{ .file = beforeall_genf } };
-    const beforeall_mod = b.createModule(.{ .root_source_file = beforeall_lazypath });
+    const run_zig_fmt = b.addFmt(.{
+        .paths = &.{ "src", "build.zig", "build.zig.zon" },
+    });
+    b.getInstallStep().dependOn(&run_zig_fmt.step);
 
     const loadimage_mod = b.dependency("loadimage", .{ .target = tool_target, .optimize = tool_optimize });
     const genfont_tool = b.addExecutable(.{
@@ -26,7 +19,6 @@ pub fn build(b: *std.Build) void {
         .target = tool_target,
         .optimize = tool_optimize,
     });
-    genfont_tool.root_module.addImport("__ensure_run_zigx", beforeall_mod);
     genfont_tool.root_module.addImport("loadimage", loadimage_mod.module("loadimage"));
     const genfont_run = b.addRunArtifact(genfont_tool);
     genfont_run.addFileArg(b.path("src/base_texture.png"));
@@ -67,7 +59,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    beui_mod.addImport("__ensure_run_zigx", beforeall_mod);
     beui_mod.addImport("font.rgba", font_rgba_mod);
     beui_mod.addImport("freetype", freetype_mod);
     beui_mod.addImport("harfbuzz", harfbuzz_mod);
@@ -83,7 +74,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    beui_test.root_module.addImport("__ensure_run_zigx", beforeall_mod);
     beui_test.root_module.addImport("font.rgba", font_rgba_mod);
     beui_test.root_module.addImport("freetype", freetype_mod);
     beui_test.root_module.addImport("harfbuzz", harfbuzz_mod);

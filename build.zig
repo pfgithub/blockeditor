@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
         .paths = &.{
             // zig fmt: off
             "packages/anywhere/src", "packages/anywhere/build.zig",
-            // skip beui
+            "packages/beui/src", "packages/beui/build.zig", "packages/beui/build.zig.zon",
             "packages/blockeditor/src", "packages/blockeditor/build.zig", "packages/blockeditor/build.zig.zon",
             "packages/blocks/src", "packages/blocks/build.zig", "packages/blocks/build.zig.zon",
             "packages/blocks_net/src", "packages/blocks_net/build.zig", "packages/blocks_net/build.zig.zon",
@@ -26,7 +26,6 @@ pub fn build(b: *std.Build) void {
             "packages/tracy/src", "packages/tracy/build.zig", "packages/blocks_net/build.zig.zon",
             "packages/tree_sitter/src", "packages/tree_sitter/build.zig", "packages/blocks_net/build.zig.zon",
             "packages/unicode_segmentation/src", "packages/unicode_segmentation/build.zig", "packages/blocks_net/build.zig.zon",
-            // skip zigx
             "build.zig","build.zig.zon",
             // zig fmt: on
         },
@@ -44,7 +43,6 @@ pub fn build(b: *std.Build) void {
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
     const tracy_dep = b.dependency("tracy", .{ .target = target, .optimize = optimize });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
-    const zigx_dep = b.dependency("zigx", .{ .target = target, .optimize = optimize });
 
     b.installArtifact(blockeditor_dep.artifact("blockeditor"));
     b.installArtifact(blocks_net_dep.artifact("server"));
@@ -62,7 +60,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(sheen_bidi_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);
-    test_step.dependOn(&b.addRunArtifact(zigx_dep.artifact("test")).step);
 
     const multirun_exe = b.addExecutable(.{
         .name = "multirun",

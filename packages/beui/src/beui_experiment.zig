@@ -707,26 +707,54 @@ pub const Button = struct {
 pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild {
     const root_id = caller_id.sub(@src());
 
-    return scroller(root_id.sub(@src()), constraints, |s| {
-        _ = s.child(s.id.sub(@src()), |c| blk: {
-            break :blk textDemo(c.id.sub(@src()), "hello", c.constraints);
-        });
-        _ = s.child(s.id.sub(@src()), |c| blk: {
-            break :blk textDemo(c.id.sub(@src()), "world", c.constraints);
-        });
-        _ = s.child(s.id.sub(@src()), |c| blk: {
-            break :blk button(c.id.sub(@src()), null, c.constraints, |btn| btn: {
-                break :btn setBackground(btn.id.sub(@src()), btn.constraints, if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099), |sbg| sbg: { //
-                    break :sbg textOnly(sbg.id.sub(@src()), "test button", sbg.constraints, .fromHexRgb(0xFFFF00));
+    return _0: {
+        var _0 = scroller(root_id.sub(@src()), constraints);
+        while (_0.next()) |s| _0.post({
+            _ = _1: {
+                var _1 = s.child(s.id.sub(@src()));
+                while (_1.next()) |c| _1.post(blk: {
+                    break :blk textDemo(c.id.sub(@src()), "hello", c.constraints);
                 });
-            });
-        });
-        const my_list = &[_][]const u8{ "1", "2", "3" };
+                break :_1 _1.end();
+            };
+            _ = _2: {
+                var _2 = s.child(s.id.sub(@src()));
+                while (_2.next()) |c| _2.post(blk: {
+                    break :blk textDemo(c.id.sub(@src()), "world", c.constraints);
+                });
+                break :_2 _2.end();
+            };
+            _ = _3: {
+                var _3 = s.child(s.id.sub(@src()));
+                while (_3.next()) |c| _3.post(blk: {
+                    break :blk _4: {
+                        var _4 = button(c.id.sub(@src()), null, c.constraints);
+                        while (_4.next()) |btn| _4.post(btn: {
+                            break :btn _5: {
+                                var _5 = setBackground(btn.id.sub(@src()), btn.constraints, if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099));
+                                while (_5.next()) |sbg| _5.post(sbg: { //
+                                    break :sbg textOnly(sbg.id.sub(@src()), "test button", sbg.constraints, .fromHexRgb(0xFFFF00));
+                                });
+                                break :_5 _5.end();
+                            };
+                        });
+                        break :_4 _4.end();
+                    };
+                });
+                break :_3 _3.end();
+            };
+            const my_list = &[_][]const u8{ "1", "2", "3" };
 
-        _ = s.virtual(s.id.sub(@src()), my_list.len, ListIndex, |c| blk: {
-            break :blk textDemo(c.id.sub(@src()), my_list[c.pos.i], c.constraints);
+            _ = _6: {
+                var _6 = s.virtual(s.id.sub(@src()), my_list.len, ListIndex);
+                while (_6.next()) |c| _6.post(blk: {
+                    break :blk textDemo(c.id.sub(@src()), my_list[c.pos.i], c.constraints);
+                });
+                break :_6 _6.end();
+            };
         });
-    });
+        break :_0 _0.end();
+    };
 }
 
 // so for a button:

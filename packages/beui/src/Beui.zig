@@ -3,7 +3,7 @@ pub const draw_lists = @import("render_list.zig");
 pub const Texpack = @import("Texpack.zig");
 pub const font_experiment = @import("font_experiment.zig");
 pub const EditorView = @import("EditorView.zig");
-pub const beui_experiment = @import("beui_experiment.zigx.zig");
+pub const beui_experiment = @import("beui_experiment.zig");
 
 const Beui = @This();
 
