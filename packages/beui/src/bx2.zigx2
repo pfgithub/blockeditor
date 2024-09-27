@@ -48,7 +48,7 @@ const DemoUseButton = %(%: DefaultComponentCallInfo, color: Beui.Color) DefaultC
     %struct { color: Beui.Color };
 
     %.* = .{.color = color};
-    return %Button(%_ {
+    return Button(%, %_ {
         return %Text("hello, world!", .fromHexRgb(0xFFFFFF));
     });
 };
@@ -72,5 +72,14 @@ const DemoUseButton_compiled = struct {
         return __Component1.__call("hello, world!", .fromHexRgb(0xFFFFFF));
     }
 };
+
+// let's start with the minimum. compile:
+// '%TypeName arg_name {abcd}
+// -> .from(&ctx, _internal_0)
+// and emit
+// fn _internal_0(__ctx: *_context_0, __call_info: TypeName.call_info, arg: TypeName.arg) TypeName.ret {
+//
+// }
+
 
 // if we want to remove virtual fn calls, we'd have to automatically split up functions into multiple parts
