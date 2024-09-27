@@ -811,7 +811,7 @@ pub fn main() !void {
             defer b2ft.end();
 
             const id = b2.newFrame(&beui, .{});
-            const demo1_res = Beui.beui_experiment.scrollDemo(id.sub(@src()), .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } });
+            const demo1_res = Beui.beui_experiment.scrollDemo(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } } });
             b2.endFrame(demo1_res, &draw_list);
         }
 

@@ -609,10 +609,9 @@ fn scroller(call_info: StandardCallInfo, child_component: Component(StandardCall
     return .{ .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? }, .rdl = psc.rdl };
 }
 
-pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild {
-    const root_id = caller_id.sub(@src());
-
-    return scroller(.{ .caller_id = root_id.sub(@src()), .constraints = constraints }, .from(&{}, scrollDemo_0));
+pub fn scrollDemo(call_info: StandardCallInfo) StandardChild {
+    const ui = call_info.ui(@src());
+    return scroller(ui.sub(@src()), .from(&{}, scrollDemo_0));
 }
 fn scrollDemo_0(_: *const void, caller_id: StandardCallInfo, s: *PostScrollChild) void {
     const ui = caller_id.ui(@src());
