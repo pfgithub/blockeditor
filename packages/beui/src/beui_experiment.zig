@@ -703,6 +703,48 @@ pub const Button = struct {
         return .{ .size = child.size, .rdl = draw };
     }
 };
+const StandardCallInfo = struct {
+    caller_id: ID,
+    constraints: StandardConstraints,
+    fn ui(self: StandardCallInfo, src: std.builtin.SourceLocation) StandardUI {
+        return .{ .id = self.caller_id.sub(src), .constraints = self.constraints };
+    }
+};
+const StandardUI = struct {
+    id: ID,
+    constraints: StandardConstraints,
+    fn sub(self: StandardUI, src: std.builtin.SourceLocation) StandardCallInfo {
+        return .{ .caller_id = self.id.sub(src), .constraints = self.constraints };
+    }
+};
+fn Component(comptime Arg1: type, comptime Arg2: type, comptime Ret: type) type {
+    return struct {
+        ctx: *anyopaque,
+        fn_ptr: *const fn (ctx: *anyopaque, arg1: Arg1, arg2: Arg2) Ret,
+        fn from(ctx_0: anytype, comptime fn_val: fn (ctx: @TypeOf(ctx_0), arg1: Arg1, arg2: Arg2) Ret) @This() {
+            return .{
+                .ctx = @ptrCast(@constCast(ctx_0)),
+                .fn_ptr = struct {
+                    fn fn_ptr(ctx_1: *const anyopaque, arg1: Arg1, arg2: Arg2) Ret {
+                        return fn_val(@ptrCast(@alignCast(@constCast(ctx_1))), arg1, arg2);
+                    }
+                }.fn_ptr,
+            };
+        }
+        fn call(self: @This(), arg1: Arg1, arg2: Arg2) Ret {
+            return self.fn_ptr(self.ctx, arg1, arg2);
+        }
+    };
+}
+fn button2(call_info: StandardCallInfo, itkn_in: ?Button.Itkn, child_component: Component(StandardCallInfo, Button.Itkn, StandardChild)) StandardChild {
+    const ui = call_info.ui(@src());
+    const itkn = itkn_in orelse Button.Itkn.init(ui.id.sub(@src()));
+    const child = child_component.call(ui.sub(@src()), itkn);
+    const draw = ui.id.b2.draw();
+    draw.place(child.rdl, .{ 0, 0 });
+    draw.addMouseEventCapture(itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });
+    return .{ .size = child.size, .rdl = draw };
+}
 
 pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild {
     const root_id = caller_id.sub(@src());
@@ -726,21 +768,7 @@ pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild
             };
             _ = _3: {
                 var _3 = s.child(s.id.sub(@src()));
-                while (_3.next()) |c| _3.post(blk: {
-                    break :blk _4: {
-                        var _4 = button(c.id.sub(@src()), null, c.constraints);
-                        while (_4.next()) |btn| _4.post(btn: {
-                            break :btn _5: {
-                                var _5 = setBackground(btn.id.sub(@src()), btn.constraints, if (btn.itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099));
-                                while (_5.next()) |sbg| _5.post(sbg: { //
-                                    break :sbg textOnly(sbg.id.sub(@src()), "test button", sbg.constraints, .fromHexRgb(0xFFFF00));
-                                });
-                                break :_5 _5.end();
-                            };
-                        });
-                        break :_4 _4.end();
-                    };
-                });
+                while (_3.next()) |c| _3.post(button2(.{ .caller_id = c.id.sub(@src()), .constraints = c.constraints }, null, .from(&{}, scrollDemo_1)));
                 break :_3 _3.end();
             };
             const my_list = &[_][]const u8{ "1", "2", "3" };
@@ -755,6 +783,14 @@ pub fn scrollDemo(caller_id: ID, constraints: StandardConstraints) StandardChild
         });
         break :_0 _0.end();
     };
+}
+fn scrollDemo_1(_: *const void, caller_id: StandardCallInfo, itkn: Button.Itkn) StandardChild {
+    const ui = caller_id.ui(@src());
+    var _5 = setBackground(ui.id.sub(@src()), ui.constraints, if (itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099));
+    while (_5.next()) |sbg| _5.post(sbg: { //
+        break :sbg textOnly(sbg.id.sub(@src()), "test button", sbg.constraints, .fromHexRgb(0xFFFF00));
+    });
+    return _5.end();
 }
 
 // so for a button:
