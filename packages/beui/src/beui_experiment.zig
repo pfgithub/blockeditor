@@ -180,7 +180,7 @@ pub const Beui2 = struct {
         return initFn();
     }
 
-    pub fn fmt(self: *Beui2, comptime format: []const u8, args: anytype) []const u8 {
+    pub fn fmt(self: *Beui2, comptime format: []const u8, args: anytype) []u8 {
         return std.fmt.allocPrint(self.frame.arena, format, args) catch @panic("oom");
     }
 };
@@ -557,18 +557,24 @@ fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component
 const PostScrollChild = struct {
     rdl: *RepositionableDrawList,
     cursor: i32,
+    height: i32,
     fn add(self: *PostScrollChild, call_info: StandardCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) void {
+        if (self.cursor > self.height) return;
+
         const ui = call_info.ui(@src());
         const child = child_component.call(ui.sub(@src()), {});
         self.rdl.place(child.rdl, .{ 0, self.cursor });
         self.cursor += child.size[1];
     }
     fn addVirtual(self: *PostScrollChild, call_info: StandardCallInfo, context: anytype, comptime Index: type, child_component: Component(StandardCallInfo, Index, StandardChild)) void {
+        if (self.cursor > self.height) return;
         const ui = call_info.ui(@src());
 
         var idx = Index.first(context);
         const loop_index = ui.id.pushLoop(@src(), Index);
         while (idx != null) {
+            if (self.cursor > self.height) return;
+
             const child = child_component.call(.{ .caller_id = loop_index.pushLoopValue(@src(), idx.?), .constraints = ui.constraints }, idx.?);
 
             self.rdl.place(child.rdl, .{ 0, self.cursor });
@@ -584,6 +590,7 @@ fn scroller(call_info: StandardCallInfo, child_component: Component(StandardCall
     var psc: PostScrollChild = .{
         .rdl = ui.id.b2.draw(),
         .cursor = 0,
+        .height = ui.constraints.available_size.h.?,
     };
 
     const scroll_ev_capture_id = ui.id.sub(@src());
@@ -619,8 +626,16 @@ fn scrollDemo_0(_: *const void, caller_id: StandardCallInfo, s: *PostScrollChild
     s.add(ui.sub(@src()), .from(&{}, scrollDemo_0_0));
     s.add(ui.sub(@src()), .from(&{}, scrollDemo_0_1));
     s.add(ui.sub(@src()), .from(&{}, scrollDemo_0_2));
-    const my_list: []const []const u8 = &[_][]const u8{ "apple", "banana", "cherry" };
-    s.addVirtual(ui.sub(@src()), my_list.len, ListIndex, .from(&my_list, scrollDemo_0_3));
+    const my_list: []const []const []const u8 = &[_][]const []const u8{
+        &[_][]const u8{ "flying", "searing", "lesser", "greater", "weak", "durable", "enchanted", "magic" },
+        &[_][]const u8{ "apple", "banana", "cherry", "durian", "etobicoke", "fig", "grape" },
+        &[_][]const u8{ "goblin", "blaster", "cannon", "cook", "castle" },
+    };
+    var my_list_len: usize = 1;
+    for (my_list) |item| {
+        my_list_len *= item.len;
+    }
+    s.addVirtual(ui.sub(@src()), my_list_len, ListIndex, .from(&my_list, scrollDemo_0_3));
 }
 fn scrollDemo_0_0(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
     const ui = caller_id.ui(@src());
@@ -643,9 +658,30 @@ fn scrollDemo_0_2_1(_: *const void, caller_id: StandardCallInfo, _: void) Standa
     const ui = caller_id.ui(@src());
     return textOnly(ui.sub(@src()), "test button", .fromHexRgb(0xFFFF00));
 }
-fn scrollDemo_0_3(my_list: *const []const []const u8, caller_id: StandardCallInfo, index: ListIndex) StandardChild {
+fn scrollDemo_0_3(my_list: *const []const []const []const u8, caller_id: StandardCallInfo, index: ListIndex) StandardChild {
     const ui = caller_id.ui(@src());
-    return defaultTextButton(ui.sub(@src()), my_list.*[index.i], null);
+
+    var res_str: []const u8 = "";
+
+    var list_len: usize = 1;
+    for (my_list.*) |m| list_len *= m.len;
+
+    var i = permute(list_len, index.i);
+    for (my_list.*, 0..) |items, j| {
+        const sub_i = i % items.len;
+        res_str = ui.id.b2.fmt("{s}{s}{s}", .{ res_str, if (j == 0) "" else " ", items[sub_i] });
+        i = @divFloor(i, items.len);
+    }
+
+    return defaultTextButton(ui.sub(@src()), res_str, null);
+}
+
+fn permute(len: usize, index: usize) usize {
+    const a = 6364136223846793005;
+    const b = 1442695040888963407;
+    comptime std.debug.assert(std.math.gcd(a, b) == 1);
+
+    return @intCast((a * @as(u128, index) + b) % len);
 }
 
 // so for a button:
