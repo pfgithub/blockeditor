@@ -206,6 +206,7 @@ const FrameEv = struct {
     text_input: []const u8 = "",
     frame_cfg: ?FrameCfg = null,
     scroll_px: @Vector(2, f32) = .{ 0, 0 },
+    mouse_offset: @Vector(2, f32) = .{ 0, 0 },
 };
 pub const Key = enum(u32) {
     mouse_left = 1,

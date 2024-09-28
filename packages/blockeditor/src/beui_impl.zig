@@ -592,7 +592,11 @@ const callbacks = struct {
             beui.persistent.mouse_pos = .{ 0, 0 };
             return;
         }
+        const prev_pos = beui.persistent.mouse_pos;
         beui.persistent.mouse_pos = @floatCast(@Vector(2, f64){ xpos, ypos });
+        if (prev_pos[0] != 0 or prev_pos[1] != 0) {
+            beui.frame.mouse_offset += beui.persistent.mouse_pos - prev_pos;
+        }
     }
     fn cursorEnterCallback(window: *zglfw.Window, entered: i32) callconv(.C) void {
         _ = window;
@@ -776,6 +780,10 @@ pub fn main() !void {
         defer beui.endFrame();
 
         zglfw.pollEvents();
+
+        if (beui.isKeyHeld(.mouse_middle)) {
+            beui.frame.scroll_px += beui.frame.mouse_offset;
+        }
 
         update(demo);
 
