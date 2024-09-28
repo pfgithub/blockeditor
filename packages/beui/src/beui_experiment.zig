@@ -239,7 +239,7 @@ const ID = struct {
     str: []const IDSegment,
 
     // duplicate id safety is slow :/
-    const duplicate_id_safety = true; // std.debug.runtime_safety;
+    const duplicate_id_safety = std.debug.runtime_safety;
 
     pub fn assertValid(self: ID) void {
         std.debug.assert(self.frame == self.b2.persistent.frame_num or self.frame + 1 == self.b2.persistent.frame_num);
