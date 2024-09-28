@@ -434,6 +434,12 @@ const RepositionableDrawList = struct {
     }
 };
 
+// fn harfbuzzText(call_info: StandardCallInfo, text: []const u8, color: Beui.Color) StandardChild {
+//     const ui = call_info.ui(@src());
+
+//     const draw = ui.id.b2.draw();
+// }
+
 fn textOnly(
     call_info: StandardCallInfo,
     text: []const u8,
