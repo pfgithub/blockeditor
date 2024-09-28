@@ -810,9 +810,21 @@ pub fn main() !void {
             const b2ft = tracy.traceNamed(@src(), "b2 frame");
             defer b2ft.end();
 
-            const id = b2.newFrame(&beui, .{});
-            const demo1_res = Beui.beui_experiment.scrollDemo(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } } });
-            b2.endFrame(demo1_res, &draw_list);
+            const id = blk: {
+                const b2ft_ = tracy.traceNamed(@src(), "b2 newFrame");
+                defer b2ft_.end();
+                break :blk b2.newFrame(&beui, .{});
+            };
+            const demo1_res = blk: {
+                const b2ft_ = tracy.traceNamed(@src(), "b2 scrollDemo");
+                defer b2ft_.end();
+                break :blk Beui.beui_experiment.scrollDemo(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } } });
+            };
+            {
+                const b2ft_ = tracy.traceNamed(@src(), "b2 finalize");
+                defer b2ft_.end();
+                b2.endFrame(demo1_res, &draw_list);
+            }
         }
 
         my_text_editor.gui(&beui, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });

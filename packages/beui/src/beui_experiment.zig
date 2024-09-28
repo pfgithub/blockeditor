@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Beui = @import("Beui.zig");
 const render_list = @import("render_list.zig");
+const tracy = @import("anywhere").tracy;
 
 fn IdMap(comptime V: type) type {
     const IDContext = struct {
@@ -213,6 +214,10 @@ const ID = struct {
     frame: u64,
     /// DO NOT READ POINTER WITHOUT CALLING .assertValid() FIRST.
     str: []const IDSegment,
+
+    // duplicate id safety is really slow :/
+    const duplicate_id_safety = if (true) false else std.debug.runtime_safety;
+
     pub fn assertValid(self: ID) void {
         std.debug.assert(self.frame == self.b2.persistent.frame_num or self.frame + 1 == self.b2.persistent.frame_num);
     }
@@ -242,7 +247,9 @@ const ID = struct {
         @memcpy(self_cp[0..self.str.len], self.str);
         @memcpy(self_cp[self.str.len..], items);
         const result: ID = .{ .b2 = self.b2, .frame = self.b2.persistent.frame_num, .str = self_cp };
-        if (std.debug.runtime_safety) self.b2.persistent.this_frame_ids.putNoClobber(result, {}) catch @panic("oom"); // if this fails then there is a duplicate id
+        if (duplicate_id_safety) {
+            self.b2.persistent.this_frame_ids.putNoClobber(result, {}) catch @panic("oom"); // if this fails then there is a duplicate id
+        }
         return result;
     }
 
