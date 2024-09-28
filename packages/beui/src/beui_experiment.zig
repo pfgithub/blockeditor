@@ -461,23 +461,20 @@ const ListIndex = struct {
         std.debug.assert(std.meta.hasUniqueRepresentation(ListIndex));
     }
     i: usize,
-    pub fn first(len: usize) ?ListIndex {
-        if (len == 0) return null;
+    pub fn first(_: usize) ListIndex {
         return .{ .i = 0 };
     }
-    pub fn last(len: usize) ?ListIndex {
-        if (len == 0) return null;
-        return .{ .i = 0 };
+    pub fn update(itm: ListIndex, len: usize) ?ListIndex {
+        if (itm.i >= len) return if (len == 0) null else .{ .i = len - 1 };
+        return .{ .i = itm.i };
     }
-    pub fn prev(itm: ListIndex, len: usize) ?ListIndex {
+    pub fn prev(itm: ListIndex, _: usize) ?ListIndex {
         if (itm.i == 0) return null;
-        if (len == 0) return null;
-        return .{ .i = @min(itm.i - 1, len - 1) };
+        return .{ .i = itm.i - 1 };
     }
     pub fn next(itm: ListIndex, len: usize) ?ListIndex {
-        if (len == 0) return null;
         if (itm.i == len - 1) return null;
-        return .{ .i = @min(itm.i + 1, len - 1) };
+        return .{ .i = itm.i + 1 };
     }
 };
 
@@ -583,78 +580,67 @@ fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component
     draw.addRect(.{ .pos = .{ 0, 0 }, .size = @floatFromInt(child.size), .tint = color });
     return .{ .size = child.size, .rdl = draw };
 }
-const PostScrollChild = struct {
-    rdl: *RepositionableDrawList,
-    cursor: i32,
-    height: i32,
-    fn add(self: *PostScrollChild, call_info: StandardCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) void {
-        if (self.cursor > self.height) return;
-
-        const ui = call_info.ui(@src());
-        const child = child_component.call(ui.sub(@src()), {});
-        self.rdl.place(child.rdl, .{ 0, self.cursor });
-        self.cursor += child.size[1];
-    }
-    fn addVirtual(self: *PostScrollChild, call_info: StandardCallInfo, context: anytype, comptime Index: type, child_component: Component(StandardCallInfo, Index, StandardChild)) void {
-        if (self.cursor > self.height) return;
-        const ui = call_info.ui(@src());
-
-        var idx = Index.first(context);
-        const loop_index = ui.id.pushLoop(@src(), Index);
-        while (idx != null) {
-            if (self.cursor > self.height) return;
-
-            const child = child_component.call(.{ .caller_id = loop_index.pushLoopValue(@src(), idx.?), .constraints = ui.constraints }, idx.?);
-
-            self.rdl.place(child.rdl, .{ 0, self.cursor });
-            self.cursor += child.size[1];
-
-            idx = idx.?.next(context);
-        }
-    }
+const ScrollState = struct {
+    offset: f32,
+    anchor: [IDSegment.IDSegmentSize]u8,
 };
-fn scroller(call_info: StandardCallInfo, child_component: Component(StandardCallInfo, *PostScrollChild, void)) StandardChild {
+fn indexToBytes(index: anytype) [IDSegment.IDSegmentSize]u8 {
+    var result: [IDSegment.IDSegmentSize]u8 = undefined;
+    std.debug.assert(std.meta.hasUniqueRepresentation(@TypeOf(index)));
+    @memcpy(result[0..@sizeOf(@TypeOf(index))], std.mem.asBytes(&index));
+    @memset(result[@sizeOf(@TypeOf(index))..], 0);
+    return result;
+}
+fn bytesToIndex(bytes: *const [IDSegment.IDSegmentSize]u8, comptime T: type) T {
+    return std.mem.bytesAsValue(T, bytes[0..@sizeOf(T)]).*;
+}
+fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime Index: type, child_component: Component(StandardCallInfo, Index, StandardChild)) StandardChild {
     const ui = call_info.ui(@src());
     if (ui.constraints.available_size.w == null or ui.constraints.available_size.h == null) @panic("scroller2 requires known available size");
-    var psc: PostScrollChild = .{
-        .rdl = ui.id.b2.draw(),
-        .cursor = 0,
-        .height = ui.constraints.available_size.h.?,
-    };
+
+    var rdl = ui.id.b2.draw();
+    const height = ui.constraints.available_size.h.?;
 
     const scroll_ev_capture_id = ui.id.sub(@src());
-    {
-        const scroll_by = ui.id.b2.scrollCaptureResults(scroll_ev_capture_id);
+    const scroll_by = ui.id.b2.scrollCaptureResults(scroll_ev_capture_id);
 
-        const scroll_state = ui.id.b2.state(ui.id.sub(@src()), struct { offset: f32, anchor: usize });
-        if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = 0 };
-        scroll_state.value.offset += scroll_by[1];
+    const scroll_state = ui.id.b2.state(ui.id.sub(@src()), ScrollState);
+    if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = indexToBytes(Index.first(context)) };
+    scroll_state.value.offset += scroll_by[1];
+
+    var cursor: i32 = @intFromFloat(scroll_state.value.offset);
+
+    const idx_initial = bytesToIndex(&scroll_state.value.anchor, Index);
+    var idx = idx_initial.update(context);
+    if (idx) |val| scroll_state.value.anchor = indexToBytes(val);
+
+    const loop_index = ui.id.pushLoop(@src(), Index);
+    while (idx != null) {
+        if (cursor > height) break;
+
+        const child = child_component.call(.{ .caller_id = loop_index.pushLoopValue(@src(), idx.?), .constraints = .{
+            .available_size = .{ .w = ui.constraints.available_size.w.?, .h = null },
+        } }, idx.?);
+
+        rdl.place(child.rdl, .{ 0, cursor });
+        cursor += child.size[1];
+
+        idx = idx.?.next(context);
     }
 
-    var subui = ui.sub(@src());
-    subui.constraints.available_size.h = null;
-    child_component.call(subui, &psc);
-
-    psc.rdl.addMouseEventCapture(
+    rdl.addMouseEventCapture(
         scroll_ev_capture_id,
         .{ 0, 0 },
         .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? },
         .{ .capture_scroll = .{ .y = true } },
     );
 
-    return .{ .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? }, .rdl = psc.rdl };
+    return .{ .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? }, .rdl = rdl };
 }
 
 pub fn scrollDemo(call_info: StandardCallInfo) StandardChild {
     const ui = call_info.ui(@src());
-    return scroller(ui.sub(@src()), .from(&{}, scrollDemo_0));
-}
-fn scrollDemo_0(_: *const void, caller_id: StandardCallInfo, s: *PostScrollChild) void {
-    const ui = caller_id.ui(@src());
 
-    s.add(ui.sub(@src()), .from(&{}, scrollDemo_0_0));
-    s.add(ui.sub(@src()), .from(&{}, scrollDemo_0_1));
-    s.add(ui.sub(@src()), .from(&{}, scrollDemo_0_2));
     const my_list: []const []const []const u8 = &[_][]const []const u8{
         &[_][]const u8{ "flying", "searing", "lesser", "greater", "weak", "durable", "enchanted", "magic" },
         &[_][]const u8{ "apple", "banana", "cherry", "durian", "etobicoke", "fig", "grape" },
@@ -664,28 +650,8 @@ fn scrollDemo_0(_: *const void, caller_id: StandardCallInfo, s: *PostScrollChild
     for (my_list) |item| {
         my_list_len *= item.len;
     }
-    s.addVirtual(ui.sub(@src()), my_list_len, ListIndex, .from(&my_list, scrollDemo_0_3));
-}
-fn scrollDemo_0_0(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
-    const ui = caller_id.ui(@src());
-    return defaultTextButton(ui.sub(@src()), "hello", null);
-}
-fn scrollDemo_0_1(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
-    const ui = caller_id.ui(@src());
-    return defaultTextButton(ui.sub(@src()), "world", null);
-}
-fn scrollDemo_0_2(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
-    const ui = caller_id.ui(@src());
-    return button(ui.sub(@src()), null, .from(&{}, scrollDemo_0_2_0));
-}
-fn scrollDemo_0_2_0(_: *const void, caller_id: StandardCallInfo, itkn: Button_Itkn) StandardChild {
-    const ui = caller_id.ui(@src());
-    const color: Beui.Color = if (itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099);
-    return setBackground(ui.sub(@src()), color, .from(&{}, scrollDemo_0_2_1));
-}
-fn scrollDemo_0_2_1(_: *const void, caller_id: StandardCallInfo, _: void) StandardChild {
-    const ui = caller_id.ui(@src());
-    return textOnly(ui.sub(@src()), "test button", .fromHexRgb(0xFFFF00));
+
+    return virtualScroller(ui.sub(@src()), my_list_len, ListIndex, .from(&my_list, scrollDemo_0_3));
 }
 fn scrollDemo_0_3(my_list: *const []const []const []const u8, caller_id: StandardCallInfo, index: ListIndex) StandardChild {
     const ui = caller_id.ui(@src());
