@@ -190,23 +190,46 @@ pub const MouseCaptureResults = struct {
     mouse_left_held: bool,
 };
 
-const IDSegment = union(enum) {
-    pub const LoopChildSize = 8 * 3;
-    src: struct {
+const IDSegment = struct {
+    const IDSegmentSize = 8 * 3;
+    comptime {
+        std.debug.assert(std.meta.hasUniqueRepresentation(IDSegment));
+    }
+    value: [IDSegmentSize]u8,
+    tag: Tag,
+    const Tag = enum { src, loop, loop_child };
+    const SrcStruct = struct {
         filename: [*:0]const u8,
         fn_name: [*:0]const u8,
         line: u32,
         col: u32,
-    },
-    loop: struct {
+    };
+    const LoopStruct = struct {
         child_t: [*:0]const u8,
-    },
-    loop_child: struct {
-        value: [LoopChildSize]u8 = [_]u8{0} ** IDSegment.LoopChildSize,
-    },
+    };
 
     pub fn fromSrc(src: std.builtin.SourceLocation) IDSegment {
-        return .{ .src = .{ .filename = src.file.ptr, .fn_name = src.fn_name.ptr, .line = src.line, .col = src.column } };
+        return .fromTagValue(.src, SrcStruct, .{ .filename = src.file.ptr, .fn_name = src.fn_name.ptr, .line = src.line, .col = src.column });
+    }
+    fn fromTagValue(tag: Tag, comptime VT: type, value: VT) IDSegment {
+        comptime std.debug.assert(@sizeOf(VT) <= IDSegmentSize);
+        comptime std.debug.assert(std.meta.hasUniqueRepresentation(VT));
+        return .fromTagSlice(tag, std.mem.asBytes(&value));
+    }
+    fn fromTagSlice(tag: Tag, value_slice: []const u8) IDSegment {
+        std.debug.assert(value_slice.len <= IDSegmentSize);
+        var result = std.mem.zeroes([IDSegmentSize]u8);
+        @memcpy(result[0..value_slice.len], value_slice);
+        return .{ .value = result, .tag = tag };
+    }
+    pub fn readAsType(self: *const IDSegment, comptime VT: type) *align(1) const VT {
+        comptime std.debug.assert(@sizeOf(VT) <= IDSegmentSize);
+        comptime std.debug.assert(std.meta.hasUniqueRepresentation(VT));
+        return std.mem.bytesAsValue(VT, self.value[0..@sizeOf(VT)]);
+    }
+
+    fn eql(self: IDSegment, other: IDSegment) bool {
+        return std.mem.eql(u8, std.mem.asBytes(&self), std.mem.asBytes(&other));
     }
 };
 const ID = struct {
@@ -215,8 +238,8 @@ const ID = struct {
     /// DO NOT READ POINTER WITHOUT CALLING .assertValid() FIRST.
     str: []const IDSegment,
 
-    // duplicate id safety is really slow :/
-    const duplicate_id_safety = if (true) false else std.debug.runtime_safety;
+    // duplicate id safety is slow :/
+    const duplicate_id_safety = true; // std.debug.runtime_safety;
 
     pub fn assertValid(self: ID) void {
         std.debug.assert(self.frame == self.b2.persistent.frame_num or self.frame + 1 == self.b2.persistent.frame_num);
@@ -224,7 +247,7 @@ const ID = struct {
     pub fn hash(self: ID) u64 {
         self.assertValid();
         var hasher = std.hash.Wyhash.init(0);
-        for (self.str) |seg| std.hash.autoHash(&hasher, seg);
+        hasher.update(std.mem.sliceAsBytes(self.str));
         return hasher.final();
     }
     pub fn eql(self: ID, other: ID) bool {
@@ -232,7 +255,7 @@ const ID = struct {
         other.assertValid();
         if (self.str.len != other.str.len) return false;
         if (self.str.ptr == other.str.ptr) return true;
-        for (self.str, other.str) |a, b| if (!std.meta.eql(a, b)) return false;
+        if (!std.mem.eql(u8, std.mem.sliceAsBytes(self.str), std.mem.sliceAsBytes(other.str))) return false;
         return true;
     }
     pub fn refresh(self: ID) ID {
@@ -255,13 +278,13 @@ const ID = struct {
 
     pub fn pushLoop(self: ID, src: std.builtin.SourceLocation, comptime ChildT: type) ID {
         comptime {
-            if (@sizeOf(ChildT) > IDSegment.LoopChildSize) @compileError("loop ChildT size > max size");
+            if (@sizeOf(ChildT) > IDSegment.IDSegmentSize) @compileError("loop ChildT size > max size");
             if (!std.meta.hasUniqueRepresentation(ChildT)) @compileError("loop ChildT must have unique representation");
         }
         return self._pushLoopTypeName(src, @typeName(ChildT));
     }
     fn _pushLoopTypeName(self: ID, src: std.builtin.SourceLocation, child_t: [*:0]const u8) ID {
-        return self._addInternal(&.{ .fromSrc(src), .{ .loop = .{ .child_t = child_t } } });
+        return self._addInternal(&.{ .fromSrc(src), .fromTagValue(.loop, IDSegment.LoopStruct, .{ .child_t = child_t }) });
     }
     pub fn pushLoopValue(self: ID, src: std.builtin.SourceLocation, child_t: anytype) ID {
         return self._pushLoopValueSlice(src, @typeName(@TypeOf(child_t)), std.mem.asBytes(&child_t));
@@ -270,12 +293,11 @@ const ID = struct {
         self.assertValid();
         if (self.str.len == 0) @panic("pushLoopValue called without pushLoop");
         const last = self.str[self.str.len - 1];
-        if (last != .loop) @panic("pushLoopValue called but last push was not pushLoop");
-        if (last.loop.child_t != child_t) @panic("pushLoopValue called with different type than from pushLoop");
-        std.debug.assert(child_v.len <= IDSegment.LoopChildSize);
-        var added: IDSegment = .{ .loop_child = .{} };
-        @memcpy(added.loop_child.value[0..child_v.len], child_v);
-        return self._addInternal(&.{ .fromSrc(src), added });
+        if (last.tag != .loop) @panic("pushLoopValue called but last push was not pushLoop");
+        const last_loop = last.readAsType(IDSegment.LoopStruct);
+        if (last_loop.child_t != child_t) @panic("pushLoopValue called with different type than from pushLoop");
+        std.debug.assert(child_v.len <= IDSegment.IDSegmentSize);
+        return self._addInternal(&.{ .fromSrc(src), .fromTagSlice(.loop_child, child_v) });
     }
 
     pub fn sub(self: ID, src: std.builtin.SourceLocation) ID {
