@@ -594,6 +594,9 @@ fn indexToBytes(index: anytype) [IDSegment.IDSegmentSize]u8 {
 fn bytesToIndex(bytes: *const [IDSegment.IDSegmentSize]u8, comptime T: type) T {
     return std.mem.bytesAsValue(T, bytes[0..@sizeOf(T)]).*;
 }
+
+var _scroll_state: ?ScrollState = null;
+
 fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime Index: type, child_component: Component(StandardCallInfo, Index, StandardChild)) StandardChild {
     const ui = call_info.ui(@src());
     if (ui.constraints.available_size.w == null or ui.constraints.available_size.h == null) @panic("scroller2 requires known available size");
@@ -604,15 +607,22 @@ fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime Index
     const scroll_ev_capture_id = ui.id.sub(@src());
     const scroll_by = ui.id.b2.scrollCaptureResults(scroll_ev_capture_id);
 
-    const scroll_state = ui.id.b2.state(ui.id.sub(@src()), ScrollState);
-    if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = indexToBytes(Index.first(context)) };
-    scroll_state.value.offset += scroll_by[1];
+    const scroll_state = if (true) blk: {
+        if (_scroll_state == null) _scroll_state = .{ .offset = 0, .anchor = indexToBytes(Index.first(context)) };
+        break :blk &_scroll_state.?;
+    } else blk: {
+        const scroll_state = ui.id.b2.state(ui.id.sub(@src()), ScrollState);
+        if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = indexToBytes(Index.first(context)) };
+        break :blk scroll_state.value;
+    };
 
-    var cursor: i32 = @intFromFloat(scroll_state.value.offset);
+    scroll_state.offset += scroll_by[1];
 
-    const idx_initial = bytesToIndex(&scroll_state.value.anchor, Index);
+    var cursor: i32 = @intFromFloat(scroll_state.offset);
+
+    const idx_initial = bytesToIndex(&scroll_state.anchor, Index);
     var idx = idx_initial.update(context);
-    if (idx) |val| scroll_state.value.anchor = indexToBytes(val);
+    if (idx) |val| scroll_state.anchor = indexToBytes(val);
 
     const loop_index = ui.id.pushLoop(@src(), Index);
     while (idx != null) {
@@ -624,6 +634,10 @@ fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime Index
 
         rdl.place(child.rdl, .{ 0, cursor });
         cursor += child.size[1];
+        if (cursor < 0) {
+            scroll_state.anchor = indexToBytes(idx.?);
+            scroll_state.offset += @floatFromInt(child.size[1]);
+        }
 
         idx = idx.?.next(context);
     }
