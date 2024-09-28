@@ -625,6 +625,23 @@ fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime Index
     if (idx) |val| scroll_state.anchor = indexToBytes(val);
 
     const loop_index = ui.id.pushLoop(@src(), Index);
+    if (cursor > 0 and idx != null) {
+        // seek backwards
+        var backwards_cursor = cursor;
+        var backwards_index = idx.?;
+        while (backwards_cursor > 0) {
+            backwards_index = backwards_index.prev(context) orelse break;
+
+            const child = child_component.call(.{ .caller_id = loop_index.pushLoopValue(@src(), backwards_index), .constraints = .{
+                .available_size = .{ .w = ui.constraints.available_size.w.?, .h = null },
+            } }, backwards_index);
+
+            backwards_cursor -= child.size[1];
+            scroll_state.anchor = indexToBytes(backwards_index);
+            scroll_state.offset -= @floatFromInt(child.size[1]);
+            rdl.place(child.rdl, .{ 0, backwards_cursor });
+        }
+    }
     while (idx != null) {
         if (cursor > height) break;
 
@@ -632,12 +649,12 @@ fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime Index
             .available_size = .{ .w = ui.constraints.available_size.w.?, .h = null },
         } }, idx.?);
 
-        rdl.place(child.rdl, .{ 0, cursor });
-        cursor += child.size[1];
-        if (cursor < 0) {
-            scroll_state.anchor = indexToBytes(idx.?);
+        if (cursor < 0) blk: {
+            scroll_state.anchor = indexToBytes(idx.?.next(context) orelse break :blk);
             scroll_state.offset += @floatFromInt(child.size[1]);
         }
+        rdl.place(child.rdl, .{ 0, cursor });
+        cursor += child.size[1];
 
         idx = idx.?.next(context);
     }
