@@ -21,10 +21,6 @@ core: Core,
 selecting: bool = false,
 _layout_temp_al: std.ArrayList(u8),
 
-font: ?LayoutCache.Font,
-glyphs: Beui.Texpack,
-glyph_cache: std.AutoHashMap(u32, GlyphCacheEntry),
-glyphs_cache_full: bool,
 verdana_ttf: ?[]const u8,
 layout_cache_2: LayoutCache,
 
@@ -52,29 +48,22 @@ pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.T
         break std.fs.cwd().readFileAlloc(gpa, search_path, std.math.maxInt(usize)) catch continue;
     } else null;
     if (verdana_ttf == null) std.log.info("Verdana could not be found. Falling back to Noto Sans.", .{});
+    const font = LayoutCache.Font.init(verdana_ttf orelse Beui.font_experiment.NotoSansMono_wght) orelse @panic("no font");
 
     self.* = .{
         .gpa = gpa,
         .core = undefined,
         .scroll = .{},
         ._layout_temp_al = .init(gpa),
-        .font = .init(verdana_ttf orelse Beui.font_experiment.NotoSansMono_wght),
-        .glyphs = Beui.Texpack.init(gpa, 2048, .greyscale) catch @panic("oom"),
-        .glyph_cache = .init(gpa),
-        .glyphs_cache_full = false,
-        .layout_cache_2 = undefined,
+        .layout_cache_2 = .init(gpa, font),
 
         .verdana_ttf = verdana_ttf,
     };
-    self.layout_cache_2 = .init(gpa, self.font.?);
     self.core.initFromDoc(gpa, document);
 }
 pub fn deinit(self: *EditorView) void {
     self.layout_cache_2.deinit();
     if (self.verdana_ttf) |v| self.gpa.free(v);
-    self.glyph_cache.deinit();
-    self.glyphs.deinit(self.gpa);
-    if (self.font) |*font| font.deinit();
     self._layout_temp_al.deinit();
     self.core.deinit();
 }
@@ -93,57 +82,11 @@ fn layoutLine(self: *EditorView, beui: *Beui, line_middle: Core.Position) Layout
     return self.layout_cache_2.layoutLine(beui, self._layout_temp_al.items);
 }
 
-fn renderGlyph(self: *EditorView, glyph_id: u32, line_height: i32) GlyphCacheEntry {
-    const tctx = tracy.trace(@src());
-    defer tctx.end();
-
-    const gpres = self.glyph_cache.getOrPut(glyph_id) catch @panic("oom");
-    if (gpres.found_existing) return gpres.value_ptr.*;
-    const result: GlyphCacheEntry = self.renderGlyph_nocache(glyph_id, line_height) catch |e| blk: {
-        std.log.err("render glyph error: glyph={d}, err={s}", .{ glyph_id, @errorName(e) });
-        break :blk .{ .size = .{ 0, 0 }, .region = null };
-    };
-    gpres.value_ptr.* = result;
-    return result;
-}
-fn renderGlyph_nocache(self: *EditorView, glyph_id: u32, line_height: i32) !GlyphCacheEntry {
-    const tctx = tracy.trace(@src());
-    defer tctx.end();
-
-    try self.font.?.ft_face.loadGlyph(glyph_id, .{ .render = true });
-    const glyph = self.font.?.ft_face.glyph();
-    const bitmap = glyph.bitmap();
-
-    if (bitmap.buffer() == null) return error.NoBitmapBuffer;
-
-    const region = self.glyphs.reserve(self.gpa, bitmap.width(), bitmap.rows()) catch |e| switch (e) {
-        error.AtlasFull => {
-            self.glyphs_cache_full = true;
-            return .{ .size = .{ bitmap.width(), bitmap.rows() }, .region = null };
-        },
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-    self.glyphs.set(region, bitmap.buffer().?);
-
-    return .{
-        .offset = .{ glyph.bitmapLeft(), (line_height - 4) - glyph.bitmapTop() },
-        .size = .{ bitmap.width(), bitmap.rows() },
-        .region = region,
-    };
-}
-
 pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32)) void {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
-    if (self.glyphs_cache_full) {
-        std.log.info("recreating glyph cache", .{});
-        self.glyphs.clear();
-        self.glyph_cache.clearRetainingCapacity();
-        self.glyphs_cache_full = false;
-        // TODO if it's full two frames in a row, give up for a little while
-    }
-    self.layout_cache_2.tickLayoutCache(beui);
+    self.layout_cache_2.tick(beui);
 
     const arena = beui.arena();
     _ = arena;
@@ -332,10 +275,10 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
     var syn_hl = self.core.highlight();
     defer syn_hl.deinit();
 
-    const replace_space = self.font.?.ft_face.getCharIndex('·') orelse self.font.?.ft_face.getCharIndex('_');
-    const replace_tab = self.font.?.ft_face.getCharIndex('⇥') orelse self.font.?.ft_face.getCharIndex('→') orelse self.font.?.ft_face.getCharIndex('>');
-    const replace_newline = self.font.?.ft_face.getCharIndex('⏎') orelse self.font.?.ft_face.getCharIndex('␊') orelse self.font.?.ft_face.getCharIndex('\\');
-    const replace_cr = self.font.?.ft_face.getCharIndex('␍') orelse self.font.?.ft_face.getCharIndex('<');
+    const replace_space = self.layout_cache_2.font.ft_face.getCharIndex('·') orelse self.layout_cache_2.font.ft_face.getCharIndex('_');
+    const replace_tab = self.layout_cache_2.font.ft_face.getCharIndex('⇥') orelse self.layout_cache_2.font.ft_face.getCharIndex('→') orelse self.layout_cache_2.font.ft_face.getCharIndex('>');
+    const replace_newline = self.layout_cache_2.font.ft_face.getCharIndex('⏎') orelse self.layout_cache_2.font.ft_face.getCharIndex('␊') orelse self.layout_cache_2.font.ft_face.getCharIndex('\\');
+    const replace_cr = self.layout_cache_2.font.ft_face.getCharIndex('␍') orelse self.layout_cache_2.font.ft_face.getCharIndex('<');
 
     var line_to_render = render_start_pos;
     var line_pos: @Vector(2, f32) = @floor(@Vector(2, f32){ 10, 10 - self.scroll.offset });
@@ -380,7 +323,7 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
                 if (start_docbyte_selected) {
                     const tint = DefaultTheme.synHlColor(.invisible);
 
-                    const invis_glyph_info = self.renderGlyph(invis_glyph, layout_test.height);
+                    const invis_glyph_info = self.layout_cache_2.renderGlyph(invis_glyph, layout_test.height);
                     if (invis_glyph_info.region) |region| {
                         const glyph_size: @Vector(2, f32) = @floatFromInt(invis_glyph_info.size);
                         const glyph_offset: @Vector(2, f32) = @floatFromInt(invis_glyph_info.offset);
@@ -390,7 +333,7 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
                             .size = glyph_size,
                             .region = region,
                             .image = .editor_view_glyphs,
-                            .image_size = self.glyphs.size,
+                            .image_size = self.layout_cache_2.glyphs.size,
                             .tint = tint,
                         });
                     }
@@ -399,7 +342,7 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
                 const tctx__ = tracy.traceNamed(@src(), "render glyph");
                 defer tctx__.end();
 
-                const glyph_info = self.renderGlyph(item.glyph_id, layout_test.height);
+                const glyph_info = self.layout_cache_2.renderGlyph(item.glyph_id, layout_test.height);
                 if (glyph_info.region) |region| {
                     const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
                     const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
@@ -413,7 +356,7 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
                         .size = glyph_size,
                         .region = region,
                         .image = .editor_view_glyphs,
-                        .image_size = self.glyphs.size,
+                        .image_size = self.layout_cache_2.glyphs.size,
                         .tint = DefaultTheme.synHlColor(tint),
                     });
                 }
@@ -535,8 +478,6 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
     // background
     draw_list.addRect(.{ 0, 0 }, content_region_size, .{ .tint = DefaultTheme.editor_bg });
 }
-
-const GlyphCacheEntry = struct { size: @Vector(2, u32), offset: @Vector(2, i32) = .{ 0, 0 }, region: ?Beui.Texpack.Region };
 
 const DefaultTheme = struct {
     // colors are defined in srgb

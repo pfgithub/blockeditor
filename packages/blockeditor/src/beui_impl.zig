@@ -860,6 +860,6 @@ pub fn main() !void {
         }
         zgui.end();
 
-        draw(demo, &draw_list, &my_text_editor.glyphs);
+        draw(demo, &draw_list, &my_text_editor.layout_cache_2.glyphs);
     }
 }
