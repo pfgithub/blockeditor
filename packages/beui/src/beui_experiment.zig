@@ -3,6 +3,7 @@ const std = @import("std");
 const Beui = @import("Beui.zig");
 const render_list = @import("render_list.zig");
 const tracy = @import("anywhere").tracy;
+const util = @import("util.zig");
 
 fn IdMap(comptime V: type) type {
     const IDContext = struct {
@@ -591,11 +592,7 @@ const ScrollState = struct {
     anchor: [IDSegment.IDSegmentSize]u8,
 };
 fn indexToBytes(index: anytype) [IDSegment.IDSegmentSize]u8 {
-    var result: [IDSegment.IDSegmentSize]u8 = undefined;
-    std.debug.assert(std.meta.hasUniqueRepresentation(@TypeOf(index)));
-    @memcpy(result[0..@sizeOf(@TypeOf(index))], std.mem.asBytes(&index));
-    @memset(result[@sizeOf(@TypeOf(index))..], 0);
-    return result;
+    return util.anyToAny([IDSegment.IDSegmentSize]u8, @TypeOf(index), index);
 }
 fn bytesToIndex(bytes: *const [IDSegment.IDSegmentSize]u8, comptime T: type) T {
     return std.mem.bytesAsValue(T, bytes[0..@sizeOf(T)]).*;
