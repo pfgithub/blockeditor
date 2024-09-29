@@ -63,7 +63,7 @@ pub fn deinit(self: *App) void {
     self.db.deinit();
 }
 
-pub fn render(self: *App, call_info: B2.StandardCallInfo, b1: *Beui, fb_width: u32, fb_height: u32) B2.StandardChild {
+pub fn render(self: *App, call_info: B2.StandardCallInfo, b1: *Beui) B2.StandardChild {
     const ui = call_info.ui(@src());
 
     self.db.tickBegin();
@@ -89,11 +89,7 @@ pub fn render(self: *App, call_info: B2.StandardCallInfo, b1: *Beui, fb_width: u
         }
     }
 
-    // TODO convert text editor to b2
-    self.text_editor.gui(b1, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });
-    // sample call: B2.scrollDemo(ui.sub(@src()))
-
-    return .{ .size = .{ @intCast(fb_width), @intCast(fb_height) }, .rdl = ui.id.b2.draw() };
+    return self.text_editor.gui(ui.sub(@src()), b1);
 }
 
 fn renderCounter(counter: db_mod.TypedComponentRef(bi.CounterComponent)) void {

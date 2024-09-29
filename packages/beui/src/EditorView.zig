@@ -8,6 +8,7 @@ const Beui = @import("Beui.zig");
 const tracy = @import("anywhere").tracy;
 const zgui = @import("anywhere").zgui;
 const LayoutCache = @import("LayoutCache.zig");
+const B2 = Beui.beui_experiment;
 
 const ft = Beui.font_experiment.ft;
 const hb = Beui.font_experiment.hb;
@@ -82,15 +83,25 @@ fn layoutLine(self: *EditorView, beui: *Beui, line_middle: Core.Position) Layout
     return self.layout_cache_2.layoutLine(beui, self._layout_temp_al.items);
 }
 
-pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32)) void {
+pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.StandardChild {
     const tctx = tracy.trace(@src());
     defer tctx.end();
+
+    const ui = call_info.ui(@src());
+    const rdl = ui.id.b2.draw();
+    const text_bg_rdl = ui.id.b2.draw();
+    const text_rdl = ui.id.b2.draw();
+    const text_cursor_rdl = ui.id.b2.draw();
+    rdl.place(text_cursor_rdl, .{ 0, 0 });
+    rdl.place(text_rdl, .{ 0, 0 });
+    rdl.place(text_bg_rdl, .{ 0, 0 });
+
+    const content_region_size: @Vector(2, f32) = .{ @floatFromInt(call_info.constraints.available_size.w.?), @floatFromInt(call_info.constraints.available_size.h.?) };
 
     self.layout_cache_2.tick(beui);
 
     const arena = beui.arena();
     _ = arena;
-    const draw_list = beui.draw();
     const block = self.core.document.value;
 
     if (beui.hotkey(.{ .alt = .maybe, .ctrl_or_cmd = .maybe, .shift = .maybe }, &.{ .left, .right })) |hk| {
@@ -328,7 +339,7 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
                         const glyph_size: @Vector(2, f32) = @floatFromInt(invis_glyph_info.size);
                         const glyph_offset: @Vector(2, f32) = @floatFromInt(invis_glyph_info.offset);
 
-                        draw_list.addRegion(.{
+                        text_rdl.addRegion(.{
                             .pos = line_pos + cursor_pos + item_offset + glyph_offset,
                             .size = glyph_size,
                             .region = region,
@@ -351,7 +362,7 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
                         true => syn_hl.advanceAndRead(item_docbyte),
                         false => .unstyled,
                     };
-                    draw_list.addRegion(.{
+                    text_rdl.addRegion(.{
                         .pos = line_pos + cursor_pos + item_offset + glyph_offset,
                         .size = glyph_size,
                         .region = region,
@@ -376,10 +387,18 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
                 const portion_width = portion_next - portion;
 
                 if (cursor_info.left_cursor == .focus) {
-                    draw_list.addRect(@floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, -1 }), .{ 2, @floatFromInt(layout_test.height) }, .{ .tint = DefaultTheme.cursor_color });
+                    text_cursor_rdl.addRect(.{
+                        .pos = @floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, -1 }),
+                        .size = .{ 2, @floatFromInt(layout_test.height) },
+                        .tint = DefaultTheme.cursor_color,
+                    });
                 }
                 if (cursor_info.selected) {
-                    draw_list.addRect(@floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 }), .{ portion_width, @floatFromInt(layout_test.height) }, .{ .tint = DefaultTheme.selection_color });
+                    text_bg_rdl.addRect(.{
+                        .pos = @floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 }),
+                        .size = .{ portion_width, @floatFromInt(layout_test.height) },
+                        .tint = DefaultTheme.selection_color,
+                    });
                 }
 
                 // click target problem
@@ -476,7 +495,8 @@ pub fn gui(self: *EditorView, beui: *Beui, content_region_size: @Vector(2, f32))
     }
 
     // background
-    draw_list.addRect(.{ 0, 0 }, content_region_size, .{ .tint = DefaultTheme.editor_bg });
+    rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg });
+    return .{ .rdl = rdl, .size = @intFromFloat(content_region_size) };
 }
 
 const DefaultTheme = struct {

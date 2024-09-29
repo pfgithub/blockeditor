@@ -769,7 +769,7 @@ pub fn main() !void {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 scrollDemo");
                 defer b2ft_.end();
 
-                break :blk app.render(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } } }, &beui, fb_width, fb_height);
+                break :blk app.render(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } } }, &beui);
             };
             {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 finalize");

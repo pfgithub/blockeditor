@@ -355,6 +355,24 @@ const RepositionableDrawList = struct {
             },
         }) catch @panic("oom");
     }
+    pub fn addRegion(self: *RepositionableDrawList, opts: struct {
+        pos: @Vector(2, f32),
+        size: @Vector(2, f32),
+        region: @import("Texpack.zig").Region,
+        image: ?render_list.RenderListImage,
+        image_size: u32,
+        tint: Beui.Color = .fromHexRgb(0xFFFFFF),
+    }) void {
+        const uv = opts.region.calculateUV(opts.image_size);
+        return self.addRect(.{
+            .pos = opts.pos,
+            .size = opts.size,
+            .uv_pos = .{ uv.x, uv.y },
+            .uv_size = .{ uv.width, uv.height },
+            .image = opts.image,
+            .tint = opts.tint,
+        });
+    }
     pub fn addRect(self: *RepositionableDrawList, opts_in: struct {
         pos: @Vector(2, f32),
         size: @Vector(2, f32),
