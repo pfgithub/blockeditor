@@ -199,9 +199,6 @@ fn cs(v: Highlighter.SynHlColorScope) NodeCacheInfo {
     return .{ .color_scope = v };
 }
 fn renderCache(ctx: *Highlighter, cache: NodeCacheInfo, byte_index: u32) Highlighter.SynHlColorScope {
-    const tctx = tracy.trace(@src());
-    defer tctx.end();
-
     return switch (cache) {
         .color_scope => |scope| scope,
         .special => |special| blk: {
