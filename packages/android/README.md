@@ -1,0 +1,1 @@
+Android Studio project. Open the folder Aztest in Android Studio. Requires zig installed and in path to build.
