@@ -9,6 +9,7 @@ const anywhere = @import("anywhere");
 const tracy = anywhere.tracy;
 const build_options = @import("build_options");
 const zgui_anywhere = anywhere.zgui;
+const App = @import("App.zig");
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
@@ -495,22 +496,6 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
     _ = gctx.present();
 }
 
-pub fn renderCounter(counter: db.TypedComponentRef(bi.CounterComponent)) void {
-    zgui.text("Count: {d}", .{counter.value.count});
-    if (zgui.button("Increment!", .{})) {
-        counter.applySimpleOperation(.{ .add = 1 }, null);
-    }
-    if (zgui.button("Zero!", .{})) {
-        counter.applySimpleOperation(.{ .set = 0 }, null);
-    }
-    if (zgui.button("Undo!", .{})) {
-        @panic("TODO: someone needs to keep an undo list");
-    }
-    if (zgui.button("Redo!", .{})) {
-        @panic("TODO: someone needs to keep a redo list");
-    }
-}
-
 fn zglfwKeyToBeuiKey(key: zglfw.Key) ?Beui.Key {
     const val: i32 = @intFromEnum(key);
     switch (val) {
@@ -656,42 +641,9 @@ pub fn main() !void {
     try zglfw.init();
     defer zglfw.terminate();
 
-    var interface = db.BlockDB.init(gpa);
-    defer interface.deinit();
-
-    var interface_thread: blocks_net.TcpSync = undefined;
-    interface_thread.init(gpa, &interface);
-    defer interface_thread.deinit();
-
-    const my_counter = interface.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
-    defer my_counter.unref();
-
-    const my_counter_component = my_counter.typedComponent(bi.CounterBlock).?; // .? asserts it's loaded, which is always true for a newly created block
-    defer my_counter_component.unref();
-
-    const my_text = interface.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
-    defer my_text.unref();
-
-    const my_text_component = my_text.typedComponent(bi.TextDocumentBlock).?; // .? asserts it's loaded which isn't what we want. we want to wait to init until it's loaded.
-    defer my_text_component.unref();
-
-    var zig_language = Beui.EditorView.Core.highlighters_zig.HlZig.init(gpa);
-    defer zig_language.deinit();
-
-    var markdown_language = Beui.EditorView.Core.highlighters_markdown.HlMd.init();
-    defer markdown_language.deinit();
-
-    var my_text_editor: Beui.EditorView = undefined;
-    my_text_editor.initFromDoc(gpa, my_text_component);
-    defer my_text_editor.deinit();
-    my_text_editor.core.setSynHl(zig_language.language());
-
-    my_text_editor.core.document.applySimpleOperation(.{
-        .position = my_text_editor.core.document.value.positionFromDocbyte(0),
-        .delete_len = 0,
-        .insert_text = @embedFile("beui_impl.zig"),
-    }, null);
-    my_text_editor.core.executeCommand(.{ .set_cursor_pos = .{ .position = my_text_editor.core.document.value.positionFromDocbyte(0) } });
+    var app: App = undefined;
+    app.init(gpa);
+    defer app.deinit();
 
     // Change current working directory to where the executable is located.
     {
@@ -764,9 +716,6 @@ pub fn main() !void {
         _ = arena_state.reset(.retain_capacity);
         draw_list.clear();
 
-        interface.tickBegin();
-        defer interface.tickEnd();
-
         var beui_vtable: BeuiVtable = .{ .window = window };
         beui.newFrame(.{
             .can_capture_keyboard = !zgui.io.getWantCaptureKeyboard(),
@@ -803,13 +752,6 @@ pub fn main() !void {
             }
         }
 
-        zgui.setNextWindowPos(.{ .x = 20.0, .y = 80.0, .cond = .first_use_ever });
-        zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
-        if (zgui.begin("My counter (editor 1)", .{})) {
-            renderCounter(my_counter_component);
-        }
-        zgui.end();
-
         const gctx = demo.gctx;
         const fb_width = gctx.swapchain_descriptor.width;
         const fb_height = gctx.swapchain_descriptor.height;
@@ -826,7 +768,8 @@ pub fn main() !void {
             const demo1_res = blk: {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 scrollDemo");
                 defer b2ft_.end();
-                break :blk Beui.beui_experiment.scrollDemo(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } } });
+
+                break :blk app.render(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } } }, &beui, fb_width, fb_height);
             };
             {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 finalize");
@@ -835,27 +778,10 @@ pub fn main() !void {
             }
         }
 
-        my_text_editor.gui(&beui, .{ @floatFromInt(fb_width), @floatFromInt(fb_height) });
-
         zgui.showDemoWindow(null);
 
         zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
-
-        if (zgui_anywhere.beginWindow("Editor Settings", .{})) {
-            defer zgui_anywhere.endWindow();
-
-            zgui.text("Set syn hl:", .{});
-            if (zgui.button("zig", .{})) {
-                my_text_editor.core.setSynHl(zig_language.language());
-            }
-            if (zgui.button("markdown", .{})) {
-                my_text_editor.core.setSynHl(markdown_language.language());
-            }
-            if (zgui.button("plaintext", .{})) {
-                my_text_editor.core.setSynHl(null);
-            }
-        }
 
         if (zgui.begin("Demo Settings", .{})) {
             zgui.text(
@@ -868,6 +794,6 @@ pub fn main() !void {
         }
         zgui.end();
 
-        draw(demo, &draw_list, &my_text_editor.layout_cache_2.glyphs);
+        draw(demo, &draw_list, &app.text_editor.layout_cache_2.glyphs);
     }
 }

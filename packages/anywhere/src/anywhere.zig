@@ -29,6 +29,10 @@ pub const zgui = struct {
     pub inline fn checkbox(label: [:0]const u8, value: *bool) void {
         if (zgui_mod) |z| _ = z.checkbox(label, .{ .v = value });
     }
+    pub inline fn button(label: [:0]const u8, _: struct {}) bool {
+        if (zgui_mod) |z| return z.button(label, .{});
+        return false;
+    }
 };
 
 pub const tracy = struct {

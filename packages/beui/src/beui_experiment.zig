@@ -507,30 +507,30 @@ const StandardConstraints = struct {
 
     available_size: struct { w: ?i32, h: ?i32 },
 };
-const StandardChild = struct {
+pub const StandardChild = struct {
     size: @Vector(2, i32),
     rdl: *RepositionableDrawList,
 };
 
-const StandardCallInfo = struct {
+pub const StandardCallInfo = struct {
     caller_id: ID,
     constraints: StandardConstraints,
-    fn ui(self: StandardCallInfo, src: std.builtin.SourceLocation) StandardUI {
+    pub fn ui(self: StandardCallInfo, src: std.builtin.SourceLocation) StandardUI {
         return .{ .id = self.caller_id.sub(src), .constraints = self.constraints };
     }
 };
-const StandardUI = struct {
+pub const StandardUI = struct {
     id: ID,
     constraints: StandardConstraints,
-    fn sub(self: StandardUI, src: std.builtin.SourceLocation) StandardCallInfo {
+    pub fn sub(self: StandardUI, src: std.builtin.SourceLocation) StandardCallInfo {
         return .{ .caller_id = self.id.sub(src), .constraints = self.constraints };
     }
 };
-fn Component(comptime Arg1: type, comptime Arg2: type, comptime Ret: type) type {
+pub fn Component(comptime Arg1: type, comptime Arg2: type, comptime Ret: type) type {
     return struct {
         ctx: *anyopaque,
         fn_ptr: *const fn (ctx: *anyopaque, arg1: Arg1, arg2: Arg2) Ret,
-        fn from(ctx_0: anytype, comptime fn_val: fn (ctx: @TypeOf(ctx_0), arg1: Arg1, arg2: Arg2) Ret) @This() {
+        pub fn from(ctx_0: anytype, comptime fn_val: fn (ctx: @TypeOf(ctx_0), arg1: Arg1, arg2: Arg2) Ret) @This() {
             return .{
                 .ctx = @ptrCast(@constCast(ctx_0)),
                 .fn_ptr = struct {
@@ -540,7 +540,7 @@ fn Component(comptime Arg1: type, comptime Arg2: type, comptime Ret: type) type 
                 }.fn_ptr,
             };
         }
-        fn call(self: @This(), arg1: Arg1, arg2: Arg2) Ret {
+        pub fn call(self: @This(), arg1: Arg1, arg2: Arg2) Ret {
             return self.fn_ptr(self.ctx, arg1, arg2);
         }
     };
