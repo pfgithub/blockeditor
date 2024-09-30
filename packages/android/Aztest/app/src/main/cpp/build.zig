@@ -35,6 +35,9 @@ pub fn build(b: *std.Build) !void {
     make_libc_file.addPrefixedDirectoryArg("include_dir=", .{ .cwd_relative = INCLUDE_DIR });
     make_libc_file.addPrefixedDirectoryArg("sys_include_dir=", .{ .cwd_relative = SYS_INCLUDE_DIR });
     make_libc_file.addPrefixedDirectoryArg("crt_dir=", .{ .cwd_relative = CRT1_PATH });
+    make_libc_file.addArg("msvc_lib_dir=");
+    make_libc_file.addArg("kernel32_lib_dir=");
+    make_libc_file.addArg("gcc_dir=");
 
     const format_step = b.addFmt(.{
         .paths = &.{ "src", "build.zig", "build.zig.zon" },
@@ -43,7 +46,7 @@ pub fn build(b: *std.Build) !void {
 
     // https://github.com/ziglang/zig/issues/20327#issuecomment-2382059477 we need to specify a libc file
     // for every addStaticLibrary, addDynamicLibrary call otherwise this won't compile
-    const app_dep = b.dependency("app", .{ .target = target, .optimize = optimize });
+    //const app_dep = b.dependency("app", .{ .target = target, .optimize = optimize });
 
     const lib = b.addStaticLibrary(.{
         .name = "zigpart",
@@ -55,6 +58,7 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(lib);
 
     lib.setLibCFile(make_libc_file.captureStdOut());
+    lib.step.dependOn(&make_libc_file.step); // work around bug where setLibCFile doesn't add the step dependency
     lib.linkLibC();
-    lib.root_module.addImport("app", app_dep.module("blockeditor"));
+    //lib.root_module.addImport("app", app_dep.module("blockeditor"));
 }
