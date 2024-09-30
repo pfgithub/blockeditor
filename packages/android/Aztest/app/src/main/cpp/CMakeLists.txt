@@ -26,7 +26,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
 add_dependencies(${CMAKE_PROJECT_NAME} generate_liba)
 
-set(LIBA_PATH "${CMAKE_SOURCE_DIR}/zig-out/lib/libzigpart.a")
+set(LIBA_PATH "${CMAKE_SOURCE_DIR}/zig-out/lib/libzigpart.so")
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
         ${ANDROID_LIB}
