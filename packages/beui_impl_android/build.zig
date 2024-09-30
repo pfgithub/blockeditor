@@ -72,7 +72,7 @@ pub fn build(b: *std.Build) !void {
         .name = "libc_file_builder",
         .target = b.resolveTargetQuery(.{}), // native
         .optimize = .Debug,
-        .root_source_file = b.path("libc_file_builder.zig"),
+        .root_source_file = b.path("src/libc_file_builder.zig"),
     });
 
     const make_libc_file = b.addRunArtifact(libc_file_builder);

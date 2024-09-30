@@ -5,7 +5,7 @@
         "",
     },
     .dependencies = .{
-        .app = .{ .path = "../../../../../../blockeditor" },
-        .beui = .{ .path = "../../../../../../beui" },
+        .app = .{ .path = "../blockeditor" },
+        .beui = .{ .path = "../beui" },
     },
 }

@@ -1,0 +1,8 @@
+{
+    "INCLUDE_DIR": "/opt/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include",
+    "CRT1_PATH": "/opt/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/24",
+    "CMAKE_ANDROID_ARCH_ABI": "x86_64",
+    "ANDROID_LIB": "/opt/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/24/libandroid.so",
+    "LOG_LIB": "/opt/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/24/liblog.so",
+    "GLESV3_LIB": "/opt/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/24/libGLESv3.so"
+}
