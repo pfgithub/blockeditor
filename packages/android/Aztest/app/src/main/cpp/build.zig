@@ -8,6 +8,10 @@ const target_map = std.StaticStringMap([]const u8).initComptime(.{
 });
 
 pub fn build(b: *std.Build) !void {
+    const INCLUDE_DIR = b.option([]const u8, "INCLUDE_DIR", "") orelse @panic("missing INCLUDE_DIR");
+    const SYS_INCLUDE_DIR = b.option([]const u8, "SYS_INCLUDE_DIR", "") orelse @panic("missing SYS_INCLUDE_DIR");
+    const CRT1_PATH = b.option([]const u8, "CRT1_PATH", "") orelse @panic("missing CRT1_PATH");
+
     const CMAKE_ANDROID_ARCH_ABI = b.option([]const u8, "CMAKE_ANDROID_ARCH_ABI", "") orelse @panic("missing CMAKE_ANDROID_ARCH_ABI");
     const ANDROID_LIB = b.option([]const u8, "ANDROID_LIB", "") orelse @panic("missing ANDROID_LIB");
     const LOG_LIB = b.option([]const u8, "LOG_LIB", "") orelse @panic("missing LOG_LIB");
@@ -20,10 +24,24 @@ pub fn build(b: *std.Build) !void {
     const target = b.resolveTargetQuery(try std.Target.Query.parse(.{ .arch_os_abi = target_triple }));
     const optimize: std.builtin.OptimizeMode = .Debug;
 
+    const libc_file_builder = b.addExecutable(.{
+        .name = "libc_file_builder",
+        .target = b.resolveTargetQuery(.{}), // native
+        .optimize = .Debug,
+        .root_source_file = b.path("libc_file_builder.zig"),
+    });
+
+    const make_libc_file = b.addRunArtifact(libc_file_builder);
+    make_libc_file.addPrefixedDirectoryArg("include_dir=", .{ .cwd_relative = INCLUDE_DIR });
+    make_libc_file.addPrefixedDirectoryArg("sys_include_dir=", .{ .cwd_relative = SYS_INCLUDE_DIR });
+    make_libc_file.addPrefixedDirectoryArg("crt_dir=", .{ .cwd_relative = CRT1_PATH });
+
     const format_step = b.addFmt(.{
-        .paths = &.{ "src", "build.zig" },
+        .paths = &.{ "src", "build.zig", "build.zig.zon" },
     });
     b.getInstallStep().dependOn(&format_step.step);
+
+    const app_dep = b.dependency("app", .{ .target = target, .optimize = optimize });
 
     const lib = b.addStaticLibrary(.{
         .name = "zigpart",
@@ -33,4 +51,8 @@ pub fn build(b: *std.Build) !void {
         .pic = true,
     });
     b.installArtifact(lib);
+
+    lib.setLibCFile(make_libc_file.captureStdOut());
+    lib.linkLibC();
+    lib.root_module.addImport("app", app_dep.module("blockeditor"));
 }

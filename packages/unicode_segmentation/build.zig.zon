@@ -3,8 +3,8 @@
     .version = "0.0.0",
     .dependencies = .{
         .us = .{
-            .url = "https://github.com/pfgithub/blockeditor/releases/download/unicode_segmentation_binaries/unicode_segmentation.zip",
-            .hash = "1220773a3948dd87eb58d8737de9cee836a92bc5659bb25c1872d0bf75af04e1bb88",
+            .url = "https://github.com/pfgithub/blockeditor/releases/download/unicode_segmentation_binaries/unicode_segmentation-2.zip",
+            .hash = "122090682680648bed7bf7632903639e736dfe9a37248048b469a8df50e2a267e81c",
         },
         .us_local = .{
             .path = "bin",

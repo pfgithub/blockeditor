@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 
 pub const segmentation_issue_139 = true; // https://github.com/unicode-rs/unicode-segmentation/issues/139
 

@@ -1,4 +1,5 @@
 import {$} from "bun";
+await $`rustup component add rustfmt`;
 await $`cargo fmt`;
 
 const targets: {zig: string, rs: string, rsn: string}[] = [
@@ -14,6 +15,11 @@ const targets: {zig: string, rs: string, rsn: string}[] = [
     {zig: "x86_64-linux-musl", rs: "x86_64-unknown-linux-musl", rsn: "libunicode_segmentation_bindings.a"},
     {zig: "riscv32-unknown-none-elf", rs: "riscv32imac-unknown-none-elf", rsn: "libunicode_segmentation_bindings.a"},
     {zig: "wasm32-freestanding", rs: "wasm32-unknown-unknown", rsn: "libunicode_segmentation_bindings.a"},
+
+    {zig: "arm-linux-android", rs: "armv7-linux-androideabi", rsn: "libunicode_segmentation_bindings.a"},
+    {zig: "aarch64-linux-android", rs: "aarch64-linux-android", rsn: "libunicode_segmentation_bindings.a"},
+    {zig: "x86-linux-android", rs: "i686-linux-android", rsn: "libunicode_segmentation_bindings.a"},
+    {zig: "x86_64-linux-android", rs: "x86_64-linux-android", rsn: "libunicode_segmentation_bindings.a"},
 ];
 for(const {zig, rs, rsn} of targets) {
     await $`rustup target add ${rs}`;
