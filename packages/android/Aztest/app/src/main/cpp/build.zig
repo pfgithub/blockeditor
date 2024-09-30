@@ -61,4 +61,7 @@ pub fn build(b: *std.Build) !void {
     lib.step.dependOn(&make_libc_file.step); // work around bug where setLibCFile doesn't add the step dependency
     lib.linkLibC();
     //lib.root_module.addImport("app", app_dep.module("blockeditor"));
+
+    // TODO HACK: fish out every dependency's Compile steps and set thier libc files (& depend on the step)
+    // needed until zig has an answer for libc txt in pkg trees
 }
