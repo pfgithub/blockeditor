@@ -16,9 +16,9 @@ pub fn build(b: *std.Build) void {
     const fmt_all = b.addFmt(.{
         .paths = &.{
             // zig fmt: off
-            "packages/android/Aztest/app/src/main/cpp/src", "packages/android/Aztest/app/src/main/cpp/build.zig", "packages/android/Aztest/app/src/main/cpp/build.zig.zon",
             "packages/anywhere/src", "packages/anywhere/build.zig",
             "packages/beui/src", "packages/beui/build.zig", "packages/beui/build.zig.zon",
+            "packages/beui_impl_android/src", "packages/beui_impl_android/build.zig", "packages/beui_impl_android/build.zig.zon",
             "packages/beui_impl_glfw_wgpu/src", "packages/beui_impl_glfw_wgpu/build.zig", "packages/beui_impl_glfw_wgpu/build.zig.zon",
             "packages/blockeditor/src", "packages/blockeditor/build.zig", "packages/blockeditor/build.zig.zon",
             "packages/blocks/src", "packages/blocks/build.zig", "packages/blocks/build.zig.zon",

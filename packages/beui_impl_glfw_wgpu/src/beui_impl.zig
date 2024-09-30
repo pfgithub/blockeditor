@@ -61,8 +61,8 @@ const wgsl_common = (
     \\  @fragment fn frag(
     \\      in: VertexOut,
     \\  ) -> @location(0) vec4<f32> {
+    \\      var color: vec4<f32> = textureSample(image, image_sampler, in.uv);
     \\      if in.uv.x < 0.0 { return premultiply(in.tint); }
-    \\      var color: vec4<f32> = textureSampleLevel(image, image_sampler, in.uv, uniforms.mip_level);
     \\      if true { color = vec4<f32>(1.0, 1.0, 1.0, color.r); }
     \\      color *= in.tint;
     \\      return premultiply(color);
@@ -145,7 +145,6 @@ const Genres = genAttributes(draw_lists.RenderListVertex);
 
 const UniformsRes = genUniforms(extern struct {
     screen_size: @Vector(2, f32),
-    mip_level: f32,
 });
 
 const DemoState = struct {
@@ -166,8 +165,6 @@ const DemoState = struct {
     texture: zgpu.TextureHandle,
     texture_view: zgpu.TextureViewHandle,
     sampler: zgpu.SamplerHandle,
-
-    mip_level: i32 = 0,
 };
 
 fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
@@ -441,7 +438,6 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
             const mem = gctx.uniformsAllocate(UniformsRes.Uniforms, 1);
             mem.slice[0] = .{
                 .screen_size = .{ @floatFromInt(fb_width), @floatFromInt(fb_height) },
-                .mip_level = @as(f32, @floatFromInt(demo.mip_level)),
             };
             for (draw_list.commands.items) |command| {
                 const bind_group_handle = gctx.createBindGroup(demo.bind_group_layout, &.{
