@@ -92,6 +92,7 @@ export fn zig_opengl_renderFrame() void {
     c.glClear(c.GL_COLOR_BUFFER_BIT);
 
     c.glUseProgram(shader_program);
+    c.glUniform2f(uniform_screen_size, 250.0, 250.0);
     c.glBindVertexArray(vao);
     c.glDrawArrays(c.GL_TRIANGLES, 0, @divExact(vertices.len, 3));
     c.glBindVertexArray(0);
@@ -99,38 +100,23 @@ export fn zig_opengl_renderFrame() void {
 
 fn applyEvents() void {}
 
-// // Simple vertex and fragment shader to render a triangle
-const vertex_shader_source =
-    \\#version 300 es
-    \\layout (location = 0) in vec4 aPosition;
-    \\void main() {
-    \\    gl_Position = aPosition;
-    \\}
-;
-
-const fragment_shader_source =
-    \\#version 300 es
-    \\precision mediump float;
-    \\out vec4 fragColor;
-    \\void main() {
-    \\    fragColor = vec4(1.0, 0.0, 0.0, 1.0); // Red color
-    \\}
-;
-
 // // Triangle vertices
-const vertices = [_]c.GLfloat{
-    0,    0.5,  0,
-    -0.5, -0.5, 0,
-    0.5,  -0.5, 0,
+const vertices = [_]Vertex{
+    .{ .pos = .{ 10, 10 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 255, 0, 0, 255 } },
+    .{ .pos = .{ 10, 20 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 255, 0, 255 } },
+    .{ .pos = .{ 0, 20 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 0, 255, 255 } },
 };
 
 var shader_program: c.GLuint = 0;
 var vao: c.GLuint = 0;
+var uniform_screen_size: c.GLint = 0;
 
 // // Function to compile a shader
-fn compileShader(ty: c.GLenum, source: [*:0]const u8) c.GLuint {
+fn compileShader(ty: c.GLenum, source: []const u8) c.GLuint {
     const shader: c.GLuint = c.glCreateShader(ty);
-    c.glShaderSource(shader, 1, &source, null);
+    const source_arr: [1][*c]const c.GLchar = .{source.ptr};
+    const len_arr: [1]c.GLint = .{@intCast(source.len)};
+    c.glShaderSource(shader, 1, &source_arr, &len_arr);
     c.glCompileShader(shader);
 
     // Check for compilation errors
@@ -145,11 +131,47 @@ fn compileShader(ty: c.GLenum, source: [*:0]const u8) c.GLuint {
     return shader;
 }
 
-// Function to create the OpenGL program
+const Vertex = Beui.draw_lists.RenderListVertex;
 
+fn setupAttribs(comptime V: type) void {
+    comptime var index: usize = 0;
+    inline for (@typeInfo(V).@"struct".fields) |field| {
+        switch (field.type) {
+            @Vector(2, f32) => {
+                c.glVertexAttribPointer(index, 2, c.GL_FLOAT, c.GL_FALSE, @sizeOf(V), @ptrFromInt(@offsetOf(V, field.name)));
+            },
+            @Vector(4, u8) => {
+                c.glVertexAttribPointer(index, 4, c.GL_UNSIGNED_BYTE, c.GL_TRUE, @sizeOf(V), @ptrFromInt(@offsetOf(V, field.name)));
+            },
+            else => @compileError("TODO support vertex type: " ++ @typeName(field.type)),
+        }
+        index += 1;
+    }
+}
+fn genInputs(comptime V: type) []const u8 {
+    var result: []const u8 = "";
+    var index: usize = 0;
+    for (@typeInfo(V).@"struct".fields) |field| {
+        const ty = switch (field.type) {
+            @Vector(2, f32) => "vec2",
+            @Vector(4, u8) => "vec4",
+            else => @compileError("TODO support vertex type: " ++ @typeName(field.type)),
+        };
+        result = result ++ std.fmt.comptimePrint("layout(location = {d}) in {s} in_{s};\n", .{ index, ty, field.name });
+        index += 1;
+    }
+    return result;
+}
+
+fn comptimeReplace(src: []const u8, replace_str: []const u8, replace_with: []const u8) []const u8 {
+    const offset = std.mem.indexOf(u8, src, replace_str) orelse @compileError("missing");
+    return src[0..offset] ++ replace_with ++ src[offset + replace_str.len ..];
+}
+
+const vert_shader: []const u8 = comptimeReplace(@embedFile("vert.glsl"), "VERT_INPUTS\n", genInputs(Vertex));
 fn createProgram() void {
-    const vertex_shader: c.GLuint = compileShader(c.GL_VERTEX_SHADER, vertex_shader_source);
-    const fragment_shader: c.GLuint = compileShader(c.GL_FRAGMENT_SHADER, fragment_shader_source);
+    const vertex_shader: c.GLuint = compileShader(c.GL_VERTEX_SHADER, vert_shader);
+    const fragment_shader: c.GLuint = compileShader(c.GL_FRAGMENT_SHADER, @embedFile("frag.glsl"));
 
     shader_program = c.glCreateProgram();
     c.glAttachShader(shader_program, vertex_shader);
@@ -169,21 +191,20 @@ fn createProgram() void {
     c.glDeleteShader(vertex_shader);
     c.glDeleteShader(fragment_shader);
 
+    uniform_screen_size = c.glGetUniformLocation(shader_program, "screen_size");
+
     // Create a Vertex Array Object (VAO)
-    c.glGenVertexArrays(1, &vao);
-    var vbo: c.GLuint = 0;
-    c.glGenBuffers(1, &vbo);
-
-    c.glBindVertexArray(vao);
-
-    // Bind and set vertex buffer data
-    c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
-    c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(c.GLfloat) * vertices.len, &vertices, c.GL_STATIC_DRAW);
-
-    // Set the vertex attribute pointer
-    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 3 * @sizeOf(f32), null);
-    c.glEnableVertexAttribArray(0);
-
-    c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-    c.glBindVertexArray(0);
+    {
+        c.glGenVertexArrays(1, &vao);
+        var vbo: c.GLuint = 0;
+        c.glGenBuffers(1, &vbo);
+        c.glBindVertexArray(vao);
+        defer c.glBindVertexArray(0);
+        c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
+        defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+        c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(Vertex) * vertices.len, &vertices, c.GL_STATIC_DRAW);
+        setupAttribs(Vertex);
+        c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 3 * @sizeOf(f32), null);
+        c.glEnableVertexAttribArray(0);
+    }
 }
