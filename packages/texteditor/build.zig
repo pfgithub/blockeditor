@@ -21,7 +21,9 @@ pub fn build(b: *std.Build) !void {
     const tree_sitter_dep = b.dependency("tree_sitter", .{ .target = target, .optimize = treesitter_optimize });
 
     const tree_sitter_zig_obj = tree_sitter.addLanguage(b, "zig", target, treesitter_optimize, b.dependency("tree_sitter_zig", .{}).path("src"), &.{"parser.c"});
+    b.installArtifact(tree_sitter_zig_obj);
     const tree_sitter_markdown_obj = tree_sitter.addLanguage(b, "markdown", target, treesitter_optimize, b.dependency("tree_sitter_markdown", .{}).path("tree-sitter-markdown/src"), &.{ "parser.c", "scanner.c" });
+    b.installArtifact(tree_sitter_markdown_obj);
 
     const texteditor_mod = b.addModule("texteditor", .{
         .root_source_file = b.path("src/root.zig"),

@@ -14,14 +14,12 @@ pub fn build(b: *std.Build) !void {
     //
 
     const wuffs_lib = b.dependency("wuffs", .{});
-    const wuffs_bindings = b.addTranslateC(.{
-        .root_source_file = wuffs_lib.path("release/c/wuffs-v0.4.c"),
+    const wuffs_mod = b.createModule(.{
+        .root_source_file = b.path("src/wuffs.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const wuffs_mod = b.createModule(.{
-        .root_source_file = wuffs_bindings.getOutput(),
-    });
+    wuffs_mod.addIncludePath(wuffs_lib.path("release/c"));
     wuffs_mod.addCSourceFile(.{
         .file = wuffs_lib.path("release/c/wuffs-v0.4.c"),
         .flags = &.{"-DWUFFS_IMPLEMENTATION"},

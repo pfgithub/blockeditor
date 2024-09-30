@@ -23,14 +23,12 @@ pub fn build(b: *std.Build) !void {
 
     b.installArtifact(tree_sitter_dep.artifact("tree-sitter"));
 
-    const tree_sitter_root = b.addTranslateC(std.Build.Step.TranslateC.Options{
-        .root_source_file = tree_sitter_dep.path("lib/include/tree_sitter/api.h"),
+    const tree_sitter_translatec_module = b.addModule("tree_sitter_translatec", .{
+        .root_source_file = b.path("src/tree_sitter.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const tree_sitter_translatec_module = b.addModule("tree_sitter_translatec", .{
-        .root_source_file = tree_sitter_root.getOutput(),
-    });
+    tree_sitter_translatec_module.addIncludePath(tree_sitter_dep.path("lib/include/tree_sitter"));
     tree_sitter_translatec_module.linkLibrary(tree_sitter_dep.artifact("tree-sitter"));
 
     const tree_sitter_bindings_module = b.addModule("tree_sitter", .{

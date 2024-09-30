@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
+set(CMAKE_VERBOSE_MAKEFILE on)
 
 project("aztest")
 
@@ -7,19 +8,13 @@ find_library(LOG_LIB log)
 find_library(GLESV3_LIB GLESv3)
 
 find_path(INCLUDE_DIR stdlib.h)
-get_filename_component(INCLUDE_DIR ${INCLUDE_DIR} DIRECTORY)
-
-find_path(SYS_INCLUDE_DIR sys/errno.h)
-get_filename_component(SYS_INCLUDE_DIR ${SYS_INCLUDE_DIR} DIRECTORY)
-get_filename_component(SYS_INCLUDE_DIR ${SYS_INCLUDE_DIR} DIRECTORY)
-
 find_file(CRT1_PATH libc.so)
 get_filename_component(CRT1_PATH ${CRT1_PATH} DIRECTORY)
 
 add_custom_command(
         OUTPUT ${CMAKE_SOURCE_DIR}/zig-out/lib/libzigpart.a
         OUTPUT ${CMAKE_SOURCE_DIR}/zig-out/lib/_force_rerun_every_time # cmake can't track zig deps properly. zig caches so it shouldn't slow down the build too much.
-        COMMAND zig build -DINCLUDE_DIR=${INCLUDE_DIR} -DSYS_INCLUDE_DIR=${SYS_INCLUDE_DIR} -DCRT1_PATH=${CRT1_PATH} -DCMAKE_ANDROID_ARCH_ABI=${CMAKE_ANDROID_ARCH_ABI} -DANDROID_LIB=${ANDROID_LIB} -DLOG_LIB=${LOG_LIB} -DGLESV3_LIB=${GLESV3_LIB}
+        COMMAND zig build -DINCLUDE_DIR=${INCLUDE_DIR} -DCRT1_PATH=${CRT1_PATH} -DCMAKE_ANDROID_ARCH_ABI=${CMAKE_ANDROID_ARCH_ABI} -DANDROID_LIB=${ANDROID_LIB} -DLOG_LIB=${LOG_LIB} -DGLESV3_LIB=${GLESV3_LIB}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Generating libzigpart.a"
         VERBATIM

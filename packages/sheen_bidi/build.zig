@@ -45,13 +45,12 @@ pub fn build(b: *std.Build) void {
     sheen_bidi_lib.installHeadersDirectory(sheen_bidi_dep.path("Headers"), "", .{});
     sheen_bidi_lib.linkLibC();
 
-    const sheen_bidi_translatec = b.addTranslateC(.{
-        .root_source_file = sheen_bidi_dep.path("Headers/SheenBidi.h"),
+    const sheen_bidi_mod = b.addModule("sheen_bidi", .{
+        .root_source_file = b.path("src/sheen_bidi.zig"),
         .target = target,
         .optimize = optimize,
     });
-
-    const sheen_bidi_mod = sheen_bidi_translatec.addModule("sheen_bidi");
+    sheen_bidi_mod.addIncludePath(sheen_bidi_dep.path("Include"));
     sheen_bidi_mod.linkLibrary(sheen_bidi_lib);
 
     const sheen_bidi_tests = b.addTest(.{
