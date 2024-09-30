@@ -1,7 +1,11 @@
 const std = @import("std");
 const build_options = @import("build_options");
 
-pub const segmentation_issue_139 = true; // https://github.com/unicode-rs/unicode-segmentation/issues/139
+/// If false, all segmentation functions will compileError
+pub const segmentation_available = build_options.segmentation_available;
+
+/// https://github.com/unicode-rs/unicode-segmentation/issues/139
+pub const segmentation_issue_139 = true;
 
 // bindings for
 // https://docs.rs/unicode-segmentation/1.8.0/unicode_segmentation/struct.GraphemeCursor.html
@@ -12,7 +16,7 @@ pub const segmentation_issue_139 = true; // https://github.com/unicode-rs/unicod
 var is_correct: std.atomic.Value(bool) = .init(false);
 fn assertCorrect() void {
     if (is_correct.load(.unordered)) return;
-    if (!std.meta.eql(unicode_segmentation__GraphemeCursor__layout(), GraphemeCursor.layout)) @panic("bad layout for GraphemeCursor");
+    if (!std.meta.eql(externs.unicode_segmentation__GraphemeCursor__layout(), GraphemeCursor.layout)) @panic("bad layout for GraphemeCursor");
     is_correct.store(true, .unordered);
 }
 
@@ -23,15 +27,15 @@ pub const GraphemeCursor = extern struct {
         assertCorrect();
 
         var result: GraphemeCursor = undefined;
-        unicode_segmentation__GraphemeCursor__init(&result, offset, len, is_extended);
+        externs.unicode_segmentation__GraphemeCursor__init(&result, offset, len, is_extended);
         return result; // moves result but that's probably okay
     }
-    pub const setCursor = unicode_segmentation__GraphemeCursor__set_cursor;
-    pub const curCursor = unicode_segmentation__GraphemeCursor__cur_cursor;
-    pub const provideContext = unicode_segmentation__GraphemeCursor__provide_context;
-    pub const isBoundary = unicode_segmentation__GraphemeCursor__is_boundary;
-    pub const nextBoundary = unicode_segmentation__GraphemeCursor__next_boundary;
-    pub const prevBoundary = unicode_segmentation__GraphemeCursor__prev_boundary;
+    pub const setCursor = externs.unicode_segmentation__GraphemeCursor__set_cursor;
+    pub const curCursor = externs.unicode_segmentation__GraphemeCursor__cur_cursor;
+    pub const provideContext = externs.unicode_segmentation__GraphemeCursor__provide_context;
+    pub const isBoundary = externs.unicode_segmentation__GraphemeCursor__is_boundary;
+    pub const nextBoundary = externs.unicode_segmentation__GraphemeCursor__next_boundary;
+    pub const prevBoundary = externs.unicode_segmentation__GraphemeCursor__prev_boundary;
 };
 
 pub const AndStr = extern struct {
@@ -74,20 +78,25 @@ const Layout = extern struct {
     alignment: usize,
 };
 
-export fn rust_eh_personality() noreturn {
-    @panic("rust_eh_personality");
-}
-export fn zig_panic(msg_ptr: [*]const u8, msg_len: usize) noreturn {
-    @panic(msg_ptr[0..msg_len]);
-}
-extern fn unicode_segmentation__GraphemeCursor__layout() Layout;
-extern fn unicode_segmentation__GraphemeCursor__init(self: *GraphemeCursor, offset: usize, len: usize, is_extended: bool) void;
-extern fn unicode_segmentation__GraphemeCursor__set_cursor(self: *GraphemeCursor, offset: usize) void;
-extern fn unicode_segmentation__GraphemeCursor__cur_cursor(self: *GraphemeCursor) usize;
-extern fn unicode_segmentation__GraphemeCursor__provide_context(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) void;
-extern fn unicode_segmentation__GraphemeCursor__is_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(bool, GraphemeIncomplete);
-extern fn unicode_segmentation__GraphemeCursor__next_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(Result(usize, void), GraphemeIncomplete);
-extern fn unicode_segmentation__GraphemeCursor__prev_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(Result(usize, void), GraphemeIncomplete);
+const externs = struct {
+    comptime {
+        if (!segmentation_available) @compileError("Segmentation is not available");
+    }
+    export fn rust_eh_personality() noreturn {
+        @panic("rust_eh_personality");
+    }
+    export fn zig_panic(msg_ptr: [*]const u8, msg_len: usize) noreturn {
+        @panic(msg_ptr[0..msg_len]);
+    }
+    extern fn unicode_segmentation__GraphemeCursor__layout() Layout;
+    extern fn unicode_segmentation__GraphemeCursor__init(self: *GraphemeCursor, offset: usize, len: usize, is_extended: bool) void;
+    extern fn unicode_segmentation__GraphemeCursor__set_cursor(self: *GraphemeCursor, offset: usize) void;
+    extern fn unicode_segmentation__GraphemeCursor__cur_cursor(self: *GraphemeCursor) usize;
+    extern fn unicode_segmentation__GraphemeCursor__provide_context(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) void;
+    extern fn unicode_segmentation__GraphemeCursor__is_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(bool, GraphemeIncomplete);
+    extern fn unicode_segmentation__GraphemeCursor__next_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(Result(usize, void), GraphemeIncomplete);
+    extern fn unicode_segmentation__GraphemeCursor__prev_boundary(self: *GraphemeCursor, chunk: AndStr, chunk_start: usize) Result(Result(usize, void), GraphemeIncomplete);
+};
 
 /// replaces invalid utf-8 bytes with '?', to allow the creation of a rust string.
 /// be careful with string boundaries passed to rust - the string must not start or
@@ -138,6 +147,8 @@ test replaceInvalidUtf8 {
 }
 
 test "sizes" {
+    if (!segmentation_available) return error.SkipZigTest;
+
     assertCorrect();
 }
 
@@ -311,6 +322,8 @@ pub const SliceDocument = struct {
 };
 
 test "genericdocument family test" {
+    if (!segmentation_available) return error.SkipZigTest;
+
     if (segmentation_issue_139) return error.SkipZigTest;
     const family_emoji = "A👨‍👩‍👧‍👧B";
     const slice_doc = SliceDocument{ .slice = family_emoji };
@@ -329,6 +342,8 @@ test "genericdocument family test" {
     }
 }
 test "family test" {
+    if (!segmentation_available) return error.SkipZigTest;
+
     if (segmentation_issue_139) return error.SkipZigTest;
     const family_emoji: []const u8 = "A👨‍👩‍👧‍👧B";
 
@@ -373,6 +388,8 @@ test "family test" {
 }
 
 test "genericdocument flag test" {
+    if (!segmentation_available) return error.SkipZigTest;
+
     const my_str = "🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴";
     const my_doc = struct {
         const my_doc = @This();
@@ -396,6 +413,8 @@ test "genericdocument flag test" {
 }
 
 test "flag test" {
+    if (!segmentation_available) return error.SkipZigTest;
+
     // apparently vscode doesn't even handle flags right. it selects all of them in a single cursor movement.
     const my_str = "🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴🇷🇸🇮🇴";
     var cursor: GraphemeCursor = .init(0, my_str.len, true);
@@ -456,6 +475,8 @@ test "flag test" {
 }
 
 test "cursor" {
+    if (!segmentation_available) return error.SkipZigTest;
+
     const family_emoji = "👨‍👩‍👧‍👧";
     const my_str = "He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!" ++ family_emoji;
 

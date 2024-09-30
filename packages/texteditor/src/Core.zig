@@ -1011,6 +1011,7 @@ fn hasStop(doc: seg_dep.GenericDocument, docbyte: u64, stop: CursorLeftRightStop
     if (docbyte == 0 or docbyte == doc.len) unreachable;
 
     if (stop == .unicode_grapheme_cluster) {
+        if (!seg_dep.segmentation_available) return hasStop(doc, docbyte, .codepoint);
         return switch (doc.isBoundary(docbyte)) {
             true => .both,
             false => null,
@@ -1511,11 +1512,13 @@ test hasStop {
                 try testFindStops("|H|e|\u{301}|l|l|o|", v);
             },
             .unicode_grapheme_cluster => {
-                try testFindStops("|म|नी|ष|", v);
-                try testFindStops("|H|e\u{301}|l|l|o|", v);
-                try testFindStops("|🇷🇸|🇮🇴|🇷🇸|🇮🇴|🇷🇸|🇮🇴|🇷🇸|🇮🇴|", v);
-                try testFindStops("|\u{301}|", v);
-                if (!seg_dep.segmentation_issue_139) try testFindStops("|h|i|👨‍👩‍👧‍👧|b|y|e|", v);
+                if (seg_dep.segmentation_available) {
+                    try testFindStops("|म|नी|ष|", v);
+                    try testFindStops("|H|e\u{301}|l|l|o|", v);
+                    try testFindStops("|🇷🇸|🇮🇴|🇷🇸|🇮🇴|🇷🇸|🇮🇴|🇷🇸|🇮🇴|", v);
+                    try testFindStops("|\u{301}|", v);
+                    if (!seg_dep.segmentation_issue_139) try testFindStops("|h|i|👨‍👩‍👧‍👧|b|y|e|", v);
+                }
             },
             .word => {
                 try testFindStops("|hello> <world|", v);
@@ -1735,67 +1738,71 @@ test Core {
     // Grapheme cluster movement
     //
     tester.executeCommand(.select_all);
-    tester.executeCommand(.{ .insert_text = .{ .text = "He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!\n." } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!\n.|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!\n|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧|");
-    for (0..if (seg_dep.segmentation_issue_139) 4 else 1) |_| tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष!|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनीष|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …मनी|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …म|"); // TODO: not sure if this is expected behaviour. firefox deletes these one codepoint at a time
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! …|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}! |");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}!|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("He\u{301}|");
-    tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
-    try tester.expectContent("H|");
+    if (seg_dep.segmentation_available) {
+        tester.executeCommand(.{ .insert_text = .{ .text = "He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!\n." } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!\n.|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!\n|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n!|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!\r\n|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/!|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴/|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸🇮🇴|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/🇷🇸|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧/|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!👨‍👩‍👧‍👧|");
+        for (0..if (seg_dep.segmentation_issue_139) 4 else 1) |_| tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष!|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनीष|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …मनी|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …म|"); // TODO: not sure if this is expected behaviour. firefox deletes these one codepoint at a time
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! …|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}! |");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}!|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("He\u{301}|");
+        tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
+        try tester.expectContent("H|");
+    }
     tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .unicode_grapheme_cluster } });
     try tester.expectContent("|");
 
     //
     // Grapheme cluster click
     //
-    tester.executeCommand(.{ .insert_text = .{ .text = "e\u{301}" } });
-    try tester.expectContent("e\u{301}|");
-    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(1) } });
-    try tester.expectContent("|e\u{301}");
-    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(2) } });
-    try tester.expectContent("|e\u{301}");
-    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(3) } });
-    try tester.expectContent("[e\u{301}|");
-    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(2) } });
-    try tester.expectContent("|e\u{301}");
-    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(1) } });
-    try tester.expectContent("|e\u{301}");
-    tester.executeCommand(.{ .drag = .{ .pos = tester.pos(0) } });
-    try tester.expectContent("|e\u{301}");
+    if (seg_dep.segmentation_available) {
+        tester.executeCommand(.{ .insert_text = .{ .text = "e\u{301}" } });
+        try tester.expectContent("e\u{301}|");
+        tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(1) } });
+        try tester.expectContent("|e\u{301}");
+        tester.executeCommand(.{ .drag = .{ .pos = tester.pos(2) } });
+        try tester.expectContent("|e\u{301}");
+        tester.executeCommand(.{ .drag = .{ .pos = tester.pos(3) } });
+        try tester.expectContent("[e\u{301}|");
+        tester.executeCommand(.{ .drag = .{ .pos = tester.pos(2) } });
+        try tester.expectContent("|e\u{301}");
+        tester.executeCommand(.{ .drag = .{ .pos = tester.pos(1) } });
+        try tester.expectContent("|e\u{301}");
+        tester.executeCommand(.{ .drag = .{ .pos = tester.pos(0) } });
+        try tester.expectContent("|e\u{301}");
+    }
 
     //
-    // Grapheme cluster movement
+    // Vertical movement
     //
     tester.executeCommand(.select_all);
     tester.executeCommand(.{ .insert_text = .{ .text = "line 1\nline 2\nline 3\nline 4" } });
