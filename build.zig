@@ -1,7 +1,8 @@
 const std = @import("std");
 
-pub const pkgs = struct {
+pub const deps = struct {
     pub const tree_sitter = @import("tree_sitter");
+    pub const beui_impl_glfw_wgpu = @import("beui_impl_glfw_wgpu");
 };
 
 const fmt_paths = &.{};
@@ -17,6 +18,7 @@ pub fn build(b: *std.Build) void {
             // zig fmt: off
             "packages/anywhere/src", "packages/anywhere/build.zig",
             "packages/beui/src", "packages/beui/build.zig", "packages/beui/build.zig.zon",
+            "packages/beui_impl_glfw_wgpu/src", "packages/beui_impl_glfw_wgpu/build.zig", "packages/beui_impl_glfw_wgpu/build.zig.zon",
             "packages/blockeditor/src", "packages/blockeditor/build.zig", "packages/blockeditor/build.zig.zon",
             "packages/blocks/src", "packages/blocks/build.zig", "packages/blocks/build.zig.zon",
             "packages/blocks_net/src", "packages/blocks_net/build.zig", "packages/blocks_net/build.zig.zon",
@@ -35,6 +37,7 @@ pub fn build(b: *std.Build) void {
 
     const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
+    const beui_impl_glfw_wgpu_dep = b.dependency("beui_impl_glfw_wgpu", .{ .target = target, .optimize = optimize, .tracy = enable_tracy });
     const blockeditor_dep = b.dependency("blockeditor", .{ .target = target, .optimize = optimize, .tracy = enable_tracy });
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize, .tracy = enable_tracy });
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
@@ -44,7 +47,7 @@ pub fn build(b: *std.Build) void {
     const tracy_dep = b.dependency("tracy", .{ .target = target, .optimize = optimize });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
 
-    b.installArtifact(blockeditor_dep.artifact("blockeditor"));
+    const blockeditor_exe = deps.beui_impl_glfw_wgpu.InstallFile2.create(b, blockeditor_dep.namedLazyPath("blockeditor"), .bin, null);
     b.installArtifact(blocks_net_dep.artifact("server"));
     b.installArtifact(texteditor_dep.artifact("zls"));
     b.installArtifact(blocks_dep.artifact("bench"));
@@ -61,17 +64,10 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);
 
-    const multirun_exe = b.addExecutable(.{
-        .name = "multirun",
-        .root_source_file = b.path("multirun.zig"),
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
-    });
-    b.getInstallStep().dependOn(&b.addInstallArtifact(multirun_exe, .{ .dest_dir = .{ .override = .{ .custom = "tool" } } }).step);
-
-    const run_blockeditor = runWithTracy(b, enable_tracy, optimize, multirun_exe, tracy_dep, blockeditor_dep.artifact("blockeditor"));
+    const run_blockeditor = deps.beui_impl_glfw_wgpu.runApp(beui_impl_glfw_wgpu_dep, blockeditor_exe.getInstalledFile());
     if (b.args) |args| run_blockeditor.addArgs(args);
-    const run_blockeditor_step = b.step("run", "Run blockeditor");
+    run_blockeditor.step.dependOn(b.getInstallStep());
+    const run_blockeditor_step = b.step("run", "Run");
     run_blockeditor_step.dependOn(&run_blockeditor.step);
 
     const run_server = b.addRunArtifact(blocks_net_dep.artifact("server"));
@@ -79,34 +75,4 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| run_server.addArgs(args);
     const run_server_step = b.step("server", "Run server");
     run_server_step.dependOn(&run_server.step);
-
-    const run_bench = runWithTracy(b, enable_tracy, optimize, multirun_exe, tracy_dep, blocks_dep.artifact("bench"));
-    if (b.args) |args| run_blockeditor.addArgs(args);
-    const run_bench_step = b.step("bench", "Run blocks bench");
-    run_bench_step.dependOn(&run_bench.step);
-}
-
-fn runWithTracy(b: *std.Build, enable_tracy: bool, optimize: std.builtin.OptimizeMode, multirun_exe: *std.Build.Step.Compile, tracy_dep: *std.Build.Dependency, target_exe: *std.Build.Step.Compile) *std.Build.Step.Run {
-    if (enable_tracy) {
-        if (optimize == .Debug) {
-            b.getInstallStep().dependOn(&b.addFail("To use tracy, -Doptimize must be set to a release mode").step);
-        }
-
-        const run_multirun = b.addRunArtifact(multirun_exe);
-        run_multirun.step.dependOn(b.getInstallStep());
-
-        run_multirun.addArg("|-|");
-        run_multirun.addArtifactArg(tracy_dep.artifact("tracy"));
-        run_multirun.addArg("-a");
-        run_multirun.addArg("127.0.0.1");
-
-        run_multirun.addArg("|-|");
-        run_multirun.addArtifactArg(target_exe);
-
-        return run_multirun;
-    } else {
-        const run_blockeditor = b.addRunArtifact(target_exe);
-        run_blockeditor.step.dependOn(b.getInstallStep());
-        return run_blockeditor;
-    }
 }

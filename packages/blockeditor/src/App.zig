@@ -1,14 +1,10 @@
 const std = @import("std");
-const default_image = Beui.default_image; // 97x161, 255 = white / 0 = black
-const draw_lists = Beui.draw_lists;
 const blocks_mod = @import("blocks");
 const bi = blocks_mod.blockinterface2;
 const db_mod = blocks_mod.blockdb;
 const Beui = @import("beui").Beui;
 const blocks_net = @import("blocks_net");
 const anywhere = @import("anywhere");
-const tracy = anywhere.tracy;
-const build_options = @import("build_options");
 const zgui = anywhere.zgui;
 const B2 = Beui.beui_experiment;
 
@@ -47,7 +43,7 @@ pub fn init(self: *App, gpa: std.mem.Allocator) void {
     self.text_editor.core.document.applySimpleOperation(.{
         .position = self.text_editor.core.document.value.positionFromDocbyte(0),
         .delete_len = 0,
-        .insert_text = @embedFile("beui_impl.zig"),
+        .insert_text = @embedFile("App.zig"),
     }, null);
     self.text_editor.core.executeCommand(.{ .set_cursor_pos = .{ .position = self.text_editor.core.document.value.positionFromDocbyte(0) } });
 }

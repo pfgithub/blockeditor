@@ -7,6 +7,7 @@
     .dependencies = .{
         .anywhere = .{ .path = "packages/anywhere" },
         .beui = .{ .path = "packages/beui" },
+        .beui_impl_glfw_wgpu = .{ .path = "packages/beui_impl_glfw_wgpu" },
         .blockeditor = .{ .path = "packages/blockeditor" },
         .blocks = .{ .path = "packages/blocks" },
         .blocks_net = .{ .path = "packages/blocks_net" },

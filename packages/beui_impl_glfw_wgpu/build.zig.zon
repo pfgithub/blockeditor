@@ -1,0 +1,17 @@
+.{
+    .name = "beui_impl_glfw_wgpu",
+    .version = "0.1.0",
+    .paths = .{
+        "",
+    },
+    .dependencies = .{
+        .beui = .{ .path = "../beui" },
+        .tracy = .{ .path = "../tracy" },
+        .anywhere = .{ .path = "../anywhere" },
+
+        .zig_gamedev = .{
+            .url = "https://github.com/zig-gamedev/zig-gamedev/archive/b24a1bf4e7d984a24aadb6e5bd4c5f8e725e7d41.tar.gz",
+            .hash = "12201370922902304aac560f7904509e01b06ce31fb6a941916caca6fe43aeb9b605",
+        },
+    },
+}

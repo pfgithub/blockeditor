@@ -1,15 +1,10 @@
 const default_image = Beui.default_image; // 97x161, 255 = white / 0 = black
 const draw_lists = Beui.draw_lists;
-const blocks_mod = @import("blocks");
-const bi = blocks_mod.blockinterface2;
-const db = blocks_mod.blockdb;
 const Beui = @import("beui").Beui;
-const blocks_net = @import("blocks_net");
 const anywhere = @import("anywhere");
 const tracy = anywhere.tracy;
 const build_options = @import("build_options");
-const zgui_anywhere = anywhere.zgui;
-const App = @import("App.zig");
+const App = @import("app");
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
