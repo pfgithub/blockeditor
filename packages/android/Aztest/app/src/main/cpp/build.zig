@@ -41,6 +41,8 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&format_step.step);
 
+    // https://github.com/ziglang/zig/issues/20327#issuecomment-2382059477 we need to specify a libc file
+    // for every addStaticLibrary, addDynamicLibrary call otherwise this won't compile
     const app_dep = b.dependency("app", .{ .target = target, .optimize = optimize });
 
     const lib = b.addStaticLibrary(.{
