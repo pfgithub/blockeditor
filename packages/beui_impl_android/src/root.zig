@@ -15,14 +15,11 @@ pub fn androidLog(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const level_txt = comptime message_level.asText();
-    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-
     var res_al = std.ArrayList(u8).init(std.heap.c_allocator);
     defer res_al.deinit();
 
     const writer = res_al.writer();
-    writer.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+    writer.print(format ++ "\n", args) catch return;
 
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
@@ -31,7 +28,7 @@ pub fn androidLog(
         .info => c.ANDROID_LOG_INFO,
         .warn => c.ANDROID_LOG_WARN,
         .err => c.ANDROID_LOG_ERROR,
-    }, "NativeTriangle", "%.*s", @as(c_int, @intCast(res_al.items.len)), res_al.items.ptr);
+    }, if (scope == .default) "Zig" else @tagName(scope), "%.*s", @as(c_int, @intCast(res_al.items.len)), res_al.items.ptr);
 }
 
 const App = @import("app");
