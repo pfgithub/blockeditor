@@ -1,8 +1,12 @@
+// we will be able to use tracy on android. tracy can connect over the network.
+
 const c = @cImport({
     @cInclude("jni.h");
     @cInclude("GLES3/gl3.h");
     @cInclude("android/log.h");
 });
+const Beui = @import("beui").Beui;
+const B2 = Beui.beui_experiment.Beui2;
 const std = @import("std");
 pub const std_options = std.Options{ .logFn = androidLog };
 pub fn androidLog(
@@ -32,13 +36,62 @@ pub fn androidLog(
 
 const App = @import("app");
 
+var app: App = undefined;
+var beui: Beui = undefined;
+var b2: Beui.beui_experiment.Beui2 = undefined;
+var draw_list: Beui.draw_lists.RenderList = undefined;
+var arena_state: std.heap.ArenaAllocator = undefined;
+
+const BeuiVtable = struct {
+    fn setClipboard(_: *const Beui.FrameCfg, _: [:0]const u8) void {
+        std.log.info("TODO setClipboard", .{});
+    }
+    fn getClipboard(_: *const Beui.FrameCfg, _: *std.ArrayList(u8)) void {
+        std.log.info("TODO getClipboard", .{});
+    }
+    pub const vtable: *const Beui.FrameCfgVtable = &.{
+        .type_id = @typeName(BeuiVtable),
+        .set_clipboard = &setClipboard,
+        .get_clipboard = &getClipboard,
+    };
+};
+
 export fn zig_init_opengl() void {
     //_ = App;
+    const gpa = std.heap.c_allocator;
+
+    beui = .{};
+    b2.init(gpa);
+    app.init(std.heap.c_allocator);
+    draw_list = .init(gpa);
+    arena_state = .init(gpa);
 
     std.log.info("zig_init_opengl called", .{});
     createProgram();
 }
 export fn zig_opengl_renderFrame() void {
+    _ = arena_state.reset(.retain_capacity);
+    draw_list.clear();
+    {
+        var beui_vtable: BeuiVtable = .{};
+        beui.newFrame(.{
+            .can_capture_keyboard = true,
+            .can_capture_mouse = true,
+            .draw_list = &draw_list,
+            .arena = arena_state.allocator(),
+            .now_ms = std.time.milliTimestamp(),
+            .user_data = @ptrCast(@alignCast(&beui_vtable)),
+            .vtable = BeuiVtable.vtable,
+        });
+        defer beui.endFrame();
+
+        applyEvents();
+
+        const id = b2.newFrame(&beui, .{});
+        const demo1_res = app.render(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(250), .h = @intCast(250) } } }, &beui);
+        b2.endFrame(demo1_res, &draw_list);
+    }
+
     c.glClear(c.GL_COLOR_BUFFER_BIT);
 
     c.glUseProgram(shader_program);
@@ -46,6 +99,8 @@ export fn zig_opengl_renderFrame() void {
     c.glDrawArrays(c.GL_TRIANGLES, 0, @divExact(vertices.len, 3));
     c.glBindVertexArray(0);
 }
+
+fn applyEvents() void {}
 
 // // Simple vertex and fragment shader to render a triangle
 const vertex_shader_source =

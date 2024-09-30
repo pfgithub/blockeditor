@@ -6,5 +6,6 @@
     },
     .dependencies = .{
         .app = .{ .path = "../../../../../../blockeditor" },
+        .beui = .{ .path = "../../../../../../beui" },
     },
 }

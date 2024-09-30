@@ -92,6 +92,7 @@ pub fn build(b: *std.Build) !void {
     // https://github.com/ziglang/zig/issues/20327#issuecomment-2382059477 we need to specify a libc file
     // for every addStaticLibrary, addDynamicLibrary call otherwise this won't compile
     const app_dep = b.dependency("app", .{ .target = target, .optimize = optimize });
+    const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
 
     const lib = b.addSharedLibrary(.{
         .name = "zigpart",
@@ -110,6 +111,7 @@ pub fn build(b: *std.Build) !void {
     lib.linkSystemLibrary("log");
     lib.linkSystemLibrary("GLESv3");
     lib.root_module.addImport("app", app_dep.module("blockeditor"));
+    lib.root_module.addImport("beui", beui_dep.module("beui"));
 
     // HACK: fish out every dependency's Compile steps and set thier libc files (& depend on the step).
     // needed until zig has an answer for libc txt in pkg trees.
