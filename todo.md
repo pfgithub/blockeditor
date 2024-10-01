@@ -67,6 +67,8 @@ Tasks:
 - [ ] beui2: only rerender after user input or a timer runs out / another thread triggers a signal. no
   need to be running at 240fps when nothing's even being pressed. instead, we can render at 240fps
   while you move your mouse around over the app.
+- [ ] beui_impl_android: support tracy with -Dtracy (& in cmake it needs to be a release build and
+  DOptimize=ReleaseSafe)
 
 wishlist:
 
