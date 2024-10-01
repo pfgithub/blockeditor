@@ -231,29 +231,14 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
         self.core.executeCommand(.{ .paste = .{ .text = paste_txt.items } });
     }
 
+    // if(beui.uncommittedTextInput()) |text| // on android, this text doesn't even have to be at the position of the cursor
     if (beui.textInput()) |text| {
         self.core.executeCommand(.{ .insert_text = .{ .text = text } });
     }
 
-    var cursor_positions = self.core.getCursorPositions();
-    defer cursor_positions.deinit();
-
-    var syn_hl = self.core.highlight();
-    defer syn_hl.deinit();
-
-    var ctx = GuiRenderLineCtx{
-        .self = self,
-        .beui = beui,
-        .cursor_positions = &cursor_positions,
-        .syn_hl = &syn_hl,
-        .replace = .{
-            .space = layout_cache.font.ft_face.getCharIndex('·') orelse layout_cache.font.ft_face.getCharIndex('_'),
-            .tab = layout_cache.font.ft_face.getCharIndex('⇥') orelse layout_cache.font.ft_face.getCharIndex('→') orelse layout_cache.font.ft_face.getCharIndex('>'),
-            .newline = layout_cache.font.ft_face.getCharIndex('⏎') orelse layout_cache.font.ft_face.getCharIndex('␊') orelse layout_cache.font.ft_face.getCharIndex('\\'),
-            .cr = layout_cache.font.ft_face.getCharIndex('␍') orelse layout_cache.font.ft_face.getCharIndex('<'),
-        },
-    };
-    const res = B2.virtualScroller(ui.sub(@src()), self, ScrollIndex, .from(&ctx, gui_renderLine));
+    // TODO:
+    // - figure out which docbyte was clicked *last frame*
+    // - update cursor positions before the getCursorPositions call below for 0 frame delay
 
     // if (ctx.click_target) |clicked_bufbyte| {
     //     const clicked_pos = block.positionFromDocbyte(clicked_bufbyte);
@@ -299,6 +284,26 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     // if (!beui.isKeyHeld(.mouse_left)) {
     //     self.selecting = false;
     // }
+
+    var cursor_positions = self.core.getCursorPositions();
+    defer cursor_positions.deinit();
+
+    var syn_hl = self.core.highlight();
+    defer syn_hl.deinit();
+
+    var ctx = GuiRenderLineCtx{
+        .self = self,
+        .beui = beui,
+        .cursor_positions = &cursor_positions,
+        .syn_hl = &syn_hl,
+        .replace = .{
+            .space = layout_cache.font.ft_face.getCharIndex('·') orelse layout_cache.font.ft_face.getCharIndex('_'),
+            .tab = layout_cache.font.ft_face.getCharIndex('⇥') orelse layout_cache.font.ft_face.getCharIndex('→') orelse layout_cache.font.ft_face.getCharIndex('>'),
+            .newline = layout_cache.font.ft_face.getCharIndex('⏎') orelse layout_cache.font.ft_face.getCharIndex('␊') orelse layout_cache.font.ft_face.getCharIndex('\\'),
+            .cr = layout_cache.font.ft_face.getCharIndex('␍') orelse layout_cache.font.ft_face.getCharIndex('<'),
+        },
+    };
+    const res = B2.virtualScroller(ui.sub(@src()), self, ScrollIndex, .from(&ctx, gui_renderLine));
 
     if (zgui.beginWindow("Editor Debug", .{})) {
         defer zgui.endWindow();
