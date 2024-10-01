@@ -13,17 +13,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val activityManager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
-        val configurationInfo = activityManager.deviceConfigurationInfo
-        val supportsEs32 = configurationInfo.reqGlEsVersion >= 0x30002
-
-        if (supportsEs32) {
-            // Device supports OpenGL ES 3.2
-        } else {
-            throw Error("opengl es 3.2 not supported: "+configurationInfo.reqGlEsVersion);
-            // Device does not support OpenGL ES 3.2
-        }
-
         // Initialize the GLSurfaceView
         glView = GLSurfaceView(this)
         glView.setEGLContextClientVersion(3)

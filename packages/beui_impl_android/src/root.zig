@@ -2,7 +2,7 @@
 
 const c = @cImport({
     @cInclude("jni.h");
-    @cInclude("GLES3/gl32.h");
+    @cInclude("GLES3/gl3.h");
     @cInclude("android/log.h");
 });
 const Beui = @import("beui").Beui;
@@ -73,6 +73,7 @@ export fn zig_init_opengl() void {
 }
 export fn zig_opengl_renderFrame() void {
     _ = arena_state.reset(.retain_capacity);
+    const arena = arena_state.allocator();
     draw_list.clear();
     {
         var beui_vtable: BeuiVtable = .{};
@@ -80,7 +81,7 @@ export fn zig_opengl_renderFrame() void {
             .can_capture_keyboard = true,
             .can_capture_mouse = true,
             .draw_list = &draw_list,
-            .arena = arena_state.allocator(),
+            .arena = arena,
             .now_ms = std.time.milliTimestamp(),
             .user_data = @ptrCast(@alignCast(&beui_vtable)),
             .vtable = BeuiVtable.vtable,
@@ -108,9 +109,17 @@ export fn zig_opengl_renderFrame() void {
         c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(std.mem.alignForward(usize, @sizeOf(Vertex), @alignOf(Vertex)) * draw_list.vertices.items.len), draw_list.vertices.items.ptr, c.GL_STATIC_DRAW);
     }
     {
+        // rewrite index data to not use base_vertex. glDrawElementsBaseVertex is available in gles3.2, but the emulator
+        // in android studio only supports up to gles3.0
+        const index_buffer_clone = arena.alloc(u32, draw_list.indices.items.len) catch @panic("oom");
+        for (draw_list.commands.items) |command| {
+            for (index_buffer_clone[command.first_index..][0..command.index_count], draw_list.indices.items[command.first_index..][0..command.index_count]) |*dest, src| {
+                dest.* = @intCast(src + command.base_vertex);
+            }
+        }
         c.glBindBuffer(c.GL_ARRAY_BUFFER, indices_buffer);
         defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-        c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(draw_list.indices.items.len * @sizeOf(Index)), draw_list.indices.items.ptr, c.GL_STATIC_DRAW);
+        c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(index_buffer_clone.len * @sizeOf(u32)), index_buffer_clone.ptr, c.GL_STATIC_DRAW);
     }
 
     c.glClearColor(0, 0, 0, 0);
@@ -124,12 +133,7 @@ export fn zig_opengl_renderFrame() void {
     for (draw_list.commands.items) |command| {
         if (command.image != null and command.image.? == .beui_font) @panic("TODO add beui_font to beui_impl_android");
         c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
-        c.glDrawElementsBaseVertex(c.GL_TRIANGLES, @intCast(command.index_count), switch (Index) {
-            u8 => c.GL_UNSIGNED_BYTE,
-            u16 => c.GL_UNSIGNED_SHORT,
-            u32 => c.GL_UNSIGNED_INT,
-            else => @compileError("not supported index type: " ++ @typeName(Index)),
-        }, @ptrFromInt(command.first_index), command.base_vertex);
+        c.glDrawElements(c.GL_TRIANGLES, @intCast(command.index_count), c.GL_UNSIGNED_INT, @ptrFromInt(command.first_index));
         c.glBindVertexArray(0);
     }
 }
