@@ -17,8 +17,22 @@ fn IdMap(comptime V: type) type {
     };
     return std.HashMap(ID, V, IDContext, std.hash_map.default_max_load_percentage);
 }
+fn IdArrayMap(comptime V: type) type {
+    const IDContext = struct {
+        pub fn hash(_: @This(), id: ID) u32 {
+            return @truncate(id.hash());
+        }
+        pub fn eql(_: @This(), a: ID, b: ID, _: usize) bool {
+            return a.eql(b);
+        }
+    };
+    // store_hash is set to false. eql is just `std.mem.eql()` but for long strings that could take longer than we want?
+    return std.ArrayHashMap(ID, V, IDContext, false);
+}
 
-const Beui2FrameCfg = struct {};
+const Beui2FrameCfg = struct {
+    size: @Vector(2, i32),
+};
 const Beui2Frame = struct { arena: std.mem.Allocator, frame_cfg: Beui2FrameCfg, scroll_target: ?ScrollTarget };
 const ScrollTarget = struct {
     id: ID,
@@ -42,6 +56,7 @@ const Beui2Persistent = struct {
 
     verdana_ttf: ?[]const u8,
     layout_cache: LayoutCache,
+    wm: WindowManager,
 
     beui1: *Beui,
 };
@@ -79,12 +94,14 @@ pub const Beui2 = struct {
 
                 .verdana_ttf = verdana_ttf,
                 .layout_cache = .init(gpa, font),
+                .wm = .init(self, gpa),
 
                 .beui1 = beui1,
             },
         };
     }
     pub fn deinit(self: *Beui2) void {
+        self.persistent.wm.deinit();
         self.persistent.prev_frame_draw_list_states.deinit();
         self.persistent.layout_cache.deinit();
         if (self.persistent.verdana_ttf) |v| self.persistent.gpa.free(v);
@@ -164,10 +181,11 @@ pub const Beui2 = struct {
             .str = &.{},
         };
     }
-    pub fn endFrame(self: *Beui2, child: StandardChild, renderlist: ?*render_list.RenderList) void {
+    pub fn endFrame(self: *Beui2, renderlist: ?*render_list.RenderList) void {
         self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
-        child.rdl.placed = true;
-        child.rdl.finalize(.{
+        const result = self.persistent.wm.render();
+        result.placed = true;
+        result.finalize(.{
             .out_list = renderlist,
             .out_events = &self.persistent.last_frame_mouse_events,
             .out_rdl_states = &self.persistent.prev_frame_draw_list_states,
@@ -821,6 +839,77 @@ fn permute(len: usize, index: usize) usize {
 
     return @intCast((a * @as(u128, index) + b) % len);
 }
+
+const WindowInfo = struct {
+    position: @Vector(2, i32),
+    size: @Vector(2, i32),
+    this_frame_result: ?*RepositionableDrawList,
+};
+pub const WindowManager = struct {
+    // TARGET:
+    // - windows have titles and collapse buttons / close buttons
+    // - window chrome is provided by a child component, not default to addWindow
+    // - windows support docking. you can dock a window to another window to make it tabbed,
+    //   and you can dock a tabbed window to another window to have two layers of tabs
+
+    b2: *Beui2,
+    windows: IdArrayMap(WindowInfo),
+
+    pub fn init(b2: *Beui2, gpa: std.mem.Allocator) WindowManager {
+        return .{
+            .b2 = b2,
+            .windows = .init(gpa),
+        };
+    }
+    pub fn deinit(self: *WindowManager) void {
+        self.windows.deinit();
+    }
+
+    pub fn addWindow(self: *WindowManager, window_id: ID, child: Component(StandardCallInfo, void, StandardChild)) void {
+        const gpres = self.windows.getOrPut(window_id) catch @panic("oom");
+        if (!gpres.found_existing) {
+            gpres.value_ptr.* = .{
+                .position = .{ 50, 50 },
+                .size = .{ 200, 400 },
+                .this_frame_result = null,
+            };
+        }
+        if (gpres.value_ptr.this_frame_result != null) {
+            @panic("addWindow called twice for the same id");
+        }
+        const child_res = child.call(.{
+            .caller_id = window_id.sub(@src()),
+            .constraints = .{ .available_size = .{ .w = gpres.value_ptr.size[0], .h = gpres.value_ptr.size[1] } },
+        }, {});
+        gpres.value_ptr.this_frame_result = child_res.rdl;
+    }
+
+    fn render(self: *WindowManager) *RepositionableDrawList {
+        const draw = self.b2.draw();
+
+        // iterate in reverse so we can delete windows
+        var i: usize = self.windows.values().len;
+        while (i > 0) {
+            i -= 1;
+            const key = &self.windows.keys()[i];
+            const value = &self.windows.values()[i];
+            const value_rdl = value.this_frame_result orelse {
+                // delete this window
+                // orderedRemove shouldn't be used in a loop like this, instead we need to flag and delete all at once
+                std.debug.assert(self.windows.orderedRemove(key.*));
+                continue;
+            };
+            // refresh key so it's valid for next frame
+            key.* = key.refresh();
+            // draw the window
+            draw.place(value_rdl, value.position);
+            // remove the frame result
+            value.this_frame_result = null;
+        }
+
+        return draw;
+    }
+};
 
 // so for a button:
 // - we want to render the button as small as possible in the

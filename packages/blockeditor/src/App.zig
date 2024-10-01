@@ -81,8 +81,8 @@ pub fn addTab(self: *App, file_cont: []const u8) void {
     self.tabs.append(new_tab) catch @panic("oom");
 }
 
-pub fn render(self: *App, call_info: B2.StandardCallInfo, b1: *Beui) B2.StandardChild {
-    const ui = call_info.ui(@src());
+pub fn render(self: *App, call_id: B2.ID) void {
+    const id = call_id.sub(@src());
 
     self.db.tickBegin();
     defer self.db.tickEnd();
@@ -107,7 +107,14 @@ pub fn render(self: *App, call_info: B2.StandardCallInfo, b1: *Beui) B2.Standard
         }
     }
 
-    return self.tabs.items[self.current_tab].editor_view.gui(ui.sub(@src()), b1);
+    // const wm = b2.windowManager();
+    // b2.windows.add()
+
+    id.b2.persistent.wm.addWindow(id.sub(@src()), .from(self, render__window));
+}
+fn render__window(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+    const ui = call_info.ui(@src());
+    return self.tabs.items[self.current_tab].editor_view.gui(ui.sub(@src()), ui.id.b2.persistent.beui1);
 }
 
 fn renderCounter(counter: db_mod.TypedComponentRef(bi.CounterComponent)) void {

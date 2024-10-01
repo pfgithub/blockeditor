@@ -754,18 +754,18 @@ pub fn main() !void {
             const id = blk: {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 newFrame");
                 defer b2ft_.end();
-                break :blk b2.newFrame(&beui, .{});
+                break :blk b2.newFrame(&beui, .{ .size = .{ @intCast(fb_width), @intCast(fb_height) } });
             };
-            const demo1_res = blk: {
+            {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 scrollDemo");
                 defer b2ft_.end();
 
-                break :blk app.render(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(fb_width), .h = @intCast(fb_height) } } }, &beui);
-            };
+                app.render(id.sub(@src()));
+            }
             {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 finalize");
                 defer b2ft_.end();
-                b2.endFrame(demo1_res, &draw_list);
+                b2.endFrame(&draw_list);
             }
         }
 

@@ -106,9 +106,9 @@ export fn zig_opengl_renderFrame() void {
 
         applyEvents();
 
-        const id = b2.newFrame(&beui, .{});
-        const demo1_res = app.render(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = screen_size[0], .h = screen_size[1] } } }, &beui);
-        b2.endFrame(demo1_res, &draw_list);
+        const id = b2.newFrame(&beui, .{ .size = screen_size });
+        app.render(id.sub(@src()));
+        b2.endFrame(&draw_list);
     }
 
     const glyphs = &b2.persistent.layout_cache.glyphs;
