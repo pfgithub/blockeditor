@@ -108,7 +108,13 @@ export fn zig_opengl_renderFrame() void {
     c.glUniform2f(uniform_screen_size, @floatFromInt(screen_size[0]), @floatFromInt(screen_size[1]));
     c.glBindVertexArray(vao);
     c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
-    c.glDrawArrays(c.GL_TRIANGLES, 0, vertices.len);
+    c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, indices_buffer);
+    c.glDrawElements(c.GL_TRIANGLES, indices.len, switch (Index) {
+        u8 => c.GL_UNSIGNED_BYTE,
+        u16 => c.GL_UNSIGNED_SHORT,
+        u32 => c.GL_UNSIGNED_INT,
+        else => @compileError("not supported index type: " ++ @typeName(Index)),
+    }, @ptrFromInt(0));
     c.glBindVertexArray(0);
 }
 
@@ -119,6 +125,11 @@ const vertices = [_]Vertex{
     .{ .pos = .{ 500, 0 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 255, 0, 0, 255 } },
     .{ .pos = .{ 1000, 1000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 255, 0, 255 } },
     .{ .pos = .{ 0, 1000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 0, 255, 255 } },
+    .{ .pos = .{ 500, 2000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 255, 0, 0, 255 } },
+};
+const indices = [_]Index{
+    0, 1, 2,
+    3, 1, 2,
 };
 
 var shader_program: c.GLuint = 0;
@@ -126,6 +137,7 @@ var vao: c.GLuint = 0;
 var uniform_screen_size: c.GLint = 0;
 var screen_size: @Vector(2, i32) = .{ 100, 100 };
 var ft_texture: c.GLuint = 0;
+var indices_buffer: c.GLuint = 0;
 
 // // Function to compile a shader
 fn compileShader(ty: c.GLenum, source: []const u8) c.GLuint {
@@ -149,6 +161,7 @@ fn compileShader(ty: c.GLenum, source: []const u8) c.GLuint {
 }
 
 const Vertex = Beui.draw_lists.RenderListVertex;
+const Index = Beui.draw_lists.RenderListIndex;
 
 fn setupAttribs(comptime V: type) void {
     comptime var index: c.GLuint = 0;
@@ -215,12 +228,20 @@ fn createProgram() void {
         c.glGenVertexArrays(1, &vao);
         var vbo: c.GLuint = 0;
         c.glGenBuffers(1, &vbo);
+        c.glGenBuffers(1, &indices_buffer);
         c.glBindVertexArray(vao);
         defer c.glBindVertexArray(0);
-        c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
-        defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-        c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(std.mem.alignForward(usize, @sizeOf(Vertex), @alignOf(Vertex)) * vertices.len), &vertices, c.GL_STATIC_DRAW);
-        setupAttribs(Vertex);
+        {
+            c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
+            defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+            c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(std.mem.alignForward(usize, @sizeOf(Vertex), @alignOf(Vertex)) * vertices.len), &vertices, c.GL_STATIC_DRAW);
+            setupAttribs(Vertex);
+        }
+        {
+            c.glBindBuffer(c.GL_ARRAY_BUFFER, indices_buffer);
+            defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+            c.glBufferData(c.GL_ARRAY_BUFFER, indices.len * @sizeOf(Index), &indices, c.GL_STATIC_DRAW);
+        }
     }
 
     // create textures
