@@ -107,7 +107,7 @@ fn applyEvents() void {}
 
 // // Triangle vertices
 const vertices = [_]Vertex{
-    .{ .pos = .{ 500, 500 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 255, 0, 0, 255 } },
+    .{ .pos = .{ 500, 0 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 255, 0, 0, 255 } },
     .{ .pos = .{ 1000, 1000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 255, 0, 255 } },
     .{ .pos = .{ 0, 1000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 0, 255, 255 } },
 };
@@ -133,6 +133,7 @@ fn compileShader(ty: c.GLenum, source: []const u8) c.GLuint {
         var info_log_len: c.GLsizei = 0;
         c.glGetShaderInfoLog(shader, 512, &info_log_len, &info_log);
         std.log.err("Shader compilation failed: {s}", .{info_log[0..@intCast(info_log_len)]});
+        @panic("compile failed");
     }
     return shader;
 }
@@ -140,15 +141,14 @@ fn compileShader(ty: c.GLenum, source: []const u8) c.GLuint {
 const Vertex = Beui.draw_lists.RenderListVertex;
 
 fn setupAttribs(comptime V: type) void {
-    comptime var index: usize = 0;
+    comptime var index: c.GLuint = 0;
+    const stride: c.GLint = @intCast(std.mem.alignForward(usize, @sizeOf(V), @alignOf(V)));
     inline for (@typeInfo(V).@"struct".fields) |field| {
+        const offset: ?*const anyopaque = @ptrFromInt(@offsetOf(V, field.name));
+        c.glEnableVertexAttribArray(index);
         switch (field.type) {
-            @Vector(2, f32) => {
-                c.glVertexAttribPointer(index, 2, c.GL_FLOAT, c.GL_FALSE, @sizeOf(V), @ptrFromInt(@offsetOf(V, field.name)));
-            },
-            @Vector(4, u8) => {
-                c.glVertexAttribPointer(index, 4, c.GL_UNSIGNED_BYTE, c.GL_TRUE, @sizeOf(V), @ptrFromInt(@offsetOf(V, field.name)));
-            },
+            @Vector(2, f32) => c.glVertexAttribPointer(index, 2, c.GL_FLOAT, c.GL_FALSE, stride, offset),
+            @Vector(4, u8) => c.glVertexAttribPointer(index, 4, c.GL_UNSIGNED_BYTE, c.GL_TRUE, stride, offset),
             else => @compileError("TODO support vertex type: " ++ @typeName(field.type)),
         }
         index += 1;
@@ -156,7 +156,7 @@ fn setupAttribs(comptime V: type) void {
 }
 fn genInputs(comptime V: type) []const u8 {
     var result: []const u8 = "";
-    var index: usize = 0;
+    var index: c.GLuint = 0;
     for (@typeInfo(V).@"struct".fields) |field| {
         const ty = switch (field.type) {
             @Vector(2, f32) => "vec2",
@@ -192,6 +192,7 @@ fn createProgram() void {
         var info_log_len: c.GLsizei = 0;
         c.glGetProgramInfoLog(shader_program, info_log.len, &info_log_len, &info_log);
         std.log.err("Program linking failed: {s}", .{info_log[0..@intCast(info_log_len)]});
+        @panic("link failed");
     }
 
     c.glDeleteShader(vertex_shader);
@@ -208,9 +209,7 @@ fn createProgram() void {
         defer c.glBindVertexArray(0);
         c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
         defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-        c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(@TypeOf(vertices)), &vertices, c.GL_STATIC_DRAW);
+        c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(std.mem.alignForward(usize, @sizeOf(Vertex), @alignOf(Vertex)) * vertices.len), &vertices, c.GL_STATIC_DRAW);
         setupAttribs(Vertex);
-        c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 3 * @sizeOf(f32), null);
-        c.glEnableVertexAttribArray(0);
     }
 }

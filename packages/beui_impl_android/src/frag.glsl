@@ -14,7 +14,7 @@ vec4 premultiply(vec4 tint) {
 }
 
 void main() {
-    out_color = vec4(1.0, 1.0, 1.0, 1.0);
+    out_color = premultiply(frag_tint);
     return;
 
     // TODO once texture is added:
