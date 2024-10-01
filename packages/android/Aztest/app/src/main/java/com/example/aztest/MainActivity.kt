@@ -1,9 +1,10 @@
 package com.example.aztest
 
+import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.ActivityManager
 import android.opengl.GLSurfaceView
 import android.os.Bundle
+import android.view.MotionEvent
 
 
 class MainActivity : Activity() {
@@ -14,7 +15,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         // Initialize the GLSurfaceView
-        glView = GLSurfaceView(this)
+        glView = MyGLSurfaceView(this)
         glView.setEGLContextClientVersion(3)
 
         // Set EGLConfigChooser to request alpha channel
@@ -52,5 +53,32 @@ class MyGLRenderer(private val activity: MainActivity) : GLSurfaceView.Renderer 
     override fun onSurfaceChanged(gl: javax.microedition.khronos.opengles.GL10?, width: Int, height: Int) {
         // Set viewport size
         activity.resize(width, height)
+    }
+}
+
+// Our view is not usable from a layout builder
+@SuppressLint("ViewConstructor")
+class MyGLSurfaceView(context: MainActivity) : GLSurfaceView(context) {
+
+    // Our view contains a custom UI, so this lint isn't helpful.
+    // Eventually, we will need to add proper screen reader support to the
+    // view by having beui maintain an accessibility tree and sending it
+    // to the view or something.
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        // x: event.x, y: event.y, pointer_id: event.getPointerId(event.actionIndex)?
+
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                // var button_state = event.buttonState
+                // ^ if the pointer is a mouse, this will tell you if it's a right click / middle click
+            }
+            MotionEvent.ACTION_UP -> {}
+            MotionEvent.ACTION_MOVE -> {}
+
+            // it was determined that this touch event does not belong to us
+            MotionEvent.ACTION_CANCEL -> {}
+        }
+        return true
     }
 }
