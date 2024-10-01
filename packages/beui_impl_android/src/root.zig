@@ -53,6 +53,11 @@ const BeuiVtable = struct {
     };
 };
 
+export fn zig_resize(w: i32, h: i32) void {
+    std.log.info("Frame resized to {d}/{d}", .{ w, h });
+    c.glViewport(0, 0, w, h);
+    screen_size = .{ w, h };
+}
 export fn zig_init_opengl() void {
     //_ = App;
     const gpa = std.heap.c_allocator;
@@ -85,16 +90,16 @@ export fn zig_opengl_renderFrame() void {
         applyEvents();
 
         const id = b2.newFrame(&beui, .{});
-        const demo1_res = app.render(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = @intCast(250), .h = @intCast(250) } } }, &beui);
+        const demo1_res = app.render(.{ .caller_id = id.sub(@src()), .constraints = .{ .available_size = .{ .w = screen_size[0], .h = screen_size[1] } } }, &beui);
         b2.endFrame(demo1_res, &draw_list);
     }
 
     c.glClear(c.GL_COLOR_BUFFER_BIT);
 
     c.glUseProgram(shader_program);
-    c.glUniform2f(uniform_screen_size, 250.0, 250.0);
+    c.glUniform2f(uniform_screen_size, @floatFromInt(screen_size[0]), @floatFromInt(screen_size[1]));
     c.glBindVertexArray(vao);
-    c.glDrawArrays(c.GL_TRIANGLES, 0, @divExact(vertices.len, 3));
+    c.glDrawArrays(c.GL_TRIANGLES, 0, vertices.len);
     c.glBindVertexArray(0);
 }
 
@@ -102,14 +107,15 @@ fn applyEvents() void {}
 
 // // Triangle vertices
 const vertices = [_]Vertex{
-    .{ .pos = .{ 10, 10 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 255, 0, 0, 255 } },
-    .{ .pos = .{ 10, 20 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 255, 0, 255 } },
-    .{ .pos = .{ 0, 20 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 0, 255, 255 } },
+    .{ .pos = .{ 500, 500 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 255, 0, 0, 255 } },
+    .{ .pos = .{ 1000, 1000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 255, 0, 255 } },
+    .{ .pos = .{ 0, 1000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 0, 255, 255 } },
 };
 
 var shader_program: c.GLuint = 0;
 var vao: c.GLuint = 0;
 var uniform_screen_size: c.GLint = 0;
+var screen_size: @Vector(2, i32) = .{ 100, 100 };
 
 // // Function to compile a shader
 fn compileShader(ty: c.GLenum, source: []const u8) c.GLuint {
@@ -202,7 +208,7 @@ fn createProgram() void {
         defer c.glBindVertexArray(0);
         c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
         defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-        c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(Vertex) * vertices.len, &vertices, c.GL_STATIC_DRAW);
+        c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(@TypeOf(vertices)), &vertices, c.GL_STATIC_DRAW);
         setupAttribs(Vertex);
         c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 3 * @sizeOf(f32), null);
         c.glEnableVertexAttribArray(0);

@@ -21,6 +21,7 @@ class MainActivity : Activity() {
 
     external fun initOpenGL()
     external fun renderFrame()
+    external fun resize(w: Int, h: Int)
 
     companion object {
         init {
@@ -40,6 +41,7 @@ class MyGLRenderer(private val activity: MainActivity) : GLSurfaceView.Renderer 
 
     override fun onSurfaceChanged(gl: javax.microedition.khronos.opengles.GL10?, width: Int, height: Int) {
         // Set viewport size
+        activity.resize(width, height)
         GLES30.glViewport(0, 0, width, height)
     }
 }

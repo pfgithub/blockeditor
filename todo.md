@@ -2,8 +2,9 @@ TODO
 
 - [ ] Get instruments.app, figure out why cpu is so high for blockeditor. Even in ReleaseSafe? Some kind of gpu problem?
   - doesn't show high cpu usage on instruments?
-- [ ] Try renderdoc https://renderdoc.org/ (linux or windows)
+- [x] Try renderdoc https://renderdoc.org/ (linux or windows)
 - [x] Use rr next time there's a bug
+- [ ] Try android gpu inspector https://developer.android.com/agi/start
 
 Tasks:
 

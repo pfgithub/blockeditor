@@ -14,18 +14,22 @@ vec4 premultiply(vec4 tint) {
 }
 
 void main() {
-    //vec4 color = texture(image, frag_uv);
-    vec4 color = vec4(1.0, 1.0, 1.0, 1.0);
+    out_color = vec4(1.0, 1.0, 1.0, 1.0);
+    return;
 
-    if (frag_uv.x < 0.0) {
-        out_color = premultiply(frag_tint);
-        return;
-    }
+    // TODO once texture is added:
 
-    if (true) {
-        color = vec4(1.0, 1.0, 1.0, color.r);
-    }
+    // vec4 color = texture(image, frag_uv);
+
+    // if (frag_uv.x < 0.0) {
+    //     out_color = premultiply(frag_tint);
+    //     return;
+    // }
+
+    // if (true) {
+    //     color = vec4(1.0, 1.0, 1.0, color.r);
+    // }
     
-    color *= frag_tint;
-    out_color = premultiply(color);
+    // color *= frag_tint;
+    // out_color = premultiply(color);
 }
