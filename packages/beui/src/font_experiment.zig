@@ -16,66 +16,6 @@ pub fn getFtLib() ft.Library {
     return global_ft_lib.?;
 }
 
-test "font_experiment" {
-    const buf = hb.Buffer.init() orelse return error.OutOfMemory;
-    defer buf.deinit();
-
-    // we're maybe supposed to split this up into two segments for the different scripts?
-    // https://host-oman.github.io/libraqm/raqm-Raqm.html#raqm-layout <- raqm does this
-    // https://harfbuzz.github.io/what-harfbuzz-doesnt-do.html <- icu or fribidi can also do this
-    // we are definitely supposed to split into lines. harfbuzz is for one infinite line.
-    buf.addUTF8("hello… мир", 0, null);
-
-    // buf.setDirection(.ltr);
-    // buf.setScript(.latin);
-    // buf.setLanguage(.fromString("en"));
-
-    buf.guessSegmentProps();
-
-    const blob = hb.Blob.init(@constCast(NotoSans_wght), .readonly) orelse return error.OutOfMemory;
-    defer blob.deinit();
-
-    const face = hb.Face.init(blob, 0);
-    defer face.deinit();
-    const font = hb.Font.init(face);
-    defer font.deinit();
-
-    font.shape(buf, null);
-
-    const ft_face = try getFtLib().createFaceMemory(@embedFile("NotoSans[wght].ttf"), 0);
-    defer ft_face.deinit();
-    // try ft_face.setCharSize(60 * 48, 0, 50, 0);
-    try ft_face.setPixelSizes(0, 16);
-
-    var cursor_pos: @Vector(2, i32) = @splat(0);
-    for (
-        buf.getGlyphInfos(),
-        buf.getGlyphPositions().?,
-    ) |glyph_info, glyph_pos| {
-        // for cursor positioning: if a character spans multiple bytes, divide it into segments
-        const glyphid = glyph_info.codepoint; // 'codepoint' is misleading - this is an opaque integer specific to the target font
-
-        try ft_face.loadGlyph(glyphid, .{ .render = true });
-        const bitmap = ft_face.glyph().bitmap();
-
-        const writer_unb = std.io.getStdErr().writer();
-        var writer_buffered_backing = std.io.bufferedWriter(writer_unb);
-        const writer_buffered = writer_buffered_backing.writer();
-        try writer_buffered.print("\nbyte {d}: drawGlyph: {d} {d}+{d} {d}+{d}\n\n", .{ glyph_info.cluster, glyphid, cursor_pos[0], glyph_pos.x_offset, cursor_pos[1], glyph_pos.y_offset });
-        for (0..bitmap.rows()) |y| {
-            const w = bitmap.width();
-            for (0..w) |x| {
-                const value: u8 = bitmap.buffer().?[y * w + x];
-                try writer_buffered.print("\x1b[48;2;{d};{d};{d}m  ", .{ value, value, value });
-            }
-            try writer_buffered.writeAll("\x1b[0m\n");
-        }
-        try writer_buffered_backing.flush();
-
-        cursor_pos += .{ glyph_pos.x_advance, glyph_pos.y_advance };
-    }
-}
-
 const charseq = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ";
 
 // for text editor we will:

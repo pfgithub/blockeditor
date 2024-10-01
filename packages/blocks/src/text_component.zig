@@ -502,9 +502,6 @@ fn testPrintTree(tree: *BalancedBinaryTree(SampleData), expected_value: []const 
 
     try std.testing.expectEqual(expected_value.len, tree.getCountForNode(.root).length);
 }
-fn previewTree(tree: *const BalancedBinaryTree(SampleData)) !void {
-    try std.io.getStdErr().writer().any().print("{}\n", .{tree});
-}
 test "bbt" {
     const Tree = BalancedBinaryTree(SampleData);
 
@@ -529,8 +526,6 @@ test "bbt" {
     _ = try tree.insertNodeBefore(.{ .value = "(n14)", .deleted = false }, tree.findNodeForQuery(SampleData.Count.DocbyteQuery{ .docbyte = 14 }));
     try testPrintTree(&tree, "[Hello, World!(n14)]\x00");
     try testPrintTree(&tree, "[Hello, World!(n14)]\x00");
-
-    try previewTree(&tree);
 }
 
 // this is essentially zed's model:
