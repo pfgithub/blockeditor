@@ -1,3 +1,5 @@
+https://blockeditor.pfg.pw
+
 # Building
 
 Requires zig `0.14.0-dev.1694+3b465ebec` with zls commit `db05a1ce337fa53927e0635cc4ec5145723584a4`
