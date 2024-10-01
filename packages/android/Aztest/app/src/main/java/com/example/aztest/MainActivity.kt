@@ -1,9 +1,10 @@
 package com.example.aztest
 
 import android.app.Activity
-import android.opengl.GLES30
+import android.app.ActivityManager
 import android.opengl.GLSurfaceView
 import android.os.Bundle
+
 
 class MainActivity : Activity() {
 
@@ -11,6 +12,17 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val activityManager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        val configurationInfo = activityManager.deviceConfigurationInfo
+        val supportsEs32 = configurationInfo.reqGlEsVersion >= 0x30002
+
+        if (supportsEs32) {
+            // Device supports OpenGL ES 3.2
+        } else {
+            throw Error("opengl es 3.2 not supported: "+configurationInfo.reqGlEsVersion);
+            // Device does not support OpenGL ES 3.2
+        }
 
         // Initialize the GLSurfaceView
         glView = GLSurfaceView(this)
@@ -51,6 +63,5 @@ class MyGLRenderer(private val activity: MainActivity) : GLSurfaceView.Renderer 
     override fun onSurfaceChanged(gl: javax.microedition.khronos.opengles.GL10?, width: Int, height: Int) {
         // Set viewport size
         activity.resize(width, height)
-        GLES30.glViewport(0, 0, width, height)
     }
 }

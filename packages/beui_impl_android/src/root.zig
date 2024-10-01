@@ -2,7 +2,7 @@
 
 const c = @cImport({
     @cInclude("jni.h");
-    @cInclude("GLES3/gl3.h");
+    @cInclude("GLES3/gl32.h");
     @cInclude("android/log.h");
 });
 const Beui = @import("beui").Beui;
@@ -119,15 +119,19 @@ export fn zig_opengl_renderFrame() void {
     c.glUseProgram(shader_program);
     c.glUniform2f(uniform_screen_size, @floatFromInt(screen_size[0]), @floatFromInt(screen_size[1]));
     c.glBindVertexArray(vao);
-    c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
     c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, indices_buffer);
-    c.glDrawElements(c.GL_TRIANGLES, @intCast(draw_list.indices.items.len), switch (Index) {
-        u8 => c.GL_UNSIGNED_BYTE,
-        u16 => c.GL_UNSIGNED_SHORT,
-        u32 => c.GL_UNSIGNED_INT,
-        else => @compileError("not supported index type: " ++ @typeName(Index)),
-    }, @ptrFromInt(0));
-    c.glBindVertexArray(0);
+
+    for (draw_list.commands.items) |command| {
+        if (command.image != null and command.image.? == .beui_font) @panic("TODO add beui_font to beui_impl_android");
+        c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
+        c.glDrawElementsBaseVertex(c.GL_TRIANGLES, @intCast(command.index_count), switch (Index) {
+            u8 => c.GL_UNSIGNED_BYTE,
+            u16 => c.GL_UNSIGNED_SHORT,
+            u32 => c.GL_UNSIGNED_INT,
+            else => @compileError("not supported index type: " ++ @typeName(Index)),
+        }, @ptrFromInt(command.first_index), command.base_vertex);
+        c.glBindVertexArray(0);
+    }
 }
 
 fn applyEvents() void {}
