@@ -2,7 +2,7 @@
 
 precision mediump float;
 
-//layout(set = 0, binding = 1) uniform sampler2D image;
+uniform sampler2D image;
 
 in vec2 frag_uv;
 in vec4 frag_tint;
@@ -14,22 +14,17 @@ vec4 premultiply(vec4 tint) {
 }
 
 void main() {
-    out_color = premultiply(frag_tint);
-    return;
+    vec4 color = texture(image, frag_uv);
 
-    // TODO once texture is added:
+    if (frag_uv.x < 0.0) {
+        out_color = premultiply(frag_tint);
+        return;
+    }
 
-    // vec4 color = texture(image, frag_uv);
-
-    // if (frag_uv.x < 0.0) {
-    //     out_color = premultiply(frag_tint);
-    //     return;
-    // }
-
-    // if (true) {
-    //     color = vec4(1.0, 1.0, 1.0, color.r);
-    // }
+    if (true) {
+        color = vec4(1.0, 1.0, 1.0, color.r);
+    }
     
-    // color *= frag_tint;
-    // out_color = premultiply(color);
+    color *= frag_tint;
+    out_color = premultiply(color);
 }

@@ -94,11 +94,20 @@ export fn zig_opengl_renderFrame() void {
         b2.endFrame(demo1_res, &draw_list);
     }
 
+    const glyphs = &app.text_editor.layout_cache_2.glyphs;
+    if (glyphs.modified) {
+        glyphs.modified = false;
+        c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
+        defer c.glBindTexture(c.GL_TEXTURE_2D, 0);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RED, @intCast(glyphs.size), @intCast(glyphs.size), 0, c.GL_RED, c.GL_UNSIGNED_BYTE, glyphs.data.ptr);
+    }
+
     c.glClear(c.GL_COLOR_BUFFER_BIT);
 
     c.glUseProgram(shader_program);
     c.glUniform2f(uniform_screen_size, @floatFromInt(screen_size[0]), @floatFromInt(screen_size[1]));
     c.glBindVertexArray(vao);
+    c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
     c.glDrawArrays(c.GL_TRIANGLES, 0, vertices.len);
     c.glBindVertexArray(0);
 }
@@ -116,6 +125,7 @@ var shader_program: c.GLuint = 0;
 var vao: c.GLuint = 0;
 var uniform_screen_size: c.GLint = 0;
 var screen_size: @Vector(2, i32) = .{ 100, 100 };
+var ft_texture: c.GLuint = 0;
 
 // // Function to compile a shader
 fn compileShader(ty: c.GLenum, source: []const u8) c.GLuint {
@@ -211,5 +221,16 @@ fn createProgram() void {
         defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
         c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(std.mem.alignForward(usize, @sizeOf(Vertex), @alignOf(Vertex)) * vertices.len), &vertices, c.GL_STATIC_DRAW);
         setupAttribs(Vertex);
+    }
+
+    // create textures
+    {
+        c.glGenTextures(1, &ft_texture);
+        c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
+        defer c.glBindTexture(c.GL_TEXTURE_2D, 0);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_REPEAT);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
     }
 }
