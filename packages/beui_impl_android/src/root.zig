@@ -56,7 +56,7 @@ const BeuiVtable = struct {
 export fn zig_resize(w: i32, h: i32) void {
     std.log.info("Frame resized to {d}/{d}", .{ w, h });
     c.glViewport(0, 0, w, h);
-    screen_size = .{ w, h };
+    screen_size = .{ @divFloor(w, 4), @divFloor(h, 4) };
 }
 export fn zig_init_opengl() void {
     //_ = App;
