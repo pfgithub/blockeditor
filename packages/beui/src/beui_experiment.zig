@@ -39,6 +39,10 @@ const ScrollTarget = struct {
     id: ID,
     scroll: @Vector(2, f32),
 };
+const MouseEventInfo = struct {
+    offset: @Vector(2, i32),
+    observed_mouse_down: bool = false,
+};
 const Beui2Persistent = struct {
     gpa: std.mem.Allocator,
 
@@ -48,7 +52,7 @@ const Beui2Persistent = struct {
     id_scopes: std.ArrayList(IDSegment),
     draw_lists: std.ArrayList(*RepositionableDrawList),
     last_frame_mouse_events: std.ArrayList(MouseEventEntry),
-    prev_frame_mouse_event_to_offset: IdMap(@Vector(2, i32)),
+    prev_frame_mouse_event_to_offset: IdMap(MouseEventInfo),
     prev_frame_draw_list_states: IdMap(GenericDrawListState),
     this_frame_ids: IdMap(void),
     click_target: ?ID = null,
@@ -134,8 +138,8 @@ pub const Beui2 = struct {
         // - mouse: store offsets
         self.persistent.prev_frame_mouse_event_to_offset.clearRetainingCapacity();
         for (self.persistent.last_frame_mouse_events.items) |item| {
-            if (item.cfg.capture_click) {
-                self.persistent.prev_frame_mouse_event_to_offset.putNoClobber(item.id, item.pos) catch @panic("oom");
+            if (item.cfg.capture_click or item.cfg.observe_mouse_down) {
+                self.persistent.prev_frame_mouse_event_to_offset.putNoClobber(item.id, .{ .offset = item.pos }) catch @panic("oom");
             }
         }
         // - mouse: store focus
@@ -143,10 +147,17 @@ pub const Beui2 = struct {
             self.persistent.click_target = null;
             // find click target
             for (self.persistent.last_frame_mouse_events.items) |item| {
+                if (item.cfg.observe_mouse_down) {
+                    if (item.coversPoint(mousepos_int)) {
+                        const info = self.persistent.prev_frame_mouse_event_to_offset.getPtr(item.id).?;
+                        info.observed_mouse_down = true;
+                    }
+                }
                 if (item.cfg.capture_click) {
                     if (item.coversPoint(mousepos_int)) {
                         // found.
                         self.persistent.click_target = item.id;
+                        break;
                     }
                 }
             }
@@ -208,11 +219,13 @@ pub const Beui2 = struct {
             }
         }
         var mouse_pos: @Vector(2, i32) = .{ 0, 0 };
+        var observed_mouse_down: bool = false;
         if (self.persistent.prev_frame_mouse_event_to_offset.getPtr(capture_id)) |mof| {
             const b1pos: @Vector(2, i32) = @intFromFloat(self.persistent.beui1.persistent.mouse_pos);
-            mouse_pos = b1pos - mof.*;
+            mouse_pos = b1pos - mof.offset;
+            observed_mouse_down = mof.observed_mouse_down;
         }
-        return .{ .mouse_left_held = mouse_left_held, .mouse_pos = mouse_pos };
+        return .{ .mouse_left_held = mouse_left_held, .mouse_pos = mouse_pos, .observed_mouse_down = observed_mouse_down };
     }
     pub fn scrollCaptureResults(self: *Beui2, capture_id: ID) @Vector(2, f32) {
         if (self.frame.scroll_target) |st| {
@@ -269,6 +282,7 @@ const GenericDrawListState = struct {
 pub const MouseCaptureResults = struct {
     mouse_left_held: bool,
     mouse_pos: @Vector(2, i32),
+    observed_mouse_down: bool,
 };
 
 const IDSegment = struct {
@@ -400,6 +414,8 @@ pub fn pointInRect(point: @Vector(2, i32), rect_pos: @Vector(2, i32), rect_size:
     return @reduce(.And, point >= rect_pos) and @reduce(.And, point < rect_pos + rect_size);
 }
 const MouseEventCaptureConfig = struct {
+    /// if there was a click within the area of this, report it but keep processing the event until it is captured
+    observe_mouse_down: bool = false,
     capture_click: bool = false,
     capture_scroll: struct { x: bool = false, y: bool = false } = .{},
 };
@@ -744,10 +760,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
     const scroll_ev_capture_id = ui.id.sub(@src());
     const scroll_by = ui.id.b2.scrollCaptureResults(scroll_ev_capture_id);
 
-    const scroll_state = if (true) blk: {
-        if (_scroll_state == null) _scroll_state = .{ .offset = 0, .anchor = indexToBytes(Index.first(context)) };
-        break :blk &_scroll_state.?;
-    } else blk: {
+    const scroll_state = blk: {
         const scroll_state = ui.id.b2.state(ui.id.sub(@src()), ScrollState);
         if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = indexToBytes(Index.first(context)) };
         break :blk scroll_state.value;
@@ -861,11 +874,13 @@ pub const WindowManager = struct {
 
     b2: *Beui2,
     windows: IdArrayMap(WindowInfo),
+    current_window: ?ID,
 
     pub fn init(b2: *Beui2, gpa: std.mem.Allocator) WindowManager {
         return .{
             .b2 = b2,
             .windows = .init(gpa),
+            .current_window = null,
         };
     }
     pub fn deinit(self: *WindowManager) void {
@@ -881,20 +896,49 @@ pub const WindowManager = struct {
                 .this_frame_result = null,
             };
         }
-        if (gpres.value_ptr.this_frame_result != null) {
-            @panic("addWindow called twice for the same id");
-        }
+        const prev_window = self.current_window;
+        self.current_window = window_id;
+        defer self.current_window = prev_window;
         const child_res = child.call(.{
             .caller_id = window_id.sub(@src()),
             .constraints = .{ .available_size = .{ .w = gpres.value_ptr.size[0], .h = gpres.value_ptr.size[1] } },
         }, {});
-        gpres.value_ptr.this_frame_result = child_res.rdl;
+        // after calling child, the hash map might have reordered itself. we must get a new pointer
+        const window_ptr = self.windows.getPtr(window_id).?;
+        // this check is done here just in case the child called addWindow with its own id so we still catch that.
+        if (window_ptr.this_frame_result != null) @panic("addWindow called twice for the same id");
+        window_ptr.this_frame_result = child_res.rdl;
+    }
+    pub fn dragWindow(self: *WindowManager, window_id: ID, offset: @Vector(2, i32), anchors: struct { top: bool, left: bool, bottom: bool, right: bool }) void {
+        if (@reduce(.And, offset == @Vector(2, i32){ 0, 0 })) return;
+        const window = self.windows.getPtr(window_id).?;
+
+        var top = window.position[1]; // var left, var top = window.position;
+        var left = window.position[0];
+        var bottom = window.position[1] + window.size[1]; // var right, var bottom = window.position + window.size;
+        var right = window.position[0] + window.size[0];
+
+        if (anchors.top) top += offset[1];
+        if (anchors.left) left += offset[0];
+        if (anchors.bottom) bottom += offset[1];
+        if (anchors.right) right += offset[0];
+
+        window.position = .{ left, top };
+        window.size = .{ right - left, bottom - top };
+    }
+    fn fitWindow(self: *WindowManager, window: *WindowInfo) void {
+        window.size = @max(window.size, @Vector(2, i32){ 10, 10 });
+        window.position = @min(window.position, self.b2.frame.frame_cfg.size);
+    }
+    pub fn bringToFrontWindow(self: *WindowManager, window_id: ID) void {
+        const window = self.windows.fetchOrderedRemove(window_id).?;
+        self.windows.put(window.key, window.value) catch @panic("oom");
     }
 
     fn render(self: *WindowManager) *RepositionableDrawList {
         const draw = self.b2.draw();
 
-        // iterate in reverse so we can delete windows
+        // iterate in reverse so we can delete windows. and because the frontmost window is at the end.
         var i: usize = self.windows.values().len;
         while (i > 0) {
             i -= 1;
@@ -902,12 +946,14 @@ pub const WindowManager = struct {
             const value = &self.windows.values()[i];
             const value_rdl = value.this_frame_result orelse {
                 // delete this window
-                // orderedRemove shouldn't be used in a loop like this, instead we need to flag and delete all at once
+                // orderedRemove shouldn't be used in a loop but it doesn't really matter here unless you're closing 1000 windows all at once
                 std.debug.assert(self.windows.orderedRemove(key.*));
                 continue;
             };
             // refresh key so it's valid for next frame
             key.* = key.refresh();
+            // fit the window so it is on the screen
+            self.fitWindow(value);
             // draw the window
             draw.place(value_rdl, value.position);
             // remove the frame result

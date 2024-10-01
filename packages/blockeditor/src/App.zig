@@ -110,11 +110,19 @@ pub fn render(self: *App, call_id: B2.ID) void {
     // const wm = b2.windowManager();
     // b2.windows.add()
 
+    id.b2.persistent.wm.addWindow(id.sub(@src()), .from(self, render__scrollDemo));
     id.b2.persistent.wm.addWindow(id.sub(@src()), .from(self, render__window));
+}
+fn render__scrollDemo(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+    const ui = call_info.ui(@src());
+    return B2.Theme.windowChrome(ui.sub(@src()), .{}, .from(self, render__scrollDemo__child));
+}
+fn render__scrollDemo__child(_: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+    const ui = call_info.ui(@src());
+    return B2.scrollDemo(ui.sub(@src()));
 }
 fn render__window(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
     const ui = call_info.ui(@src());
-
     return B2.Theme.windowChrome(ui.sub(@src()), .{}, .from(self, render__window__child));
 }
 fn render__window__child(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
