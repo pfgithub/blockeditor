@@ -22,9 +22,6 @@ core: Core,
 selecting: bool = false,
 _layout_temp_al: std.ArrayList(u8),
 
-verdana_ttf: ?[]const u8,
-layout_cache_2: LayoutCache,
-
 config: struct {
     syntax_highlighting: bool = true,
 } = .{},
@@ -36,40 +33,20 @@ scroll: struct {
 },
 
 pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
-    const verdana_ttf: ?[]const u8 = for (&[_][]const u8{
-        // cwd
-        "Verdana.ttf",
-        // linux
-        "/usr/share/fonts/TTF/verdana.ttf",
-        // mac
-        "/System/Library/Fonts/Supplemental/Verdana.ttf",
-        // windows
-        "c:\\WINDOWS\\Fonts\\VERDANA.TTF",
-    }) |search_path| {
-        break std.fs.cwd().readFileAlloc(gpa, search_path, std.math.maxInt(usize)) catch continue;
-    } else null;
-    if (verdana_ttf == null) std.log.info("Verdana could not be found. Falling back to Noto Sans.", .{});
-    const font = LayoutCache.Font.init(verdana_ttf orelse Beui.font_experiment.NotoSansMono_wght) orelse @panic("no font");
-
     self.* = .{
         .gpa = gpa,
         .core = undefined,
         .scroll = .{},
         ._layout_temp_al = .init(gpa),
-        .layout_cache_2 = .init(gpa, font),
-
-        .verdana_ttf = verdana_ttf,
     };
     self.core.initFromDoc(gpa, document);
 }
 pub fn deinit(self: *EditorView) void {
-    self.layout_cache_2.deinit();
-    if (self.verdana_ttf) |v| self.gpa.free(v);
     self._layout_temp_al.deinit();
     self.core.deinit();
 }
 
-fn layoutLine(self: *EditorView, beui: *Beui, line_middle: Core.Position) LayoutCache.LayoutInfo {
+fn layoutLine(self: *EditorView, beui: *Beui, layout_cache: *LayoutCache, line_middle: Core.Position) LayoutCache.LayoutInfo {
     std.debug.assert(self._layout_temp_al.items.len == 0);
     defer self._layout_temp_al.clearRetainingCapacity();
 
@@ -80,7 +57,7 @@ fn layoutLine(self: *EditorView, beui: *Beui, line_middle: Core.Position) Layout
 
     self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
 
-    return self.layout_cache_2.layoutLine(beui, self._layout_temp_al.items);
+    return layout_cache.layoutLine(beui, self._layout_temp_al.items);
 }
 
 pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.StandardChild {
@@ -88,7 +65,9 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     defer tctx.end();
 
     const ui = call_info.ui(@src());
-    const rdl = ui.id.b2.draw();
+    const b2 = ui.id.b2;
+    const layout_cache = &b2.persistent.layout_cache;
+    const rdl = b2.draw();
     const text_bg_rdl = ui.id.b2.draw();
     const text_rdl = ui.id.b2.draw();
     const text_cursor_rdl = ui.id.b2.draw();
@@ -97,8 +76,6 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     rdl.place(text_bg_rdl, .{ 0, 0 });
 
     const content_region_size: @Vector(2, f32) = .{ @floatFromInt(call_info.constraints.available_size.w.?), @floatFromInt(call_info.constraints.available_size.h.?) };
-
-    self.layout_cache_2.tick(beui);
 
     const arena = beui.arena();
     _ = arena;
@@ -246,7 +223,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
                     // no prev line
                     prev_line = null;
                 }
-                const line_measure = self.layoutLine(beui, self.scroll.line_before_anchor.?);
+                const line_measure = self.layoutLine(beui, layout_cache, self.scroll.line_before_anchor.?);
                 self.scroll.offset += @floatFromInt(line_measure.height);
                 self.scroll.line_before_anchor = prev_line;
             }
@@ -261,7 +238,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
                 // no next line
                 break :blk;
             }
-            const this_measure = self.layoutLine(beui, this_line);
+            const this_measure = self.layoutLine(beui, layout_cache, this_line);
             if (self.scroll.offset > @as(f32, @floatFromInt(this_measure.height))) {
                 self.scroll.offset -= @floatFromInt(this_measure.height);
                 self.scroll.line_before_anchor = this_line;
@@ -286,10 +263,10 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     var syn_hl = self.core.highlight();
     defer syn_hl.deinit();
 
-    const replace_space = self.layout_cache_2.font.ft_face.getCharIndex('·') orelse self.layout_cache_2.font.ft_face.getCharIndex('_');
-    const replace_tab = self.layout_cache_2.font.ft_face.getCharIndex('⇥') orelse self.layout_cache_2.font.ft_face.getCharIndex('→') orelse self.layout_cache_2.font.ft_face.getCharIndex('>');
-    const replace_newline = self.layout_cache_2.font.ft_face.getCharIndex('⏎') orelse self.layout_cache_2.font.ft_face.getCharIndex('␊') orelse self.layout_cache_2.font.ft_face.getCharIndex('\\');
-    const replace_cr = self.layout_cache_2.font.ft_face.getCharIndex('␍') orelse self.layout_cache_2.font.ft_face.getCharIndex('<');
+    const replace_space = layout_cache.font.ft_face.getCharIndex('·') orelse layout_cache.font.ft_face.getCharIndex('_');
+    const replace_tab = layout_cache.font.ft_face.getCharIndex('⇥') orelse layout_cache.font.ft_face.getCharIndex('→') orelse layout_cache.font.ft_face.getCharIndex('>');
+    const replace_newline = layout_cache.font.ft_face.getCharIndex('⏎') orelse layout_cache.font.ft_face.getCharIndex('␊') orelse layout_cache.font.ft_face.getCharIndex('\\');
+    const replace_cr = layout_cache.font.ft_face.getCharIndex('␍') orelse layout_cache.font.ft_face.getCharIndex('<');
 
     var line_to_render = render_start_pos;
     var line_pos: @Vector(2, f32) = @floor(@Vector(2, f32){ 10, 10 - self.scroll.offset });
@@ -300,7 +277,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
 
         if (line_pos[1] > (window_pos + window_size)[1]) break;
 
-        const layout_test = self.layoutLine(beui, line_to_render);
+        const layout_test = self.layoutLine(beui, layout_cache, line_to_render);
         const line_start_docbyte = block.docbyteFromPosition(self.core.getLineStart(line_to_render));
         var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
         var length_with_no_selection_render: f32 = 0.0;
@@ -334,7 +311,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
                 if (start_docbyte_selected) {
                     const tint = DefaultTheme.synHlColor(.invisible);
 
-                    const invis_glyph_info = self.layout_cache_2.renderGlyph(invis_glyph, layout_test.height);
+                    const invis_glyph_info = layout_cache.renderGlyph(invis_glyph, layout_test.height);
                     if (invis_glyph_info.region) |region| {
                         const glyph_size: @Vector(2, f32) = @floatFromInt(invis_glyph_info.size);
                         const glyph_offset: @Vector(2, f32) = @floatFromInt(invis_glyph_info.offset);
@@ -344,7 +321,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
                             .size = glyph_size,
                             .region = region,
                             .image = .editor_view_glyphs,
-                            .image_size = self.layout_cache_2.glyphs.size,
+                            .image_size = layout_cache.glyphs.size,
                             .tint = tint,
                         });
                     }
@@ -353,7 +330,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
                 const tctx__ = tracy.traceNamed(@src(), "render glyph");
                 defer tctx__.end();
 
-                const glyph_info = self.layout_cache_2.renderGlyph(item.glyph_id, layout_test.height);
+                const glyph_info = layout_cache.renderGlyph(item.glyph_id, layout_test.height);
                 if (glyph_info.region) |region| {
                     const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
                     const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
@@ -367,7 +344,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
                         .size = glyph_size,
                         .region = region,
                         .image = .editor_view_glyphs,
-                        .image_size = self.layout_cache_2.glyphs.size,
+                        .image_size = layout_cache.glyphs.size,
                         .tint = DefaultTheme.synHlColor(tint),
                     });
                 }

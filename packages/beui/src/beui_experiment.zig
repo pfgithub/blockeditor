@@ -4,6 +4,7 @@ const Beui = @import("Beui.zig");
 const render_list = @import("render_list.zig");
 const tracy = @import("anywhere").tracy;
 const util = @import("util.zig");
+const LayoutCache = @import("LayoutCache.zig");
 
 fn IdMap(comptime V: type) type {
     const IDContext = struct {
@@ -37,12 +38,30 @@ const Beui2Persistent = struct {
     click_target: ?ID = null,
 
     frame_num: u64 = 0,
+
+    verdana_ttf: ?[]const u8,
+    layout_cache: LayoutCache,
 };
 pub const Beui2 = struct {
     frame: Beui2Frame,
     persistent: Beui2Persistent,
 
     pub fn init(self: *Beui2, gpa: std.mem.Allocator) void {
+        const verdana_ttf: ?[]const u8 = for (&[_][]const u8{
+            // cwd
+            "Verdana.ttf",
+            // linux
+            "/usr/share/fonts/TTF/verdana.ttf",
+            // mac
+            "/System/Library/Fonts/Supplemental/Verdana.ttf",
+            // windows
+            "c:\\WINDOWS\\Fonts\\VERDANA.TTF",
+        }) |search_path| {
+            break std.fs.cwd().readFileAlloc(gpa, search_path, std.math.maxInt(usize)) catch continue;
+        } else null;
+        if (verdana_ttf == null) std.log.info("Verdana could not be found. Falling back to Noto Sans.", .{});
+        const font = LayoutCache.Font.init(verdana_ttf orelse Beui.font_experiment.NotoSansMono_wght) orelse @panic("no font");
+
         self.* = .{
             .frame = undefined,
             .persistent = .{
@@ -53,10 +72,15 @@ pub const Beui2 = struct {
                 .last_frame_mouse_events = .init(gpa),
                 .prev_frame_mouse_event_to_offset = .init(gpa),
                 .this_frame_ids = .init(gpa),
+
+                .verdana_ttf = verdana_ttf,
+                .layout_cache = .init(gpa, font),
             },
         };
     }
     pub fn deinit(self: *Beui2) void {
+        self.persistent.layout_cache.deinit();
+        if (self.persistent.verdana_ttf) |v| self.persistent.gpa.free(v);
         self.persistent.this_frame_ids.deinit();
         self.persistent.prev_frame_mouse_event_to_offset.deinit();
         self.persistent.last_frame_mouse_events.deinit();
@@ -66,6 +90,7 @@ pub const Beui2 = struct {
     }
 
     pub fn newFrame(self: *Beui2, beui: *Beui, frame_cfg: Beui2FrameCfg) ID {
+        self.persistent.layout_cache.tick(beui);
         // handle events
         // - scroll: if there is a scroll event, hit test to find which handler it touched
         const mousepos_int: @Vector(2, i32) = @intFromFloat(beui.persistent.mouse_pos);

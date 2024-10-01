@@ -111,7 +111,7 @@ export fn zig_opengl_renderFrame() void {
         b2.endFrame(demo1_res, &draw_list);
     }
 
-    const glyphs = &app.text_editor.layout_cache_2.glyphs;
+    const glyphs = &b2.persistent.layout_cache.glyphs;
     if (glyphs.modified) {
         glyphs.modified = false;
         c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);

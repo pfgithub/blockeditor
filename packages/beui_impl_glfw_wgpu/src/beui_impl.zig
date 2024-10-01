@@ -785,6 +785,6 @@ pub fn main() !void {
         }
         zgui.end();
 
-        draw(demo, &draw_list, &app.text_editor.layout_cache_2.glyphs);
+        draw(demo, &draw_list, &b2.persistent.layout_cache.glyphs);
     }
 }

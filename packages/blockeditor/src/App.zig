@@ -10,53 +10,75 @@ const B2 = Beui.beui_experiment;
 
 const App = @This();
 
+const EditorTab = struct {
+    editor_view: Beui.EditorView,
+};
+
+gpa: std.mem.Allocator,
+
 db: db_mod.BlockDB,
 db_sync: blocks_net.TcpSync,
 
 counter_block: *db_mod.BlockRef,
 counter_component: db_mod.TypedComponentRef(bi.CounterComponent),
 
-text_block: *db_mod.BlockRef,
-text_component: db_mod.TypedComponentRef(bi.text_component.TextDocument),
-
 zig_language: Beui.EditorView.Core.highlighters_zig.HlZig,
 markdown_language: Beui.EditorView.Core.highlighters_markdown.HlMd,
 
-text_editor: Beui.EditorView,
+tabs: std.ArrayList(*EditorTab),
+current_tab: usize,
 
 pub fn init(self: *App, gpa: std.mem.Allocator) void {
+    self.gpa = gpa;
+
     self.db = db_mod.BlockDB.init(gpa);
     self.db_sync.init(gpa, &self.db);
 
     self.counter_block = self.db.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
     self.counter_component = self.counter_block.typedComponent(bi.CounterBlock).?;
 
-    self.text_block = self.db.createBlock(bi.TextDocumentBlock.deserialize(gpa, bi.TextDocumentBlock.default) catch unreachable);
-    self.text_component = self.text_block.typedComponent(bi.TextDocumentBlock).?;
-
     self.zig_language = Beui.EditorView.Core.highlighters_zig.HlZig.init(gpa);
     self.markdown_language = Beui.EditorView.Core.highlighters_markdown.HlMd.init();
 
-    self.text_editor.initFromDoc(gpa, self.text_component);
-    self.text_editor.core.setSynHl(self.zig_language.language());
+    self.tabs = .init(gpa);
+    self.current_tab = 0;
 
-    self.text_editor.core.document.applySimpleOperation(.{
-        .position = self.text_editor.core.document.value.positionFromDocbyte(0),
-        .delete_len = 0,
-        .insert_text = @embedFile("App.zig"),
-    }, null);
-    self.text_editor.core.executeCommand(.{ .set_cursor_pos = .{ .position = self.text_editor.core.document.value.positionFromDocbyte(0) } });
+    self.addTab(@embedFile("App.zig"));
 }
 pub fn deinit(self: *App) void {
-    self.text_editor.deinit();
+    for (self.tabs.items) |tab| {
+        tab.editor_view.deinit();
+        self.gpa.destroy(tab);
+    }
+    self.tabs.deinit();
     self.markdown_language.deinit();
     self.zig_language.deinit();
-    self.text_component.unref();
-    self.text_block.unref();
     self.counter_component.unref();
     self.counter_block.unref();
     self.db_sync.deinit();
     self.db.deinit();
+}
+
+pub fn addTab(self: *App, file_cont: []const u8) void {
+    const text_block = self.db.createBlock(bi.TextDocumentBlock.deserialize(self.gpa, bi.TextDocumentBlock.default) catch unreachable);
+    defer text_block.unref();
+    const text_component = text_block.typedComponent(bi.TextDocumentBlock).?;
+    defer text_component.unref();
+
+    text_component.applySimpleOperation(.{
+        .position = text_component.value.positionFromDocbyte(0),
+        .delete_len = 0,
+        .insert_text = file_cont,
+    }, null);
+
+    const new_tab = self.gpa.create(EditorTab) catch @panic("oom");
+    new_tab.* = .{ .editor_view = undefined };
+    new_tab.editor_view.initFromDoc(self.gpa, text_component);
+    new_tab.editor_view.core.setSynHl(self.zig_language.language());
+
+    new_tab.editor_view.core.executeCommand(.{ .set_cursor_pos = .{ .position = text_component.value.positionFromDocbyte(0) } });
+
+    self.tabs.append(new_tab) catch @panic("oom");
 }
 
 pub fn render(self: *App, call_info: B2.StandardCallInfo, b1: *Beui) B2.StandardChild {
@@ -75,17 +97,17 @@ pub fn render(self: *App, call_info: B2.StandardCallInfo, b1: *Beui) B2.Standard
 
         zgui.text("Set syn hl:", .{});
         if (zgui.button("zig", .{})) {
-            self.text_editor.core.setSynHl(self.zig_language.language());
+            self.tabs.items[self.current_tab].editor_view.core.setSynHl(self.zig_language.language());
         }
         if (zgui.button("markdown", .{})) {
-            self.text_editor.core.setSynHl(self.markdown_language.language());
+            self.tabs.items[self.current_tab].editor_view.core.setSynHl(self.markdown_language.language());
         }
         if (zgui.button("plaintext", .{})) {
-            self.text_editor.core.setSynHl(null);
+            self.tabs.items[self.current_tab].editor_view.core.setSynHl(null);
         }
     }
 
-    return self.text_editor.gui(ui.sub(@src()), b1);
+    return self.tabs.items[self.current_tab].editor_view.gui(ui.sub(@src()), b1);
 }
 
 fn renderCounter(counter: db_mod.TypedComponentRef(bi.CounterComponent)) void {
