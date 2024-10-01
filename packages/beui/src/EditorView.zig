@@ -447,6 +447,13 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
     var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
     var length_with_no_selection_render: f32 = 0.0;
     for (layout_test.items, 0..) |item, i| {
+        // eventually, we would like to make this a beui.renderText() call, with spans specifying color zones and font changes
+        // then, renderText can completely cache the drawn vertices and append them as long as nothing changed since last frame
+        // - if the text changes, have to re-layout and rerender
+        // - if the glyphs image gets rewritten, have to rerender because the uvs will all be wrong
+        // so the only thing we have to do here is call tree sitter fns to assemble an arraylist of zones. and we don't even have to
+        // query each byte anymore, we have to set up some kind of iterator within the line zone.
+
         const item_docbyte = line_start_docbyte + item.docbyte_offset_from_layout_line_start;
         const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) item_docbyte + 1 else line_start_docbyte + layout_test.items[i + 1].docbyte_offset_from_layout_line_start;
         const len = next_glyph_docbyte - item_docbyte;
@@ -469,9 +476,6 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
         const item_offset = @round(item.offset);
 
         if (replace_invisible_glyph_id) |invis_glyph| {
-            const tctx__ = tracy.traceNamed(@src(), "render invisible glyph");
-            defer tctx__.end();
-
             // TODO: also show invisibles for trailing whitespace
             if (start_docbyte_selected) {
                 const tint = DefaultTheme.synHlColor(.invisible);
@@ -492,9 +496,6 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
                 }
             }
         } else {
-            const tctx__ = tracy.traceNamed(@src(), "render glyph");
-            defer tctx__.end();
-
             const glyph_info = layout_cache.renderGlyph(item.glyph_id, layout_test.height);
             if (glyph_info.region) |region| {
                 const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
@@ -518,9 +519,6 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
         const total_width: f32 = length_with_no_selection_render + item.advance[0];
         // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions (when moving with .byte). Include them all.
         for (0..@intCast(len)) |docbyte_offset| {
-            const tctx__ = tracy.traceNamed(@src(), "render cursor and highlight");
-            defer tctx__.end();
-
             const docbyte = item_docbyte + docbyte_offset;
             const cursor_info = ctx.cursor_positions.advanceAndRead(docbyte);
 

@@ -3,7 +3,6 @@ const Core = @import("Core.zig");
 const blocks_mod = @import("blocks");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
-const tracy = @import("anywhere").tracy;
 const zgui = @import("anywhere").zgui;
 const ts = @import("tree_sitter");
 
@@ -165,9 +164,6 @@ pub const TreeSitterSyntaxHighlighter = struct {
 
     pub fn advanceAndRead(self: *TreeSitterSyntaxHighlighter, idx: usize) SynHlColorScope {
         if (self.is_fake) return .unstyled;
-
-        const tctx = tracy.trace(@src());
-        defer tctx.end();
 
         if (idx >= self.ctx.document.value.length()) return .invalid;
         if (idx < self.cursor.last_access) return .unstyled; // did not advance; return wrong information

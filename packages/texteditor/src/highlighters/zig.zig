@@ -2,7 +2,6 @@ const ts = @import("tree_sitter");
 const std = @import("std");
 const Highlighter = @import("../Highlighter.zig");
 const Core = @import("../Core.zig");
-const tracy = @import("anywhere").tracy;
 
 extern fn tree_sitter_zig() *ts.Language;
 
@@ -81,9 +80,6 @@ const ZigNodeHighlighter = struct {
     }
 
     pub fn charAt(hl: *ZigNodeHighlighter, pos: u64) u8 {
-        const tctx = tracy.trace(@src());
-        defer tctx.end();
-
         if (pos >= hl.doc.?.length()) return '\x00';
         var char_arr: [1]u8 = undefined;
         hl.doc.?.readSlice(hl.doc.?.positionFromDocbyte(pos), &char_arr);
@@ -254,9 +250,6 @@ fn renderCache(ctx: *Highlighter, cache: NodeCacheInfo, byte_index: u32) Highlig
     };
 }
 fn getCacheForNode(hl: *ZigNodeHighlighter, ctx: *Highlighter, node: ts.Node) NodeCacheInfo {
-    const tctx = tracy.trace(@src());
-    defer tctx.end();
-
     const node_info = hl.nodeSymbolToInfo(node.symbol());
 
     switch (node_info) {
