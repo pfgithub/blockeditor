@@ -653,7 +653,7 @@ pub fn main() !void {
     window.setUserPointer(@ptrCast(@alignCast(&beui)));
 
     var b2: Beui.beui_experiment.Beui2 = undefined;
-    b2.init(gpa);
+    b2.init(&beui, gpa);
     defer b2.deinit();
 
     _ = window.setPosCallback(null);

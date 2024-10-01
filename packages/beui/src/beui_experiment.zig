@@ -42,12 +42,14 @@ const Beui2Persistent = struct {
 
     verdana_ttf: ?[]const u8,
     layout_cache: LayoutCache,
+
+    beui1: *Beui,
 };
 pub const Beui2 = struct {
     frame: Beui2Frame,
     persistent: Beui2Persistent,
 
-    pub fn init(self: *Beui2, gpa: std.mem.Allocator) void {
+    pub fn init(self: *Beui2, beui1: *Beui, gpa: std.mem.Allocator) void {
         const verdana_ttf: ?[]const u8 = for (&[_][]const u8{
             // cwd
             "Verdana.ttf",
@@ -77,6 +79,8 @@ pub const Beui2 = struct {
 
                 .verdana_ttf = verdana_ttf,
                 .layout_cache = .init(gpa, font),
+
+                .beui1 = beui1,
             },
         };
     }
@@ -184,7 +188,12 @@ pub const Beui2 = struct {
                 mouse_left_held = true;
             }
         }
-        return .{ .mouse_left_held = mouse_left_held };
+        var mouse_pos: @Vector(2, i32) = .{ 0, 0 };
+        if (self.persistent.prev_frame_mouse_event_to_offset.getPtr(capture_id)) |mof| {
+            const b1pos: @Vector(2, i32) = @intFromFloat(self.persistent.beui1.persistent.mouse_pos);
+            mouse_pos = b1pos - mof.*;
+        }
+        return .{ .mouse_left_held = mouse_left_held, .mouse_pos = mouse_pos };
     }
     pub fn scrollCaptureResults(self: *Beui2, capture_id: ID) @Vector(2, f32) {
         if (self.frame.scroll_target) |st| {
@@ -240,6 +249,7 @@ const GenericDrawListState = struct {
 
 pub const MouseCaptureResults = struct {
     mouse_left_held: bool,
+    mouse_pos: @Vector(2, i32),
 };
 
 const IDSegment = struct {
@@ -284,7 +294,7 @@ const IDSegment = struct {
         return std.mem.eql(u8, std.mem.asBytes(&self), std.mem.asBytes(&other));
     }
 };
-const ID = struct {
+pub const ID = struct {
     b2: *Beui2,
     frame: u64,
     /// DO NOT READ POINTER WITHOUT CALLING .assertValid() FIRST.
@@ -364,9 +374,12 @@ const MouseEventEntry = struct {
     cfg: MouseEventCaptureConfig,
 
     pub fn coversPoint(self: MouseEventEntry, point: @Vector(2, i32)) bool {
-        return @reduce(.And, point >= self.pos) and @reduce(.And, point < self.pos + self.size);
+        return pointInRect(point, self.pos, self.size);
     }
 };
+pub fn pointInRect(point: @Vector(2, i32), rect_pos: @Vector(2, i32), rect_size: @Vector(2, i32)) bool {
+    return @reduce(.And, point >= rect_pos) and @reduce(.And, point < rect_pos + rect_size);
+}
 const MouseEventCaptureConfig = struct {
     capture_click: bool = false,
     capture_scroll: struct { x: bool = false, y: bool = false } = .{},

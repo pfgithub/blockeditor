@@ -76,7 +76,7 @@ export fn zig_init_opengl() void {
     const gpa = std.heap.c_allocator;
 
     beui = .{};
-    b2.init(gpa);
+    b2.init(&beui, gpa);
     app.init(std.heap.c_allocator);
     draw_list = .init(gpa);
     arena_state = .init(gpa);

@@ -237,58 +237,94 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     }
 
     const user_state_id = ui.id.sub(@src());
-    rdl.addUserState(user_state_id, void, &{});
-
+    const click_id = ui.id.sub(@src());
+    const click_info = b2.mouseCaptureResults(click_id);
     const last_frame_state = b2.getPrevFrameDrawListState(user_state_id);
+
+    var click_target: ?Core.Position = null;
+    if (last_frame_state) |lfs| {
+        const data = lfs.cast(std.ArrayList(B2.ID));
+        for (data.items) |item| {
+            const line_state = b2.getPrevFrameDrawListState(item).?; // it was posted last frame and we know because it's in the arraylist.
+            const offset = line_state.offset_from_screen_ul - lfs.offset_from_screen_ul;
+            const lps = line_state.cast(LinePostedState);
+
+            if (!B2.pointInRect(click_info.mouse_pos, offset, .{ @intFromFloat(content_region_size[0]), lps.line_height })) {
+                continue; // not this line
+            }
+            for (lps.chars) |char_itm| {
+                if (char_itm.isNull()) continue;
+                if (@reduce(.And, click_info.mouse_pos >= offset + char_itm.char_up_left_offset)) {
+                    click_target = char_itm.char_position;
+                }
+            }
+        }
+    }
+
+    // have each line post state:
+    // - array of: [x offset, docbyte]
+    // and have each line add its id to an arraylist that goes into the user state so we can iterate over all the lines
+    // that were rendered last frame
 
     // TODO:
     // - figure out which docbyte was clicked *last frame*
     // - update cursor positions before the getCursorPositions call below for 0 frame delay
 
-    // if (ctx.click_target) |clicked_bufbyte| {
-    //     const clicked_pos = block.positionFromDocbyte(clicked_bufbyte);
-    //     const shift_held = beui.isKeyHeld(.left_shift) or beui.isKeyHeld(.right_shift);
-    //     const alt_held = (beui.isKeyHeld(.left_alt) or beui.isKeyHeld(.right_alt)) != (beui.isKeyHeld(.left_control) or beui.isKeyHeld(.right_control));
+    if (click_target) |clicked_pos| {
+        // TODO: ask core to give two positions:
+        // - return the next left stop (allowing the current char)
+        // - return the next right stop
+        // then, get the x positions of these two chars. use the one that is closest to
+        // the mouse x position.
+        // - maybe we'll have to move 'click' and 'drag' back out of executeCommand so
+        //   they can tell us the info they need
 
-    //     // if we're going to support ctrl+left click to jump to definition, then maybe select ts node needs to be on ctrl right click
+        const shift_held = beui.isKeyHeld(.left_shift) or beui.isKeyHeld(.right_shift);
+        const alt_held = (beui.isKeyHeld(.left_alt) or beui.isKeyHeld(.right_alt)) != (beui.isKeyHeld(.left_control) or beui.isKeyHeld(.right_control));
 
-    //     // we would like:
-    //     // - alt click -> jump to defintion
-    //     // - ctrl click -> add multi cursor
-    //     //   - dragging this should select with the just-added multicursor. onDrag isn't set up for that yet, but we'll fix it
-    //     //   - ideally if you drag over a previous cursor and drag back, it won't eat up the previous cursor. but vscode does eat it
-    //     //     so we can eat it too for now
-    //     // - some kind of click -> select ts node
-    //     //   - ideally you can both add multi cursor and select ts node, so if it's alt right click then you should be able to
-    //     //     hold ctrl and the new multicursor you're adding with select_ts_node true
-    //     // - these conflict on mac. that's why vscode has different buttons for these two on mac, windows, and linux. you can
-    //     //   never learn the right buttons
+        // if we're going to support ctrl+left click to jump to definition, then maybe select ts node needs to be on ctrl right click
 
-    //     if (beui.isKeyPressed(.mouse_left)) {
-    //         const mode: ?Core.DragSelectionMode = switch (beui.leftMouseClickedCount()) {
-    //             1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
-    //             2 => .{ .stop = .word, .select = true },
-    //             3 => .{ .stop = .line, .select = true },
-    //             else => null,
-    //         };
-    //         if (mode) |sel_mode| {
-    //             self.core.executeCommand(.{ .click = .{
-    //                 .pos = clicked_pos,
-    //                 .mode = sel_mode,
-    //                 .extend = shift_held,
-    //                 .select_ts_node = alt_held,
-    //             } });
-    //         } else {
-    //             self.core.executeCommand(.select_all);
-    //         }
-    //         self.selecting = true;
-    //     } else if (self.selecting and beui.isKeyHeld(.mouse_left)) {
-    //         self.core.executeCommand(.{ .drag = .{ .pos = clicked_pos } });
-    //     }
-    // }
-    // if (!beui.isKeyHeld(.mouse_left)) {
-    //     self.selecting = false;
-    // }
+        // we would like:
+        // - alt click -> jump to defintion
+        // - ctrl click -> add multi cursor
+        //   - dragging this should select with the just-added multicursor. onDrag isn't set up for that yet, but we'll fix it
+        //   - ideally if you drag over a previous cursor and drag back, it won't eat up the previous cursor. but vscode does eat it
+        //     so we can eat it too for now
+        // - some kind of click -> select ts node
+        //   - ideally you can both add multi cursor and select ts node, so if it's alt right click then you should be able to
+        //     hold ctrl and the new multicursor you're adding with select_ts_node true
+        // - these conflict on mac. that's why vscode has different buttons for these two on mac, windows, and linux. you can
+        //   never learn the right buttons
+
+        if (beui.isKeyPressed(.mouse_left)) {
+            const mode: ?Core.DragSelectionMode = switch (beui.leftMouseClickedCount()) {
+                1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
+                2 => .{ .stop = .word, .select = true },
+                3 => .{ .stop = .line, .select = true },
+                else => null,
+            };
+            if (mode) |sel_mode| {
+                self.core.executeCommand(.{ .click = .{
+                    .pos = clicked_pos,
+                    .mode = sel_mode,
+                    .extend = shift_held,
+                    .select_ts_node = alt_held,
+                } });
+            } else {
+                self.core.executeCommand(.select_all);
+            }
+            self.selecting = true;
+        } else if (self.selecting and beui.isKeyHeld(.mouse_left)) {
+            self.core.executeCommand(.{ .drag = .{ .pos = clicked_pos } });
+        }
+    }
+    if (!beui.isKeyHeld(.mouse_left)) {
+        self.selecting = false;
+    }
+
+    //
+    // Render. No more mutation after this point to preserve frame-perfect-ness.
+    //
 
     var cursor_positions = self.core.getCursorPositions();
     defer cursor_positions.deinit();
@@ -296,10 +332,14 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     var syn_hl = self.core.highlight();
     defer syn_hl.deinit();
 
+    const posted_state_ids_al = b2.frame.arena.create(std.ArrayList(B2.ID)) catch @panic("oom");
+    posted_state_ids_al.* = .init(b2.frame.arena);
+
     var ctx = GuiRenderLineCtx{
         .self = self,
         .beui = beui,
         .cursor_positions = &cursor_positions,
+        .posted_state_ids = posted_state_ids_al,
         .syn_hl = &syn_hl,
         .replace = .{
             .space = layout_cache.font.ft_face.getCharIndex('·') orelse layout_cache.font.ft_face.getCharIndex('_'),
@@ -313,7 +353,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     if (zgui.beginWindow("Editor Debug", .{})) {
         defer zgui.endWindow();
 
-        // zgui.text("click_target: {?d}", .{ctx.click_target});
+        zgui.text("click_target: {?d}", .{click_target});
 
         if (last_frame_state) |lss| zgui.text("last_frame_state: {d}", .{lss.offset_from_screen_ul});
 
@@ -337,14 +377,31 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     // background
     rdl.place(res.rdl, .{ 0, 0 });
     rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg });
+    rdl.addMouseEventCapture(click_id, .{ 0, 0 }, @intFromFloat(content_region_size), .{ .capture_click = true });
+    rdl.addUserState(user_state_id, std.ArrayList(B2.ID), posted_state_ids_al);
     return .{ .rdl = rdl, .size = @intFromFloat(content_region_size) };
 }
+
+const LineCharState = struct {
+    const null_offset: @Vector(2, i32) = .{ std.math.minInt(i32), std.math.minInt(i32) };
+    char_up_left_offset: @Vector(2, i32),
+    height: i32,
+    char_position: Core.Position,
+    fn isNull(self: LineCharState) bool {
+        return @reduce(.And, self.char_up_left_offset == null_offset);
+    }
+};
+const LinePostedState = struct {
+    chars: []const LineCharState,
+    line_height: i32,
+};
 
 const GuiRenderLineCtx = struct {
     self: *EditorView,
     beui: *Beui,
     cursor_positions: *Core.CursorPositions,
     syn_hl: *Core.Highlighter.TreeSitterSyntaxHighlighter,
+    posted_state_ids: *std.ArrayList(B2.ID),
     replace: struct {
         space: ?u32,
         tab: ?u32,
@@ -369,20 +426,24 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
 
     const line_to_render = index.thisLine(self);
 
-    // cusor:
-    // - what we actually want is for it to be in a pre step. currently, the cursor doesn't update until
-    //   the next frame. which isn't frame-perfect, and we want frame-perfect
-    // - we would like for, given a mouse position on the gui's rdl:
-    //   - figure out which line it's on. lay out the line. figure out which character it's on. ask the editor
-    //     view which positions we need to query. get the x position of the two positions we're asked about.
-    //     call click() or drag() to the nearest one.
-    //   - this means we'll have to cache this information from last frame? ie from last frame we want:
-    //     - child offset
-    //   - unfortunately, text could have changed since last frame. that means we would like Position s of
-    //     each char rather than docbytes. that's okay, it's only 2x the size.
+    // line breaking:
+    // - we can do a pre-pass looping over the line. add up the width. if it gets greater than the
+    //   maximum container width, append to the break points array the first valid text break point
+    //   to the left of the current item.
+    //   - if the first valid break point is very far away (>x pixels), just break right here.
+    //   - we can have precedence. break at word (preferred). break at glyph (acceptable). break anywhere (:/)
+    // - then, when rendering, we know where to break at without having to do any backtracking. it's still
+    //   O(n) but now it's O(2n) because we loop twice.
 
     const layout_test = self.layoutLine(ctx.beui, layout_cache, line_to_render);
     const line_start_docbyte = block.docbyteFromPosition(line_to_render);
+    const rendered_area_end_docbyte = block.docbyteFromPosition(self.core.getNextLineStart(line_to_render));
+    const rendered_area_len = rendered_area_end_docbyte - line_start_docbyte;
+
+    const line_state = ui.id.b2.frame.arena.alloc(LineCharState, rendered_area_len) catch @panic("oom");
+    const null_offset: @Vector(2, i32) = .{ std.math.minInt(i32), std.math.minInt(i32) };
+    for (line_state) |*ls| ls.* = .{ .char_up_left_offset = null_offset, .height = std.math.minInt(i32), .char_position = .end };
+
     var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
     var length_with_no_selection_render: f32 = 0.0;
     for (layout_test.items, 0..) |item, i| {
@@ -481,11 +542,23 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
                     .tint = DefaultTheme.selection_color,
                 });
             }
+
+            line_state[docbyte - line_start_docbyte] = .{
+                .char_up_left_offset = @intFromFloat(@floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion + 1, 0 })),
+                .height = layout_test.height,
+                .char_position = block.positionFromDocbyte(docbyte),
+            };
         }
 
         cursor_pos += item.advance;
         cursor_pos = @floor(cursor_pos);
     }
+
+    const rs_id = ui.id.sub(@src());
+    const lps = ui.id.b2.frame.arena.create(LinePostedState) catch @panic("oom");
+    lps.* = .{ .chars = line_state, .line_height = layout_test.height };
+    text_bg_rdl.addUserState(rs_id, LinePostedState, lps);
+    ctx.posted_state_ids.append(rs_id) catch @panic("oom");
 
     return .{ .size = .{ @intFromFloat(cursor_pos[0]), layout_test.height }, .rdl = text_bg_rdl };
 }
