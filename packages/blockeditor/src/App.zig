@@ -114,6 +114,12 @@ pub fn render(self: *App, call_id: B2.ID) void {
 }
 fn render__window(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
     const ui = call_info.ui(@src());
+
+    return B2.Theme.windowChrome(ui.sub(@src()), .{}, .from(self, render__window__child));
+}
+fn render__window__child(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+    const ui = call_info.ui(@src());
+
     return self.tabs.items[self.current_tab].editor_view.gui(ui.sub(@src()), ui.id.b2.persistent.beui1);
 }
 

@@ -5,6 +5,7 @@ const render_list = @import("render_list.zig");
 const tracy = @import("anywhere").tracy;
 const util = @import("util.zig");
 const LayoutCache = @import("LayoutCache.zig");
+pub const Theme = @import("Theme.zig");
 
 fn IdMap(comptime V: type) type {
     const IDContext = struct {
@@ -651,6 +652,12 @@ pub const StandardUI = struct {
     constraints: StandardConstraints,
     pub fn sub(self: StandardUI, src: std.builtin.SourceLocation) StandardCallInfo {
         return .{ .caller_id = self.id.sub(src), .constraints = self.constraints };
+    }
+    pub fn subWithOffset(self: StandardUI, src: std.builtin.SourceLocation, subtract_size: @Vector(2, i32)) StandardCallInfo {
+        var res_constraints = self.constraints;
+        if (res_constraints.available_size.w) |*w| w.* -= subtract_size[0];
+        if (res_constraints.available_size.h) |*h| h.* -= subtract_size[1];
+        return .{ .caller_id = self.id.sub(src), .constraints = res_constraints };
     }
 };
 pub fn Component(comptime Arg1: type, comptime Arg2: type, comptime Ret: type) type {
