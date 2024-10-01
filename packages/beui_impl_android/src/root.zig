@@ -38,6 +38,7 @@ var beui: Beui = undefined;
 var b2: Beui.beui_experiment.Beui2 = undefined;
 var draw_list: Beui.draw_lists.RenderList = undefined;
 var arena_state: std.heap.ArenaAllocator = undefined;
+var call_mutex: std.Thread.Mutex = .{};
 
 const BeuiVtable = struct {
     fn setClipboard(_: *const Beui.FrameCfg, _: [:0]const u8) void {
@@ -54,6 +55,9 @@ const BeuiVtable = struct {
 };
 
 export fn zig_resize(w: i32, h: i32) void {
+    call_mutex.lock();
+    defer call_mutex.unlock();
+
     std.log.info("Frame resized to {d}/{d}", .{ w, h });
     c.glViewport(0, 0, w, h);
 
@@ -65,6 +69,9 @@ export fn zig_resize(w: i32, h: i32) void {
     screen_size = .{ @divFloor(w, 3), @divFloor(h, 3) };
 }
 export fn zig_init_opengl() void {
+    call_mutex.lock();
+    defer call_mutex.unlock();
+
     //_ = App;
     const gpa = std.heap.c_allocator;
 
@@ -78,6 +85,9 @@ export fn zig_init_opengl() void {
     createProgram();
 }
 export fn zig_opengl_renderFrame() void {
+    call_mutex.lock();
+    defer call_mutex.unlock();
+
     _ = arena_state.reset(.retain_capacity);
     const arena = arena_state.allocator();
     draw_list.clear();

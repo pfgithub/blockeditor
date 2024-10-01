@@ -5,6 +5,7 @@ extern "C"
     void zig_init_opengl(void);
     void zig_opengl_renderFrame(void);
     void zig_resize(int32_t w, int32_t h);
+    bool zig_wantShowKeyboard();
 }
 
 // Function to render a frame
