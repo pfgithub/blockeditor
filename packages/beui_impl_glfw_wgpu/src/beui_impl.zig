@@ -5,6 +5,7 @@ const anywhere = @import("anywhere");
 const tracy = anywhere.tracy;
 const build_options = @import("build_options");
 const App = @import("app");
+const using_zgui = true;
 
 // TODO:
 // - [ ] beui needs to be able to render render_list
@@ -676,6 +677,21 @@ pub fn main() !void {
         break :scale_factor @max(scale[0], scale[1]);
     };
 
+    var cursors = Beui.EnumArray(Beui.Cursor, ?*zglfw.Cursor).init(null);
+    for (&cursors.values, 0..) |*c, i| {
+        c.* = zglfw.Cursor.createStandard(switch (@as(Beui.Cursor, @enumFromInt(i))) {
+            .arrow => .arrow,
+            .pointer => .hand,
+            .text_input => .ibeam,
+            .resize_nw_se => .resize_nwse,
+            .resize_ns => .resize_ns,
+            .resize_ne_sw => .resize_nesw,
+            .resize_ew => .resize_ew,
+        }) catch null;
+    }
+    defer for (cursors.values) |c| if (c) |d| d.destroy();
+    var current_cursor: Beui.Cursor = .arrow;
+
     zgui.init(gpa);
     defer zgui.deinit();
 
@@ -756,6 +772,27 @@ pub fn main() !void {
                 defer b2ft_.end();
                 break :blk b2.newFrame(&beui, .{ .size = .{ @intCast(fb_width), @intCast(fb_height) } });
             };
+
+            if (using_zgui) {
+                // can't call zglfw setCursor because it gets immediately overwritten by dear imgui glfw backend
+                if (beui.frame.cursor != .arrow) zgui.setMouseCursor(switch (beui.frame.cursor) {
+                    .arrow => .arrow,
+                    .pointer => .hand,
+                    .text_input => .text_input,
+                    .resize_nw_se => .resize_nwse,
+                    .resize_ns => .resize_ns,
+                    .resize_ne_sw => .resize_nesw,
+                    .resize_ew => .resize_ew,
+                });
+            } else {
+                if (beui.frame.cursor != current_cursor) {
+                    current_cursor = beui.frame.cursor;
+
+                    std.log.info("setCursor: {}", .{beui.frame.cursor});
+                    window.setCursor(cursors.get(current_cursor));
+                }
+            }
+
             {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 scrollDemo");
                 defer b2ft_.end();

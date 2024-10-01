@@ -138,9 +138,22 @@ pub const Beui2 = struct {
         // - mouse: store offsets
         self.persistent.prev_frame_mouse_event_to_offset.clearRetainingCapacity();
         for (self.persistent.last_frame_mouse_events.items) |item| {
-            if (item.cfg.capture_click or item.cfg.observe_mouse_down) {
+            if (item.cfg.capture_click != null or item.cfg.observe_mouse_down) {
                 self.persistent.prev_frame_mouse_event_to_offset.putNoClobber(item.id, .{ .offset = item.pos }) catch @panic("oom");
             }
+        }
+        // - mouse: set cursor
+        if (self.persistent.click_target == null) {
+            for (self.persistent.last_frame_mouse_events.items) |item| {
+                if (item.cfg.capture_click) |cursor| {
+                    if (item.coversPoint(mousepos_int)) {
+                        beui.frame.cursor = cursor;
+                        break;
+                    }
+                }
+            }
+        } else {
+            beui.frame.cursor = .arrow; // TODO
         }
         // - mouse: store focus
         if (beui.isKeyPressed(.mouse_left)) {
@@ -153,7 +166,7 @@ pub const Beui2 = struct {
                         info.observed_mouse_down = true;
                     }
                 }
-                if (item.cfg.capture_click) {
+                if (item.cfg.capture_click != null) {
                     if (item.coversPoint(mousepos_int)) {
                         // found.
                         self.persistent.click_target = item.id;
@@ -416,7 +429,7 @@ pub fn pointInRect(point: @Vector(2, i32), rect_pos: @Vector(2, i32), rect_size:
 const MouseEventCaptureConfig = struct {
     /// if there was a click within the area of this, report it but keep processing the event until it is captured
     observe_mouse_down: bool = false,
-    capture_click: bool = false,
+    capture_click: ?Beui.Cursor = null,
     capture_scroll: struct { x: bool = false, y: bool = false } = .{},
 };
 const RepositionableDrawList = struct {
@@ -725,7 +738,7 @@ fn button(call_info: StandardCallInfo, itkn_in: ?Button_Itkn, child_component: C
     const child = child_component.call(ui.sub(@src()), itkn);
     const draw = ui.id.b2.draw();
     draw.place(child.rdl, .{ 0, 0 });
-    draw.addMouseEventCapture(itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = true });
+    draw.addMouseEventCapture(itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = .arrow });
     return .{ .size = child.size, .rdl = draw };
 }
 fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {

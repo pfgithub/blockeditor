@@ -142,11 +142,11 @@ pub fn EnumArray(comptime Enum: type, comptime Value: type) type {
         var count_v: usize = 0;
         for (enum_ti.@"enum".fields) |field| {
             const field_v: std.builtin.Type.EnumField = field;
-            count_v = @max(count_v, field_v.value);
+            count_v = @max(count_v, field_v.value + 1);
         }
         break :blk count_v;
     };
-    if (count > 1000) @panic("count large");
+    if (count > 1000) @compileError("count large");
     return struct {
         const Self = @This();
         values: [count]Value, // for ints we can use PackedIntArray
@@ -207,6 +207,16 @@ const FrameEv = struct {
     frame_cfg: ?FrameCfg = null,
     scroll_px: @Vector(2, f32) = .{ 0, 0 },
     mouse_offset: @Vector(2, f32) = .{ 0, 0 },
+    cursor: Cursor = .arrow,
+};
+pub const Cursor = enum {
+    arrow,
+    pointer,
+    text_input,
+    resize_nw_se,
+    resize_ns,
+    resize_ne_sw,
+    resize_ew,
 };
 pub const Key = enum(u32) {
     mouse_left = 1,

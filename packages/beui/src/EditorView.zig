@@ -377,7 +377,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     // background
     rdl.place(res.rdl, .{ 0, 0 });
     rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg });
-    rdl.addMouseEventCapture(click_id, .{ 0, 0 }, @intFromFloat(content_region_size), .{ .capture_click = true });
+    rdl.addMouseEventCapture(click_id, .{ 0, 0 }, @intFromFloat(content_region_size), .{ .capture_click = .text_input });
     rdl.addUserState(user_state_id, std.ArrayList(B2.ID), posted_state_ids_al);
     return .{ .rdl = rdl, .size = @intFromFloat(content_region_size) };
 }
