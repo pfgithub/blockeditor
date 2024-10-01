@@ -27,22 +27,41 @@ config: struct {
 } = .{},
 
 const ScrollIndex = struct {
-    line_before_this_line: ?Core.Position,
+    is_first_line: enum(u64) { no, yes, _ },
+    line_before_this_line: Core.Position,
 
-    pub fn first(self: *EditorView) ScrollIndex {
-        return .{ .i = 0 };
+    pub fn first(_: *EditorView) ScrollIndex {
+        return .{ .is_first_line = .yes, .line_before_this_line = .end };
     }
-    pub fn update(itm: ScrollIndex, self: *EditorView) ?ScrollIndex {
-        if (itm.i >= len) return if (len == 0) null else .{ .i = len - 1 };
-        return .{ .i = itm.i };
+    pub fn update(itm: ScrollIndex, _: *EditorView) ?ScrollIndex {
+        return itm; // nothing to update really. we could positionFromDocbyte(docbyteFromPosition()) or getLineStart() but does it matter?
     }
     pub fn prev(itm: ScrollIndex, self: *EditorView) ?ScrollIndex {
-        if (itm.i == 0) return null;
-        return .{ .i = itm.i - 1 };
+        const block = self.core.document.value;
+
+        if (itm.is_first_line == .yes) return null;
+        const prev_line = self.core.getPrevLineStart(itm.line_before_this_line);
+        if (block.docbyteFromPosition(prev_line) == block.docbyteFromPosition(itm.line_before_this_line)) {
+            return .{ .is_first_line = .yes, .line_before_this_line = .end };
+        }
+        return .{ .is_first_line = .no, .line_before_this_line = prev_line };
     }
     pub fn next(itm: ScrollIndex, self: *EditorView) ?ScrollIndex {
-        if (itm.i == len - 1) return null;
-        return .{ .i = itm.i + 1 };
+        const block = self.core.document.value;
+        const next_line = itm.thisLine(self);
+        if (block.docbyteFromPosition(next_line) == block.length()) {
+            return null;
+        }
+        return .{ .is_first_line = .no, .line_before_this_line = next_line };
+    }
+
+    /// returns the start docbyte of the line to render
+    fn thisLine(itm: ScrollIndex, self: *EditorView) Core.Position {
+        if (itm.is_first_line == .no) {
+            return self.core.getNextLineStart(itm.line_before_this_line);
+        } else {
+            return self.core.document.value.positionFromDocbyte(0);
+        }
     }
 };
 
@@ -81,12 +100,6 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     const b2 = ui.id.b2;
     const layout_cache = &b2.persistent.layout_cache;
     const rdl = b2.draw();
-    const text_bg_rdl = ui.id.b2.draw();
-    const text_rdl = ui.id.b2.draw();
-    const text_cursor_rdl = ui.id.b2.draw();
-    rdl.place(text_cursor_rdl, .{ 0, 0 });
-    rdl.place(text_rdl, .{ 0, 0 });
-    rdl.place(text_bg_rdl, .{ 0, 0 });
 
     const content_region_size: @Vector(2, f32) = .{ @floatFromInt(call_info.constraints.available_size.w.?), @floatFromInt(call_info.constraints.available_size.h.?) };
 
@@ -222,209 +235,75 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
         self.core.executeCommand(.{ .insert_text = .{ .text = text } });
     }
 
-    const window_pos: @Vector(2, f32) = .{ 10, 10 };
-    const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };
-
     var cursor_positions = self.core.getCursorPositions();
     defer cursor_positions.deinit();
 
     var syn_hl = self.core.highlight();
     defer syn_hl.deinit();
 
-    const replace_space = layout_cache.font.ft_face.getCharIndex('·') orelse layout_cache.font.ft_face.getCharIndex('_');
-    const replace_tab = layout_cache.font.ft_face.getCharIndex('⇥') orelse layout_cache.font.ft_face.getCharIndex('→') orelse layout_cache.font.ft_face.getCharIndex('>');
-    const replace_newline = layout_cache.font.ft_face.getCharIndex('⏎') orelse layout_cache.font.ft_face.getCharIndex('␊') orelse layout_cache.font.ft_face.getCharIndex('\\');
-    const replace_cr = layout_cache.font.ft_face.getCharIndex('␍') orelse layout_cache.font.ft_face.getCharIndex('<');
-
-    const ctx = GuiRenderLineCtx{ .self = self };
+    var ctx = GuiRenderLineCtx{
+        .self = self,
+        .beui = beui,
+        .cursor_positions = &cursor_positions,
+        .syn_hl = &syn_hl,
+        .replace = .{
+            .space = layout_cache.font.ft_face.getCharIndex('·') orelse layout_cache.font.ft_face.getCharIndex('_'),
+            .tab = layout_cache.font.ft_face.getCharIndex('⇥') orelse layout_cache.font.ft_face.getCharIndex('→') orelse layout_cache.font.ft_face.getCharIndex('>'),
+            .newline = layout_cache.font.ft_face.getCharIndex('⏎') orelse layout_cache.font.ft_face.getCharIndex('␊') orelse layout_cache.font.ft_face.getCharIndex('\\'),
+            .cr = layout_cache.font.ft_face.getCharIndex('␍') orelse layout_cache.font.ft_face.getCharIndex('<'),
+        },
+    };
     const res = B2.virtualScroller(ui.sub(@src()), self, ScrollIndex, .from(&ctx, gui_renderLine));
 
-    var line_to_render = render_start_pos;
-    var line_pos: @Vector(2, f32) = @floor(@Vector(2, f32){ 10, 10 - self.scroll.offset });
-    var click_target: ?usize = 0;
-    // scroll is ?Position of line_before_anchor. null = start of file.
-    while (true) {
-        const tctx_ = tracy.traceNamed(@src(), "handle line");
-        defer tctx_.end();
+    // if (ctx.click_target) |clicked_bufbyte| {
+    //     const clicked_pos = block.positionFromDocbyte(clicked_bufbyte);
+    //     const shift_held = beui.isKeyHeld(.left_shift) or beui.isKeyHeld(.right_shift);
+    //     const alt_held = (beui.isKeyHeld(.left_alt) or beui.isKeyHeld(.right_alt)) != (beui.isKeyHeld(.left_control) or beui.isKeyHeld(.right_control));
 
-        if (line_pos[1] > (window_pos + window_size)[1]) break;
+    //     // if we're going to support ctrl+left click to jump to definition, then maybe select ts node needs to be on ctrl right click
 
-        const layout_test = self.layoutLine(beui, layout_cache, line_to_render);
-        const line_start_docbyte = block.docbyteFromPosition(self.core.getLineStart(line_to_render));
-        var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
-        var length_with_no_selection_render: f32 = 0.0;
-        for (layout_test.items, 0..) |item, i| {
-            const item_docbyte = line_start_docbyte + item.docbyte_offset_from_layout_line_start;
-            const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) item_docbyte + 1 else line_start_docbyte + layout_test.items[i + 1].docbyte_offset_from_layout_line_start;
-            const len = next_glyph_docbyte - item_docbyte;
-            if (next_glyph_docbyte == item_docbyte) {
-                length_with_no_selection_render += item.advance[0];
-            } else {
-                length_with_no_selection_render = 0;
-            }
-            const single_char: u8 = if (len == 1) blk: {
-                break :blk block.read(block.positionFromDocbyte(item_docbyte))[0];
-            } else '?';
-            const replace_invisible_glyph_id: ?u32 = switch (single_char) {
-                '\n' => replace_newline,
-                '\r' => replace_cr,
-                ' ' => replace_space,
-                '\t' => replace_tab,
-                else => null,
-            };
-            const start_docbyte_selected = cursor_positions.advanceAndRead(item_docbyte).selected;
-            const item_offset = @round(item.offset);
+    //     // we would like:
+    //     // - alt click -> jump to defintion
+    //     // - ctrl click -> add multi cursor
+    //     //   - dragging this should select with the just-added multicursor. onDrag isn't set up for that yet, but we'll fix it
+    //     //   - ideally if you drag over a previous cursor and drag back, it won't eat up the previous cursor. but vscode does eat it
+    //     //     so we can eat it too for now
+    //     // - some kind of click -> select ts node
+    //     //   - ideally you can both add multi cursor and select ts node, so if it's alt right click then you should be able to
+    //     //     hold ctrl and the new multicursor you're adding with select_ts_node true
+    //     // - these conflict on mac. that's why vscode has different buttons for these two on mac, windows, and linux. you can
+    //     //   never learn the right buttons
 
-            if (replace_invisible_glyph_id) |invis_glyph| {
-                const tctx__ = tracy.traceNamed(@src(), "render invisible glyph");
-                defer tctx__.end();
-
-                // TODO: also show invisibles for trailing whitespace
-                if (start_docbyte_selected) {
-                    const tint = DefaultTheme.synHlColor(.invisible);
-
-                    const invis_glyph_info = layout_cache.renderGlyph(invis_glyph, layout_test.height);
-                    if (invis_glyph_info.region) |region| {
-                        const glyph_size: @Vector(2, f32) = @floatFromInt(invis_glyph_info.size);
-                        const glyph_offset: @Vector(2, f32) = @floatFromInt(invis_glyph_info.offset);
-
-                        text_rdl.addRegion(.{
-                            .pos = line_pos + cursor_pos + item_offset + glyph_offset,
-                            .size = glyph_size,
-                            .region = region,
-                            .image = .editor_view_glyphs,
-                            .image_size = layout_cache.glyphs.size,
-                            .tint = tint,
-                        });
-                    }
-                }
-            } else {
-                const tctx__ = tracy.traceNamed(@src(), "render glyph");
-                defer tctx__.end();
-
-                const glyph_info = layout_cache.renderGlyph(item.glyph_id, layout_test.height);
-                if (glyph_info.region) |region| {
-                    const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
-                    const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
-
-                    const tint: Core.Highlighter.SynHlColorScope = switch (self.config.syntax_highlighting) {
-                        true => syn_hl.advanceAndRead(item_docbyte),
-                        false => .unstyled,
-                    };
-                    text_rdl.addRegion(.{
-                        .pos = line_pos + cursor_pos + item_offset + glyph_offset,
-                        .size = glyph_size,
-                        .region = region,
-                        .image = .editor_view_glyphs,
-                        .image_size = layout_cache.glyphs.size,
-                        .tint = DefaultTheme.synHlColor(tint),
-                    });
-                }
-            }
-
-            const total_width: f32 = length_with_no_selection_render + item.advance[0];
-            // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions (when moving with .byte). Include them all.
-            for (0..@intCast(len)) |docbyte_offset| {
-                const tctx__ = tracy.traceNamed(@src(), "render cursor and highlight");
-                defer tctx__.end();
-
-                const docbyte = item_docbyte + docbyte_offset;
-                const cursor_info = cursor_positions.advanceAndRead(docbyte);
-
-                const portion = @floor(@as(f32, @floatFromInt(docbyte_offset)) / @as(f32, @floatFromInt(len)) * total_width);
-                const portion_next = @floor(@as(f32, @floatFromInt(docbyte_offset + 1)) / @as(f32, @floatFromInt(len)) * total_width);
-                const portion_width = portion_next - portion;
-
-                if (cursor_info.left_cursor == .focus) {
-                    text_cursor_rdl.addRect(.{
-                        .pos = @floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, -1 }),
-                        .size = .{ 2, @floatFromInt(layout_test.height) },
-                        .tint = DefaultTheme.cursor_color,
-                    });
-                }
-                if (cursor_info.selected) {
-                    text_bg_rdl.addRect(.{
-                        .pos = @floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 }),
-                        .size = .{ portion_width, @floatFromInt(layout_test.height) },
-                        .tint = DefaultTheme.selection_color,
-                    });
-                }
-
-                // click target problem
-                // imagine the character "𒐫" <- this is composed of four bytes, so it will be split up into
-                // [ ][ ][ ][ ]. then if we cut those in half that's [|][|][|][|]. so you will be clicking on the left side
-                // of this four byte char for three out of the four cursor positions. only halfway through the last byte
-                // will you click on the right.
-                //
-                // so for now let's just set the click target if >. later we can make it properly handle clicking halfway. somehow.
-                // - some kind of thing about going left and right to the nearest stops, measuring their on-screen distances,
-                //   and picking the one closer to the mouse x position. or something like that.
-
-                const min = @floor(line_pos + cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 });
-                if (@reduce(.And, beui.persistent.mouse_pos > min)) {
-                    click_target = docbyte;
-                }
-            }
-
-            cursor_pos += item.advance;
-            cursor_pos = @floor(cursor_pos);
-        }
-        line_pos[1] += @floatFromInt(layout_test.height);
-
-        const next_line = self.core.getNextLineStart(line_to_render);
-        if (block.docbyteFromPosition(next_line) == block.docbyteFromPosition(line_to_render)) break;
-        line_to_render = next_line;
-    }
-
-    if (click_target) |clicked_bufbyte| {
-        const clicked_pos = block.positionFromDocbyte(clicked_bufbyte);
-        const shift_held = beui.isKeyHeld(.left_shift) or beui.isKeyHeld(.right_shift);
-        const alt_held = (beui.isKeyHeld(.left_alt) or beui.isKeyHeld(.right_alt)) != (beui.isKeyHeld(.left_control) or beui.isKeyHeld(.right_control));
-
-        // if we're going to support ctrl+left click to jump to definition, then maybe select ts node needs to be on ctrl right click
-
-        // we would like:
-        // - alt click -> jump to defintion
-        // - ctrl click -> add multi cursor
-        //   - dragging this should select with the just-added multicursor. onDrag isn't set up for that yet, but we'll fix it
-        //   - ideally if you drag over a previous cursor and drag back, it won't eat up the previous cursor. but vscode does eat it
-        //     so we can eat it too for now
-        // - some kind of click -> select ts node
-        //   - ideally you can both add multi cursor and select ts node, so if it's alt right click then you should be able to
-        //     hold ctrl and the new multicursor you're adding with select_ts_node true
-        // - these conflict on mac. that's why vscode has different buttons for these two on mac, windows, and linux. you can
-        //   never learn the right buttons
-
-        if (beui.isKeyPressed(.mouse_left)) {
-            const mode: ?Core.DragSelectionMode = switch (beui.leftMouseClickedCount()) {
-                1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
-                2 => .{ .stop = .word, .select = true },
-                3 => .{ .stop = .line, .select = true },
-                else => null,
-            };
-            if (mode) |sel_mode| {
-                self.core.executeCommand(.{ .click = .{
-                    .pos = clicked_pos,
-                    .mode = sel_mode,
-                    .extend = shift_held,
-                    .select_ts_node = alt_held,
-                } });
-            } else {
-                self.core.executeCommand(.select_all);
-            }
-            self.selecting = true;
-        } else if (self.selecting and beui.isKeyHeld(.mouse_left)) {
-            self.core.executeCommand(.{ .drag = .{ .pos = clicked_pos } });
-        }
-    }
-    if (!beui.isKeyHeld(.mouse_left)) {
-        self.selecting = false;
-    }
+    //     if (beui.isKeyPressed(.mouse_left)) {
+    //         const mode: ?Core.DragSelectionMode = switch (beui.leftMouseClickedCount()) {
+    //             1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
+    //             2 => .{ .stop = .word, .select = true },
+    //             3 => .{ .stop = .line, .select = true },
+    //             else => null,
+    //         };
+    //         if (mode) |sel_mode| {
+    //             self.core.executeCommand(.{ .click = .{
+    //                 .pos = clicked_pos,
+    //                 .mode = sel_mode,
+    //                 .extend = shift_held,
+    //                 .select_ts_node = alt_held,
+    //             } });
+    //         } else {
+    //             self.core.executeCommand(.select_all);
+    //         }
+    //         self.selecting = true;
+    //     } else if (self.selecting and beui.isKeyHeld(.mouse_left)) {
+    //         self.core.executeCommand(.{ .drag = .{ .pos = clicked_pos } });
+    //     }
+    // }
+    // if (!beui.isKeyHeld(.mouse_left)) {
+    //     self.selecting = false;
+    // }
 
     if (zgui.beginWindow("Editor Debug", .{})) {
         defer zgui.endWindow();
 
-        zgui.text("click_target: {?d}", .{click_target});
+        // zgui.text("click_target: {?d}", .{ctx.click_target});
 
         zgui.checkbox("Syntax Highlighting", &self.config.syntax_highlighting);
 
@@ -444,20 +323,159 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     }
 
     // background
-    rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg });
     rdl.place(res.rdl, .{ 0, 0 });
+    rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg });
     return .{ .rdl = rdl, .size = @intFromFloat(content_region_size) };
 }
 
 const GuiRenderLineCtx = struct {
     self: *EditorView,
+    beui: *Beui,
+    cursor_positions: *Core.CursorPositions,
+    syn_hl: *Core.Highlighter.TreeSitterSyntaxHighlighter,
+    replace: struct {
+        space: ?u32,
+        tab: ?u32,
+        newline: ?u32,
+        cr: ?u32,
+    },
 };
 fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index: ScrollIndex) B2.StandardChild {
-    const self = ctx.self;
+    const tctx_ = tracy.traceNamed(@src(), "handle line");
+    defer tctx_.end();
     const ui = call_info.ui(@src());
-    _ = self;
-    _ = index;
-    return .{ .size = .{ 0, 100 }, .rdl = ui.id.b2.draw() };
+
+    const self = ctx.self;
+    const block = self.core.document.value;
+    const layout_cache = &ui.id.b2.persistent.layout_cache;
+
+    const text_bg_rdl = ui.id.b2.draw();
+    const text_rdl = ui.id.b2.draw();
+    const text_cursor_rdl = ui.id.b2.draw();
+    text_bg_rdl.place(text_cursor_rdl, .{ 0, 0 });
+    text_bg_rdl.place(text_rdl, .{ 0, 0 });
+
+    const line_to_render = index.thisLine(self);
+
+    // cusor:
+    // - what we actually want is for it to be in a pre step. currently, the cursor doesn't update until
+    //   the next frame. which isn't frame-perfect, and we want frame-perfect
+    // - we would like for, given a mouse position on the gui's rdl:
+    //   - figure out which line it's on. lay out the line. figure out which character it's on. ask the editor
+    //     view which positions we need to query. get the x position of the two positions we're asked about.
+    //     call click() or drag() to the nearest one.
+    //   - this means we'll have to cache this information from last frame? ie from last frame we want:
+    //     - child offset
+    //   - unfortunately, text could have changed since last frame. that means we would like Position s of
+    //     each char rather than docbytes. that's okay, it's only 2x the size.
+
+    const layout_test = self.layoutLine(ctx.beui, layout_cache, line_to_render);
+    const line_start_docbyte = block.docbyteFromPosition(line_to_render);
+    var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
+    var length_with_no_selection_render: f32 = 0.0;
+    for (layout_test.items, 0..) |item, i| {
+        const item_docbyte = line_start_docbyte + item.docbyte_offset_from_layout_line_start;
+        const next_glyph_docbyte: u64 = if (i + 1 >= layout_test.items.len) item_docbyte + 1 else line_start_docbyte + layout_test.items[i + 1].docbyte_offset_from_layout_line_start;
+        const len = next_glyph_docbyte - item_docbyte;
+        if (next_glyph_docbyte == item_docbyte) {
+            length_with_no_selection_render += item.advance[0];
+        } else {
+            length_with_no_selection_render = 0;
+        }
+        const single_char: u8 = if (len == 1) blk: {
+            break :blk block.read(block.positionFromDocbyte(item_docbyte))[0];
+        } else '?';
+        const replace_invisible_glyph_id: ?u32 = switch (single_char) {
+            '\n' => ctx.replace.newline,
+            '\r' => ctx.replace.cr,
+            ' ' => ctx.replace.space,
+            '\t' => ctx.replace.tab,
+            else => null,
+        };
+        const start_docbyte_selected = ctx.cursor_positions.advanceAndRead(item_docbyte).selected;
+        const item_offset = @round(item.offset);
+
+        if (replace_invisible_glyph_id) |invis_glyph| {
+            const tctx__ = tracy.traceNamed(@src(), "render invisible glyph");
+            defer tctx__.end();
+
+            // TODO: also show invisibles for trailing whitespace
+            if (start_docbyte_selected) {
+                const tint = DefaultTheme.synHlColor(.invisible);
+
+                const invis_glyph_info = layout_cache.renderGlyph(invis_glyph, layout_test.height);
+                if (invis_glyph_info.region) |region| {
+                    const glyph_size: @Vector(2, f32) = @floatFromInt(invis_glyph_info.size);
+                    const glyph_offset: @Vector(2, f32) = @floatFromInt(invis_glyph_info.offset);
+
+                    text_rdl.addRegion(.{
+                        .pos = cursor_pos + item_offset + glyph_offset,
+                        .size = glyph_size,
+                        .region = region,
+                        .image = .editor_view_glyphs,
+                        .image_size = layout_cache.glyphs.size,
+                        .tint = tint,
+                    });
+                }
+            }
+        } else {
+            const tctx__ = tracy.traceNamed(@src(), "render glyph");
+            defer tctx__.end();
+
+            const glyph_info = layout_cache.renderGlyph(item.glyph_id, layout_test.height);
+            if (glyph_info.region) |region| {
+                const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
+                const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
+
+                const tint: Core.Highlighter.SynHlColorScope = switch (self.config.syntax_highlighting) {
+                    true => ctx.syn_hl.advanceAndRead(item_docbyte),
+                    false => .unstyled,
+                };
+                text_rdl.addRegion(.{
+                    .pos = cursor_pos + item_offset + glyph_offset,
+                    .size = glyph_size,
+                    .region = region,
+                    .image = .editor_view_glyphs,
+                    .image_size = layout_cache.glyphs.size,
+                    .tint = DefaultTheme.synHlColor(tint),
+                });
+            }
+        }
+
+        const total_width: f32 = length_with_no_selection_render + item.advance[0];
+        // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions (when moving with .byte). Include them all.
+        for (0..@intCast(len)) |docbyte_offset| {
+            const tctx__ = tracy.traceNamed(@src(), "render cursor and highlight");
+            defer tctx__.end();
+
+            const docbyte = item_docbyte + docbyte_offset;
+            const cursor_info = ctx.cursor_positions.advanceAndRead(docbyte);
+
+            const portion = @floor(@as(f32, @floatFromInt(docbyte_offset)) / @as(f32, @floatFromInt(len)) * total_width);
+            const portion_next = @floor(@as(f32, @floatFromInt(docbyte_offset + 1)) / @as(f32, @floatFromInt(len)) * total_width);
+            const portion_width = portion_next - portion;
+
+            if (cursor_info.left_cursor == .focus) {
+                text_cursor_rdl.addRect(.{
+                    .pos = @floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, -1 }),
+                    .size = .{ 2, @floatFromInt(layout_test.height) },
+                    .tint = DefaultTheme.cursor_color,
+                });
+            }
+            if (cursor_info.selected) {
+                text_bg_rdl.addRect(.{
+                    .pos = @floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 }),
+                    .size = .{ portion_width, @floatFromInt(layout_test.height) },
+                    .tint = DefaultTheme.selection_color,
+                });
+            }
+        }
+
+        cursor_pos += item.advance;
+        cursor_pos = @floor(cursor_pos);
+    }
+
+    return .{ .size = .{ @intFromFloat(cursor_pos[0]), layout_test.height }, .rdl = text_bg_rdl };
 }
 
 const DefaultTheme = struct {

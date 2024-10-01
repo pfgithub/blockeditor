@@ -1357,7 +1357,10 @@ pub const CursorPositions = struct {
         defer tctx.end();
 
         if (docbyte == self.last_query and self.last_query_result != null) return self.last_query_result.?;
-        if (docbyte < self.last_query) @panic("advanceAndRead must advance");
+        if (docbyte < self.last_query) {
+            // did not advance. return wrong information
+            return .{ .left_cursor = .none, .left_cursor_extra = null, .selected = false };
+        }
         var left_cursor: CursorPosState = .none;
         var left_cursor_extra: ?CursorPosition = null;
         while (true) : (self.idx += 1) {

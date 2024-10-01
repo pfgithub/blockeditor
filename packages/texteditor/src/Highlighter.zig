@@ -170,6 +170,7 @@ pub const TreeSitterSyntaxHighlighter = struct {
         defer tctx.end();
 
         if (idx >= self.ctx.document.value.length()) return .invalid;
+        if (idx < self.cursor.last_access) return .unstyled; // did not advance; return wrong information
 
         const hl_node_idx = self.cursor.advanceAndFindNodeForByte(@intCast(idx));
         const hl_node = self.cursor.stack.items[hl_node_idx];
