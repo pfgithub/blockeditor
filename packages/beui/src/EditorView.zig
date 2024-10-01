@@ -244,17 +244,17 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     var click_target: ?Core.Position = null;
     if (last_frame_state) |lfs| {
         const data = lfs.cast(std.ArrayList(B2.ID));
-        for (data.items) |item| {
+        for (data.items, 0..) |item, j| {
             const line_state = b2.getPrevFrameDrawListState(item).?; // it was posted last frame and we know because it's in the arraylist.
             const offset = line_state.offset_from_screen_ul - lfs.offset_from_screen_ul;
             const lps = line_state.cast(LinePostedState);
 
-            if (click_info.mouse_pos[1] < offset[1] or click_info.mouse_pos[1] >= offset[1] + lps.line_height) {
+            if (j != 0 and (click_info.mouse_pos[1] < offset[1] or click_info.mouse_pos[1] >= offset[1] + lps.line_height)) {
                 continue; // not this line
             }
             for (lps.chars, 0..) |char_itm, i| {
                 if (char_itm.isNull()) continue;
-                if (i == 0 or @reduce(.And, click_info.mouse_pos >= offset + char_itm.char_up_left_offset)) {
+                if (i == 0 or @reduce(.And, click_info.mouse_pos >= offset + char_itm.char_up_left_offset) or (j == 0 and click_info.mouse_pos[0] >= offset[0] + char_itm.char_up_left_offset[0])) {
                     click_target = char_itm.char_position;
                 }
             }
