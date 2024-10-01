@@ -34,6 +34,7 @@ const Beui2Persistent = struct {
     draw_lists: std.ArrayList(*RepositionableDrawList),
     last_frame_mouse_events: std.ArrayList(MouseEventEntry),
     prev_frame_mouse_event_to_offset: IdMap(@Vector(2, i32)),
+    prev_frame_draw_list_states: IdMap(GenericDrawListState),
     this_frame_ids: IdMap(void),
     click_target: ?ID = null,
 
@@ -71,6 +72,7 @@ pub const Beui2 = struct {
                 .draw_lists = .init(gpa),
                 .last_frame_mouse_events = .init(gpa),
                 .prev_frame_mouse_event_to_offset = .init(gpa),
+                .prev_frame_draw_list_states = .init(gpa),
                 .this_frame_ids = .init(gpa),
 
                 .verdana_ttf = verdana_ttf,
@@ -79,6 +81,7 @@ pub const Beui2 = struct {
         };
     }
     pub fn deinit(self: *Beui2) void {
+        self.persistent.prev_frame_draw_list_states.deinit();
         self.persistent.layout_cache.deinit();
         if (self.persistent.verdana_ttf) |v| self.persistent.gpa.free(v);
         self.persistent.this_frame_ids.deinit();
@@ -158,8 +161,13 @@ pub const Beui2 = struct {
         };
     }
     pub fn endFrame(self: *Beui2, child: StandardChild, renderlist: ?*render_list.RenderList) void {
+        self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
         child.rdl.placed = true;
-        child.rdl.finalize(renderlist, &self.persistent.last_frame_mouse_events, .{ 0, 0 });
+        child.rdl.finalize(.{
+            .out_list = renderlist,
+            .out_events = &self.persistent.last_frame_mouse_events,
+            .out_rdl_states = &self.persistent.prev_frame_draw_list_states,
+        }, .{ 0, 0 });
     }
 
     pub fn draw(self: *Beui2) *RepositionableDrawList {
@@ -207,8 +215,26 @@ pub const Beui2 = struct {
         return initFn();
     }
 
+    pub fn getPrevFrameDrawListState(self: *Beui2, state_id: ID) ?*const GenericDrawListState {
+        if (self.persistent.prev_frame_draw_list_states.getPtr(state_id)) |prev_frame_draw_list_state| {
+            return prev_frame_draw_list_state;
+        } else {
+            return null;
+        }
+    }
+
     pub fn fmt(self: *Beui2, comptime format: []const u8, args: anytype) []u8 {
         return std.fmt.allocPrint(self.frame.arena, format, args) catch @panic("oom");
+    }
+};
+const GenericDrawListState = struct {
+    offset_from_screen_ul: @Vector(2, i32),
+    state: *const anyopaque,
+    type_id: [*:0]const u8,
+
+    pub fn cast(self: GenericDrawListState, comptime T: type) *const T {
+        std.debug.assert(@typeName(T) == self.type_id);
+        return @ptrCast(@alignCast(self.state));
     }
 };
 
@@ -362,6 +388,12 @@ const RepositionableDrawList = struct {
             child: *RepositionableDrawList,
             offset: @Vector(2, i32),
         },
+        user_state: struct {
+            id: ID,
+            data: *const anyopaque,
+            type_id: [*:0]const u8,
+            // calling getState(id) returns your state pointer along with the offset of the item on the previous frame
+        },
     };
     b2: *Beui2,
     content: std.ArrayList(RepositionableDrawChild),
@@ -370,6 +402,13 @@ const RepositionableDrawList = struct {
         std.debug.assert(!child.placed);
         self.content.append(.{ .embed = .{ .child = child, .offset = offset_pos } }) catch @panic("oom");
         child.placed = true;
+    }
+    pub fn addUserState(self: *RepositionableDrawList, id: ID, comptime StateT: type, state: *const StateT) void {
+        self.content.append(.{ .user_state = .{
+            .id = id,
+            .data = @ptrCast(state),
+            .type_id = @typeName(StateT),
+        } }) catch @panic("oom");
     }
     pub fn addVertices(self: *RepositionableDrawList, image: ?render_list.RenderListImage, vertices: []const render_list.RenderListVertex, indices: []const render_list.RenderListIndex) void {
         self.content.append(.{
@@ -456,14 +495,19 @@ const RepositionableDrawList = struct {
         self.content.append(.{ .mouse = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
     }
 
-    fn finalize(self: *RepositionableDrawList, out_list: ?*render_list.RenderList, out_events: ?*std.ArrayList(MouseEventEntry), offset_pos: @Vector(2, i32)) void {
+    const FinalizeCfg = struct {
+        out_list: ?*render_list.RenderList,
+        out_events: ?*std.ArrayList(MouseEventEntry),
+        out_rdl_states: ?*IdMap(GenericDrawListState),
+    };
+    fn finalize(self: *RepositionableDrawList, cfg: FinalizeCfg, offset_pos: @Vector(2, i32)) void {
         for (self.content.items) |item| {
             switch (item) {
                 .geometry => |geo| {
-                    if (out_list) |v| v.addVertices(geo.image, geo.vertices, geo.indices, @floatFromInt(offset_pos));
+                    if (cfg.out_list) |v| v.addVertices(geo.image, geo.vertices, geo.indices, @floatFromInt(offset_pos));
                 },
                 .mouse => |mev| {
-                    if (out_events) |v| v.append(.{
+                    if (cfg.out_events) |v| v.append(.{
                         .id = mev.id,
                         .pos = mev.pos + offset_pos,
                         .size = mev.size,
@@ -471,7 +515,16 @@ const RepositionableDrawList = struct {
                     }) catch @panic("oom");
                 },
                 .embed => |eev| {
-                    eev.child.finalize(out_list, out_events, offset_pos + eev.offset);
+                    eev.child.finalize(cfg, offset_pos + eev.offset);
+                },
+                .user_state => |usv| {
+                    if (cfg.out_rdl_states) |v| {
+                        v.putNoClobber(usv.id, .{
+                            .offset_from_screen_ul = offset_pos,
+                            .state = usv.data,
+                            .type_id = usv.type_id,
+                        }) catch @panic("oom");
+                    }
                 },
             }
         }

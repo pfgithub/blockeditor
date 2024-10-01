@@ -236,6 +236,11 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
         self.core.executeCommand(.{ .insert_text = .{ .text = text } });
     }
 
+    const user_state_id = ui.id.sub(@src());
+    rdl.addUserState(user_state_id, void, &{});
+
+    const last_frame_state = b2.getPrevFrameDrawListState(user_state_id);
+
     // TODO:
     // - figure out which docbyte was clicked *last frame*
     // - update cursor positions before the getCursorPositions call below for 0 frame delay
@@ -309,6 +314,8 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
         defer zgui.endWindow();
 
         // zgui.text("click_target: {?d}", .{ctx.click_target});
+
+        if (last_frame_state) |lss| zgui.text("last_frame_state: {d}", .{lss.offset_from_screen_ul});
 
         zgui.checkbox("Syntax Highlighting", &self.config.syntax_highlighting);
 
