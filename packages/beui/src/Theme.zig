@@ -8,7 +8,6 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
     _ = cfg;
 
     const ui = call_info.ui(@src());
-    const size: @Vector(2, i32) = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? };
 
     const draw = ui.id.b2.draw();
     const wm = &ui.id.b2.persistent.wm;
@@ -62,6 +61,8 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
     if (ui.id.b2.mouseCaptureResults(drag_top_left_ikey).mouse_left_held) {
         wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = true, .left = true, .bottom = false, .right = false });
     }
+
+    const size = wm.windows.get(wm.current_window.?).?.size;
 
     const titlebar_height = 20;
     const border_width = 1;
