@@ -26,17 +26,30 @@ config: struct {
     syntax_highlighting: bool = true,
 } = .{},
 
-scroll: struct {
-    /// null = start of file
-    line_before_anchor: ?Core.Position = null,
-    offset: f32 = 0.0,
-},
+const ScrollIndex = struct {
+    line_before_this_line: ?Core.Position,
+
+    pub fn first(self: *EditorView) ScrollIndex {
+        return .{ .i = 0 };
+    }
+    pub fn update(itm: ScrollIndex, self: *EditorView) ?ScrollIndex {
+        if (itm.i >= len) return if (len == 0) null else .{ .i = len - 1 };
+        return .{ .i = itm.i };
+    }
+    pub fn prev(itm: ScrollIndex, self: *EditorView) ?ScrollIndex {
+        if (itm.i == 0) return null;
+        return .{ .i = itm.i - 1 };
+    }
+    pub fn next(itm: ScrollIndex, self: *EditorView) ?ScrollIndex {
+        if (itm.i == len - 1) return null;
+        return .{ .i = itm.i + 1 };
+    }
+};
 
 pub fn initFromDoc(self: *EditorView, gpa: std.mem.Allocator, document: db_mod.TypedComponentRef(bi.text_component.TextDocument)) void {
     self.* = .{
         .gpa = gpa,
         .core = undefined,
-        .scroll = .{},
         ._layout_temp_al = .init(gpa),
     };
     self.core.initFromDoc(gpa, document);
@@ -209,51 +222,6 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
         self.core.executeCommand(.{ .insert_text = .{ .text = text } });
     }
 
-    self.scroll.offset -= beui.frame.scroll_px[1];
-
-    if (self.scroll.line_before_anchor != null) self.scroll.line_before_anchor = self.core.getLineStart(self.scroll.line_before_anchor.?);
-    blk: {
-        const tctx_ = tracy.traceNamed(@src(), "handle scroll offsets");
-        defer tctx_.end();
-
-        if (self.scroll.offset < 0) {
-            while (self.scroll.line_before_anchor != null and self.scroll.offset < 0) {
-                var prev_line: ?Core.Position = self.core.getPrevLineStart(self.scroll.line_before_anchor.?);
-                if (block.docbyteFromPosition(prev_line.?) == block.docbyteFromPosition(self.scroll.line_before_anchor.?)) {
-                    // no prev line
-                    prev_line = null;
-                }
-                const line_measure = self.layoutLine(beui, layout_cache, self.scroll.line_before_anchor.?);
-                self.scroll.offset += @floatFromInt(line_measure.height);
-                self.scroll.line_before_anchor = prev_line;
-            }
-            break :blk;
-        }
-        while (true) {
-            const this_line = self.core.getLineStart(blk2: {
-                if (self.scroll.line_before_anchor) |v| break :blk2 self.core.getNextLineStart(v);
-                break :blk2 block.positionFromDocbyte(0);
-            });
-            if (self.scroll.line_before_anchor != null and block.docbyteFromPosition(this_line) == block.docbyteFromPosition(self.scroll.line_before_anchor.?)) {
-                // no next line
-                break :blk;
-            }
-            const this_measure = self.layoutLine(beui, layout_cache, this_line);
-            if (self.scroll.offset > @as(f32, @floatFromInt(this_measure.height))) {
-                self.scroll.offset -= @floatFromInt(this_measure.height);
-                self.scroll.line_before_anchor = this_line;
-                continue;
-            } else {
-                break;
-            }
-        }
-    }
-
-    const render_start_pos = self.core.getLineStart(blk: {
-        if (self.scroll.line_before_anchor) |v| break :blk self.core.getNextLineStart(v);
-        break :blk block.positionFromDocbyte(0);
-    });
-
     const window_pos: @Vector(2, f32) = .{ 10, 10 };
     const window_size: @Vector(2, f32) = content_region_size - @Vector(2, f32){ 20, 20 };
 
@@ -268,9 +236,13 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     const replace_newline = layout_cache.font.ft_face.getCharIndex('⏎') orelse layout_cache.font.ft_face.getCharIndex('␊') orelse layout_cache.font.ft_face.getCharIndex('\\');
     const replace_cr = layout_cache.font.ft_face.getCharIndex('␍') orelse layout_cache.font.ft_face.getCharIndex('<');
 
+    const ctx = GuiRenderLineCtx{ .self = self };
+    const res = B2.virtualScroller(ui.sub(@src()), self, ScrollIndex, .from(&ctx, gui_renderLine));
+
     var line_to_render = render_start_pos;
     var line_pos: @Vector(2, f32) = @floor(@Vector(2, f32){ 10, 10 - self.scroll.offset });
     var click_target: ?usize = 0;
+    // scroll is ?Position of line_before_anchor. null = start of file.
     while (true) {
         const tctx_ = tracy.traceNamed(@src(), "handle line");
         defer tctx_.end();
@@ -473,7 +445,19 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
 
     // background
     rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg });
+    rdl.place(res.rdl, .{ 0, 0 });
     return .{ .rdl = rdl, .size = @intFromFloat(content_region_size) };
+}
+
+const GuiRenderLineCtx = struct {
+    self: *EditorView,
+};
+fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index: ScrollIndex) B2.StandardChild {
+    const self = ctx.self;
+    const ui = call_info.ui(@src());
+    _ = self;
+    _ = index;
+    return .{ .size = .{ 0, 100 }, .rdl = ui.id.b2.draw() };
 }
 
 const DefaultTheme = struct {
