@@ -153,7 +153,12 @@ pub const Beui2 = struct {
                 }
             }
         } else {
-            beui.frame.cursor = .arrow; // TODO
+            for (self.persistent.last_frame_mouse_events.items) |item| {
+                if (item.id.eql(self.persistent.click_target.?)) {
+                    beui.frame.cursor = item.cfg.capture_click.?;
+                    break;
+                }
+            }
         }
         // - mouse: store focus
         if (beui.isKeyPressed(.mouse_left)) {

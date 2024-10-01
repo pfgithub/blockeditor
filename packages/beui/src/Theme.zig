@@ -7,7 +7,7 @@ const WindowChromeCfg = struct {}; // put a close button here for example, then 
 pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child: B2.Component(B2.StandardCallInfo, void, B2.StandardChild)) B2.StandardChild {
     _ = cfg;
 
-    const ui = call_info.ui(@src());
+    var ui = call_info.ui(@src());
 
     const draw = ui.id.b2.draw();
     const wm = &ui.id.b2.persistent.wm;
@@ -62,7 +62,9 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
         wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = true, .left = true, .bottom = false, .right = false });
     }
 
+    // remove frame delay from resize
     const size = wm.windows.get(wm.current_window.?).?.size;
+    ui.constraints.available_size = .{ .w = size[0], .h = size[1] };
 
     const titlebar_height = 20;
     const border_width = 1;
