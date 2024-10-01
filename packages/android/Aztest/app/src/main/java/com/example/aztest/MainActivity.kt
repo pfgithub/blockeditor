@@ -15,7 +15,16 @@ class MainActivity : Activity() {
         // Initialize the GLSurfaceView
         glView = GLSurfaceView(this)
         glView.setEGLContextClientVersion(3)
+
+        // Set EGLConfigChooser to request alpha channel
+        glView.setEGLConfigChooser(8, 8, 8, 8, 16, 0) // RGBA 8-bit channels, 16-bit depth, 0 stencil
+
         glView.setRenderer(MyGLRenderer(this)) // Pass the activity
+
+        glView.holder.setFormat(android.graphics.PixelFormat.TRANSLUCENT) // Enable transparency
+        glView.setZOrderOnTop(true) // Set the surface to be on top of the window
+
+
         setContentView(glView)
     }
 

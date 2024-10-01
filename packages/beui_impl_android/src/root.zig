@@ -102,6 +102,18 @@ export fn zig_opengl_renderFrame() void {
         c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RED, @intCast(glyphs.size), @intCast(glyphs.size), 0, c.GL_RED, c.GL_UNSIGNED_BYTE, glyphs.data.ptr);
     }
 
+    {
+        c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
+        defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+        c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(std.mem.alignForward(usize, @sizeOf(Vertex), @alignOf(Vertex)) * draw_list.vertices.items.len), draw_list.vertices.items.ptr, c.GL_STATIC_DRAW);
+    }
+    {
+        c.glBindBuffer(c.GL_ARRAY_BUFFER, indices_buffer);
+        defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+        c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(draw_list.indices.items.len * @sizeOf(Index)), draw_list.indices.items.ptr, c.GL_STATIC_DRAW);
+    }
+
+    c.glClearColor(0, 0, 0, 0);
     c.glClear(c.GL_COLOR_BUFFER_BIT);
 
     c.glUseProgram(shader_program);
@@ -109,7 +121,7 @@ export fn zig_opengl_renderFrame() void {
     c.glBindVertexArray(vao);
     c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
     c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, indices_buffer);
-    c.glDrawElements(c.GL_TRIANGLES, indices.len, switch (Index) {
+    c.glDrawElements(c.GL_TRIANGLES, @intCast(draw_list.indices.items.len), switch (Index) {
         u8 => c.GL_UNSIGNED_BYTE,
         u16 => c.GL_UNSIGNED_SHORT,
         u32 => c.GL_UNSIGNED_INT,
@@ -120,20 +132,9 @@ export fn zig_opengl_renderFrame() void {
 
 fn applyEvents() void {}
 
-// // Triangle vertices
-const vertices = [_]Vertex{
-    .{ .pos = .{ 500, 0 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 255, 0, 0, 255 } },
-    .{ .pos = .{ 1000, 1000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 255, 0, 255 } },
-    .{ .pos = .{ 0, 1000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 0, 0, 255, 255 } },
-    .{ .pos = .{ 500, 2000 }, .uv = .{ -1.0, -1.0 }, .tint = .{ 255, 0, 0, 255 } },
-};
-const indices = [_]Index{
-    0, 1, 2,
-    3, 1, 2,
-};
-
 var shader_program: c.GLuint = 0;
 var vao: c.GLuint = 0;
+var vbo: c.GLuint = 0;
 var uniform_screen_size: c.GLint = 0;
 var screen_size: @Vector(2, i32) = .{ 100, 100 };
 var ft_texture: c.GLuint = 0;
@@ -226,7 +227,6 @@ fn createProgram() void {
     // Create a Vertex Array Object (VAO)
     {
         c.glGenVertexArrays(1, &vao);
-        var vbo: c.GLuint = 0;
         c.glGenBuffers(1, &vbo);
         c.glGenBuffers(1, &indices_buffer);
         c.glBindVertexArray(vao);
@@ -234,13 +234,7 @@ fn createProgram() void {
         {
             c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
             defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-            c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(std.mem.alignForward(usize, @sizeOf(Vertex), @alignOf(Vertex)) * vertices.len), &vertices, c.GL_STATIC_DRAW);
             setupAttribs(Vertex);
-        }
-        {
-            c.glBindBuffer(c.GL_ARRAY_BUFFER, indices_buffer);
-            defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-            c.glBufferData(c.GL_ARRAY_BUFFER, indices.len * @sizeOf(Index), &indices, c.GL_STATIC_DRAW);
         }
     }
 
@@ -254,4 +248,8 @@ fn createProgram() void {
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
     }
+
+    // Enable blending
+    c.glEnable(c.GL_BLEND);
+    c.glBlendFuncSeparate(c.GL_ONE_MINUS_DST_ALPHA, c.GL_ONE, c.GL_ONE_MINUS_DST_ALPHA, c.GL_ONE);
 }
