@@ -1,5 +1,6 @@
 //! contains default beui-themed components.
 
+const Beui = @import("Beui.zig");
 const B2 = @import("beui_experiment.zig");
 
 const WindowChromeCfg = struct {}; // put a close button here for example, then pass it to the child or use an interaction token.
@@ -14,6 +15,12 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
 
     const activate_window_ikey = ui.id.sub(@src());
     const activate_window_ires = ui.id.b2.mouseCaptureResults(activate_window_ikey);
+
+    const in_front = wm.isInFront(wm.current_window.?);
+    const border_color: Beui.Color = switch (in_front) {
+        true => .fromHexRgb(0xFF0000),
+        false => .fromHexRgb(0x770000),
+    };
 
     if (activate_window_ires.observed_mouse_down) {
         wm.bringToFrontWindow(wm.current_window.?);
@@ -76,7 +83,7 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
     draw.addRect(.{
         .pos = @floatFromInt(@Vector(2, i32){ 0, 0 }),
         .size = @floatFromInt(@Vector(2, i32){ size[0], titlebar_height }),
-        .tint = .fromHexRgb(0xFF0000),
+        .tint = border_color,
     });
     draw.addMouseEventCapture(
         drag_all_ikey,
@@ -87,17 +94,17 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
     draw.addRect(.{
         .pos = @floatFromInt(@Vector(2, i32){ 0, titlebar_height }),
         .size = @floatFromInt(@Vector(2, i32){ border_width, size[1] - titlebar_height }),
-        .tint = .fromHexRgb(0xFF0000),
+        .tint = border_color,
     });
     draw.addRect(.{
         .pos = @floatFromInt(@Vector(2, i32){ size[0] - border_width, titlebar_height }),
         .size = @floatFromInt(@Vector(2, i32){ border_width, size[1] - titlebar_height }),
-        .tint = .fromHexRgb(0xFF0000),
+        .tint = border_color,
     });
     draw.addRect(.{
         .pos = @floatFromInt(@Vector(2, i32){ border_width, size[1] - border_width }),
         .size = @floatFromInt(@Vector(2, i32){ size[0] - border_width * 2, border_width }),
-        .tint = .fromHexRgb(0xFF0000),
+        .tint = border_color,
     });
 
     // resize handlers

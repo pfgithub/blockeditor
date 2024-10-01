@@ -939,11 +939,15 @@ pub const WindowManager = struct {
         window.position = .{ left, top };
         window.size = .{ right - left, bottom - top };
     }
+    pub fn isInFront(self: *WindowManager, window_id: ID) bool {
+        return self.windows.keys()[self.windows.count() - 1].eql(window_id);
+    }
     fn fitWindow(self: *WindowManager, window: *WindowInfo) void {
         window.size = @max(window.size, @Vector(2, i32){ 10, 10 });
         window.position = @min(window.position, self.b2.frame.frame_cfg.size);
     }
     pub fn bringToFrontWindow(self: *WindowManager, window_id: ID) void {
+        if (self.isInFront(window_id)) return;
         const window = self.windows.fetchOrderedRemove(window_id).?;
         self.windows.put(window.key, window.value) catch @panic("oom");
     }
