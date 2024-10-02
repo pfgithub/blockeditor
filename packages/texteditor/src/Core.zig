@@ -1330,7 +1330,7 @@ pub const CursorPosRes = struct {
 };
 pub const CursorPositions = struct {
     idx: usize,
-    count: i32,
+    count: f32,
     positions: std.ArrayList(PositionItem),
     last_query: u64,
     last_query_result: ?CursorPosRes,

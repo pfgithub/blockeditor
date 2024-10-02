@@ -101,7 +101,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     const layout_cache = &b2.persistent.layout_cache;
     const rdl = b2.draw();
 
-    const content_region_size: @Vector(2, f32) = .{ @floatFromInt(call_info.constraints.available_size.w.?), @floatFromInt(call_info.constraints.available_size.h.?) };
+    const content_region_size: @Vector(2, f32) = .{ call_info.constraints.available_size.w.?, call_info.constraints.available_size.h.? };
 
     const arena = beui.arena();
     _ = arena;
@@ -377,23 +377,23 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     // background
     rdl.place(res.rdl, .{ 0, 0 });
     rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg });
-    rdl.addMouseEventCapture(click_id, .{ 0, 0 }, @intFromFloat(content_region_size), .{ .capture_click = .text_input });
+    rdl.addMouseEventCapture(click_id, .{ 0, 0 }, content_region_size, .{ .capture_click = .text_input });
     rdl.addUserState(user_state_id, std.ArrayList(B2.ID), posted_state_ids_al);
-    return .{ .rdl = rdl, .size = @intFromFloat(content_region_size) };
+    return .{ .rdl = rdl, .size = content_region_size };
 }
 
 const LineCharState = struct {
-    const null_offset: @Vector(2, i32) = .{ std.math.minInt(i32), std.math.minInt(i32) };
-    char_up_left_offset: @Vector(2, i32),
-    height: i32,
+    const null_offset: @Vector(2, f32) = .{ std.math.nan(f32), std.math.nan(f32) };
+    char_up_left_offset: @Vector(2, f32),
+    height: f32,
     char_position: Core.Position,
     fn isNull(self: LineCharState) bool {
-        return @reduce(.And, self.char_up_left_offset == null_offset);
+        return std.math.isNan(self.char_up_left_offset[0]);
     }
 };
 const LinePostedState = struct {
     chars: []const LineCharState,
-    line_height: i32,
+    line_height: f32,
 };
 
 const GuiRenderLineCtx = struct {
@@ -441,8 +441,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
     const rendered_area_len = rendered_area_end_docbyte - line_start_docbyte;
 
     const line_state = ui.id.b2.frame.arena.alloc(LineCharState, rendered_area_len) catch @panic("oom");
-    const null_offset: @Vector(2, i32) = .{ std.math.minInt(i32), std.math.minInt(i32) };
-    for (line_state) |*ls| ls.* = .{ .char_up_left_offset = null_offset, .height = std.math.minInt(i32), .char_position = .end };
+    for (line_state) |*ls| ls.* = .{ .char_up_left_offset = LineCharState.null_offset, .height = 0, .char_position = .end };
 
     var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
     var length_with_no_selection_render: f32 = 0.0;
@@ -483,7 +482,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
                 const invis_glyph_info = layout_cache.renderGlyph(invis_glyph, layout_test.height);
                 if (invis_glyph_info.region) |region| {
                     const glyph_size: @Vector(2, f32) = @floatFromInt(invis_glyph_info.size);
-                    const glyph_offset: @Vector(2, f32) = @floatFromInt(invis_glyph_info.offset);
+                    const glyph_offset: @Vector(2, f32) = invis_glyph_info.offset;
 
                     text_rdl.addRegion(.{
                         .pos = cursor_pos + item_offset + glyph_offset,
@@ -499,7 +498,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
             const glyph_info = layout_cache.renderGlyph(item.glyph_id, layout_test.height);
             if (glyph_info.region) |region| {
                 const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
-                const glyph_offset: @Vector(2, f32) = @floatFromInt(glyph_info.offset);
+                const glyph_offset: @Vector(2, f32) = glyph_info.offset;
 
                 const tint: Core.Highlighter.SynHlColorScope = switch (self.config.syntax_highlighting) {
                     true => ctx.syn_hl.advanceAndRead(item_docbyte),
@@ -529,20 +528,20 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
             if (cursor_info.left_cursor == .focus) {
                 text_cursor_rdl.addRect(.{
                     .pos = @floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, -1 }),
-                    .size = .{ 2, @floatFromInt(layout_test.height) },
+                    .size = .{ 2, layout_test.height },
                     .tint = DefaultTheme.cursor_color,
                 });
             }
             if (cursor_info.selected) {
                 text_bg_rdl.addRect(.{
                     .pos = @floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion, 0 }),
-                    .size = .{ portion_width, @floatFromInt(layout_test.height) },
+                    .size = .{ portion_width, layout_test.height },
                     .tint = DefaultTheme.selection_color,
                 });
             }
 
             line_state[docbyte - line_start_docbyte] = .{
-                .char_up_left_offset = @intFromFloat(@floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion + 1, 0 })),
+                .char_up_left_offset = @floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion + 1, 0 }),
                 .height = layout_test.height,
                 .char_position = block.positionFromDocbyte(docbyte),
             };
@@ -558,7 +557,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
     text_bg_rdl.addUserState(rs_id, LinePostedState, lps);
     ctx.posted_state_ids.append(rs_id) catch @panic("oom");
 
-    return .{ .size = .{ @intFromFloat(cursor_pos[0]), layout_test.height }, .rdl = text_bg_rdl };
+    return .{ .size = .{ cursor_pos[0], layout_test.height }, .rdl = text_bg_rdl };
 }
 
 const DefaultTheme = struct {

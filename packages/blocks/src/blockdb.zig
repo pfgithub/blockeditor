@@ -34,13 +34,13 @@ test BlockDB {
     const counter = my_created_block.typedComponent(bi.CounterBlock).?;
     defer counter.unref();
 
-    try std.testing.expectEqual(@as(i32, 0), counter.value.count);
+    try std.testing.expectEqual(@as(f32, 0), counter.value.count);
     counter.applySimpleOperation(.{ .add = 12 }, null);
-    try std.testing.expectEqual(@as(i32, 12), counter.value.count);
+    try std.testing.expectEqual(@as(f32, 12), counter.value.count);
     counter.applySimpleOperation(.{ .set = 5 }, null);
-    try std.testing.expectEqual(@as(i32, 5), counter.value.count);
+    try std.testing.expectEqual(@as(f32, 5), counter.value.count);
     counter.applySimpleOperation(.{ .add = 23 }, null);
-    try std.testing.expectEqual(@as(i32, 28), counter.value.count);
+    try std.testing.expectEqual(@as(f32, 28), counter.value.count);
 }
 
 pub const BlockDB = struct {

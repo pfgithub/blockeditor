@@ -42,7 +42,7 @@ pub const LayoutItem = struct {
 pub const LayoutInfo = struct {
     last_used: i64,
     ticked_last_frame: bool,
-    height: i32,
+    height: f32,
     items: []LayoutItem,
 };
 const ShapingSegment = struct {
@@ -149,7 +149,7 @@ pub fn layoutLine(self: *LayoutCache, beui: *Beui, line_text: []const u8) Layout
     return gpres.value_ptr.*;
 }
 fn layoutLine_internal(self: *LayoutCache, line_text: []const u8, layout_result_al: *std.ArrayList(LayoutItem)) LayoutInfo {
-    const line_height: i32 = 16;
+    const line_height: f32 = 16;
 
     if (line_text.len == 0) return .{
         .last_used = 0,
@@ -235,7 +235,7 @@ fn layoutLine_internal(self: *LayoutCache, line_text: []const u8, layout_result_
     };
 }
 
-pub fn renderGlyph(self: *LayoutCache, glyph_id: u32, line_height: i32) GlyphCacheEntry {
+pub fn renderGlyph(self: *LayoutCache, glyph_id: u32, line_height: f32) GlyphCacheEntry {
     const gpres = self.glyph_cache.getOrPut(glyph_id) catch @panic("oom");
     if (gpres.found_existing) return gpres.value_ptr.*;
     const result: GlyphCacheEntry = self.renderGlyph_nocache(glyph_id, line_height) catch |e| blk: {
@@ -245,7 +245,7 @@ pub fn renderGlyph(self: *LayoutCache, glyph_id: u32, line_height: i32) GlyphCac
     gpres.value_ptr.* = result;
     return result;
 }
-fn renderGlyph_nocache(self: *LayoutCache, glyph_id: u32, line_height: i32) !GlyphCacheEntry {
+fn renderGlyph_nocache(self: *LayoutCache, glyph_id: u32, line_height: f32) !GlyphCacheEntry {
     try self.font.ft_face.loadGlyph(glyph_id, .{ .render = true });
     const glyph = self.font.ft_face.glyph();
     const bitmap = glyph.bitmap();
@@ -262,7 +262,7 @@ fn renderGlyph_nocache(self: *LayoutCache, glyph_id: u32, line_height: i32) !Gly
     self.glyphs.set(region, bitmap.buffer().?);
 
     return .{
-        .offset = .{ glyph.bitmapLeft(), (line_height - 4) - glyph.bitmapTop() },
+        .offset = .{ @floatFromInt(glyph.bitmapLeft()), (line_height - 4) - @as(f32, @floatFromInt(glyph.bitmapTop())) },
         .size = .{ bitmap.width(), bitmap.rows() },
         .region = region,
     };
@@ -270,6 +270,6 @@ fn renderGlyph_nocache(self: *LayoutCache, glyph_id: u32, line_height: i32) !Gly
 
 pub const GlyphCacheEntry = struct {
     size: @Vector(2, u32),
-    offset: @Vector(2, i32) = .{ 0, 0 },
+    offset: @Vector(2, f32) = .{ 0, 0 },
     region: ?Beui.Texpack.Region,
 };

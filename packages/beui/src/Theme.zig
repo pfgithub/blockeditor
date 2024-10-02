@@ -35,31 +35,31 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
     const drag_left_ikey = ui.id.sub(@src());
     const drag_top_left_ikey = ui.id.sub(@src());
     if (ui.id.b2.mouseCaptureResults(drag_all_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = true, .left = true, .bottom = true, .right = true });
+        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = true, .bottom = true, .right = true });
     }
     if (ui.id.b2.mouseCaptureResults(drag_top_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = true, .left = false, .bottom = false, .right = false });
+        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = false, .bottom = false, .right = false });
     }
     if (ui.id.b2.mouseCaptureResults(drag_top_right_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = true, .left = false, .bottom = false, .right = true });
+        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = false, .bottom = false, .right = true });
     }
     if (ui.id.b2.mouseCaptureResults(drag_right_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = false, .left = false, .bottom = false, .right = true });
+        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = false, .right = true });
     }
     if (ui.id.b2.mouseCaptureResults(drag_bottom_right_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = false, .left = false, .bottom = true, .right = true });
+        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = true, .right = true });
     }
     if (ui.id.b2.mouseCaptureResults(drag_bottom_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = false, .left = false, .bottom = true, .right = false });
+        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = true, .right = false });
     }
     if (ui.id.b2.mouseCaptureResults(drag_bottom_left_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = false, .left = true, .bottom = true, .right = false });
+        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = true, .bottom = true, .right = false });
     }
     if (ui.id.b2.mouseCaptureResults(drag_left_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = false, .left = true, .bottom = false, .right = false });
+        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = true, .bottom = false, .right = false });
     }
     if (ui.id.b2.mouseCaptureResults(drag_top_left_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, @intFromFloat(ui.id.b2.persistent.beui1.frame.mouse_offset), .{ .top = true, .left = true, .bottom = false, .right = false });
+        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = true, .bottom = false, .right = false });
     }
 
     // remove frame delay from resize
@@ -84,8 +84,8 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
     draw.place(child_res.rdl, .{ border_width, titlebar_height });
 
     draw.addRect(.{
-        .pos = @floatFromInt(@Vector(2, i32){ 0, 0 }),
-        .size = @floatFromInt(@Vector(2, i32){ size[0], titlebar_height }),
+        .pos = .{ 0, 0 },
+        .size = .{ size[0], titlebar_height },
         .tint = border_color,
     });
     draw.addMouseEventCapture(
@@ -95,18 +95,18 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
         .{ .capture_click = .arrow },
     );
     draw.addRect(.{
-        .pos = @floatFromInt(@Vector(2, i32){ 0, titlebar_height }),
-        .size = @floatFromInt(@Vector(2, i32){ border_width, size[1] - titlebar_height }),
+        .pos = .{ 0, titlebar_height },
+        .size = .{ border_width, size[1] - titlebar_height },
         .tint = border_color,
     });
     draw.addRect(.{
-        .pos = @floatFromInt(@Vector(2, i32){ size[0] - border_width, titlebar_height }),
-        .size = @floatFromInt(@Vector(2, i32){ border_width, size[1] - titlebar_height }),
+        .pos = .{ size[0] - border_width, titlebar_height },
+        .size = .{ border_width, size[1] - titlebar_height },
         .tint = border_color,
     });
     draw.addRect(.{
-        .pos = @floatFromInt(@Vector(2, i32){ border_width, size[1] - border_width }),
-        .size = @floatFromInt(@Vector(2, i32){ size[0] - border_width * 2, border_width }),
+        .pos = .{ border_width, size[1] - border_width },
+        .size = .{ size[0] - border_width * 2, border_width },
         .tint = border_color,
     });
 
@@ -131,8 +131,8 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
     );
     // draw a final background for the window
     draw.addRect(.{
-        .pos = @floatFromInt(@Vector(2, i32){ 0, 0 }),
-        .size = @floatFromInt(@Vector(2, i32){ size[0], size[1] }),
+        .pos = .{ 0, 0 },
+        .size = .{ size[0], size[1] },
         .tint = .fromHexRgb(0xFFFFFF),
     });
 

@@ -770,7 +770,7 @@ pub fn main() !void {
             const id = blk: {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 newFrame");
                 defer b2ft_.end();
-                break :blk b2.newFrame(&beui, .{ .size = .{ @intCast(fb_width), @intCast(fb_height) } });
+                break :blk b2.newFrame(&beui, .{ .size = .{ @floatFromInt(fb_width), @floatFromInt(fb_height) } });
             };
 
             if (using_zgui) {

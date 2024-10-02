@@ -32,7 +32,7 @@ fn IdArrayMap(comptime V: type) type {
 }
 
 const Beui2FrameCfg = struct {
-    size: @Vector(2, i32),
+    size: @Vector(2, f32),
 };
 const Beui2Frame = struct { arena: std.mem.Allocator, frame_cfg: Beui2FrameCfg, scroll_target: ?ScrollTarget };
 const ScrollTarget = struct {
@@ -40,7 +40,7 @@ const ScrollTarget = struct {
     scroll: @Vector(2, f32),
 };
 const MouseEventInfo = struct {
-    offset: @Vector(2, i32),
+    offset: @Vector(2, f32),
     observed_mouse_down: bool = false,
 };
 const Beui2Persistent = struct {
@@ -122,7 +122,7 @@ pub const Beui2 = struct {
         self.persistent.layout_cache.tick(beui);
         // handle events
         // - scroll: if there is a scroll event, hit test to find which handler it touched
-        const mousepos_int: @Vector(2, i32) = @intFromFloat(beui.persistent.mouse_pos);
+        const mousepos_int: @Vector(2, f32) = beui.persistent.mouse_pos;
         var scroll_target: ?ScrollTarget = null;
         if (@reduce(.Or, @abs(beui.frame.scroll_px) > @as(@Vector(2, f32), @splat(0.0)))) {
             for (self.persistent.last_frame_mouse_events.items) |item| {
@@ -236,10 +236,10 @@ pub const Beui2 = struct {
                 mouse_left_held = true;
             }
         }
-        var mouse_pos: @Vector(2, i32) = .{ 0, 0 };
+        var mouse_pos: @Vector(2, f32) = .{ 0, 0 };
         var observed_mouse_down: bool = false;
         if (self.persistent.prev_frame_mouse_event_to_offset.getPtr(capture_id)) |mof| {
-            const b1pos: @Vector(2, i32) = @intFromFloat(self.persistent.beui1.persistent.mouse_pos);
+            const b1pos: @Vector(2, f32) = self.persistent.beui1.persistent.mouse_pos;
             mouse_pos = b1pos - mof.offset;
             observed_mouse_down = mof.observed_mouse_down;
         }
@@ -287,7 +287,7 @@ pub const Beui2 = struct {
     }
 };
 const GenericDrawListState = struct {
-    offset_from_screen_ul: @Vector(2, i32),
+    offset_from_screen_ul: @Vector(2, f32),
     state: *const anyopaque,
     type_id: [*:0]const u8,
 
@@ -299,7 +299,7 @@ const GenericDrawListState = struct {
 
 pub const MouseCaptureResults = struct {
     mouse_left_held: bool,
-    mouse_pos: @Vector(2, i32),
+    mouse_pos: @Vector(2, f32),
     observed_mouse_down: bool,
 };
 
@@ -420,15 +420,15 @@ pub const ID = struct {
 
 const MouseEventEntry = struct {
     id: ID,
-    pos: @Vector(2, i32),
-    size: @Vector(2, i32),
+    pos: @Vector(2, f32),
+    size: @Vector(2, f32),
     cfg: MouseEventCaptureConfig,
 
-    pub fn coversPoint(self: MouseEventEntry, point: @Vector(2, i32)) bool {
+    pub fn coversPoint(self: MouseEventEntry, point: @Vector(2, f32)) bool {
         return pointInRect(point, self.pos, self.size);
     }
 };
-pub fn pointInRect(point: @Vector(2, i32), rect_pos: @Vector(2, i32), rect_size: @Vector(2, i32)) bool {
+pub fn pointInRect(point: @Vector(2, f32), rect_pos: @Vector(2, f32), rect_size: @Vector(2, f32)) bool {
     return @reduce(.And, point >= rect_pos) and @reduce(.And, point < rect_pos + rect_size);
 }
 const MouseEventCaptureConfig = struct {
@@ -445,14 +445,14 @@ const RepositionableDrawList = struct {
             image: ?render_list.RenderListImage,
         },
         mouse: struct {
-            pos: @Vector(2, i32),
-            size: @Vector(2, i32),
+            pos: @Vector(2, f32),
+            size: @Vector(2, f32),
             id: ID,
             cfg: MouseEventCaptureConfig,
         },
         embed: struct {
             child: *RepositionableDrawList,
-            offset: @Vector(2, i32),
+            offset: @Vector(2, f32),
         },
         user_state: struct {
             id: ID,
@@ -464,7 +464,7 @@ const RepositionableDrawList = struct {
     b2: *Beui2,
     content: std.ArrayList(RepositionableDrawChild),
     placed: bool = false,
-    pub fn place(self: *RepositionableDrawList, child: *RepositionableDrawList, offset_pos: @Vector(2, i32)) void {
+    pub fn place(self: *RepositionableDrawList, child: *RepositionableDrawList, offset_pos: @Vector(2, f32)) void {
         std.debug.assert(!child.placed);
         self.content.append(.{ .embed = .{ .child = child, .offset = offset_pos } }) catch @panic("oom");
         child.placed = true;
@@ -557,7 +557,7 @@ const RepositionableDrawList = struct {
             .tint = color,
         });
     }
-    pub fn addMouseEventCapture(self: *RepositionableDrawList, id: ID, pos: @Vector(2, i32), size: @Vector(2, i32), cfg: MouseEventCaptureConfig) void {
+    pub fn addMouseEventCapture(self: *RepositionableDrawList, id: ID, pos: @Vector(2, f32), size: @Vector(2, f32), cfg: MouseEventCaptureConfig) void {
         self.content.append(.{ .mouse = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
     }
 
@@ -566,11 +566,11 @@ const RepositionableDrawList = struct {
         out_events: ?*std.ArrayList(MouseEventEntry),
         out_rdl_states: ?*IdMap(GenericDrawListState),
     };
-    fn finalize(self: *RepositionableDrawList, cfg: FinalizeCfg, offset_pos: @Vector(2, i32)) void {
+    fn finalize(self: *RepositionableDrawList, cfg: FinalizeCfg, offset_pos: @Vector(2, f32)) void {
         for (self.content.items) |item| {
             switch (item) {
                 .geometry => |geo| {
-                    if (cfg.out_list) |v| v.addVertices(geo.image, geo.vertices, geo.indices, @floatFromInt(offset_pos));
+                    if (cfg.out_list) |v| v.addVertices(geo.image, geo.vertices, geo.indices, offset_pos);
                 },
                 .mouse => |mev| {
                     if (cfg.out_events) |v| v.append(.{
@@ -620,7 +620,7 @@ fn textOnly(
     }
 
     return .{
-        .size = .{ @intFromFloat(char_pos[0]), 10 },
+        .size = .{ char_pos[0], 10 },
         .rdl = draw,
     };
 }
@@ -667,10 +667,10 @@ const StandardConstraints = struct {
     // Button( BG(.blue, HLayout( Text("hello", .white), 1fr ) ) )
     // HLayout in that case uses all available space because of the '1fr'
 
-    available_size: struct { w: ?i32, h: ?i32 },
+    available_size: struct { w: ?f32, h: ?f32 },
 };
 pub const StandardChild = struct {
-    size: @Vector(2, i32),
+    size: @Vector(2, f32),
     rdl: *RepositionableDrawList,
 };
 
@@ -687,7 +687,7 @@ pub const StandardUI = struct {
     pub fn sub(self: StandardUI, src: std.builtin.SourceLocation) StandardCallInfo {
         return .{ .caller_id = self.id.sub(src), .constraints = self.constraints };
     }
-    pub fn subWithOffset(self: StandardUI, src: std.builtin.SourceLocation, subtract_size: @Vector(2, i32)) StandardCallInfo {
+    pub fn subWithOffset(self: StandardUI, src: std.builtin.SourceLocation, subtract_size: @Vector(2, f32)) StandardCallInfo {
         var res_constraints = self.constraints;
         if (res_constraints.available_size.w) |*w| w.* -= subtract_size[0];
         if (res_constraints.available_size.h) |*h| h.* -= subtract_size[1];
@@ -752,7 +752,7 @@ fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component
 
     const draw = ui.id.b2.draw();
     draw.place(child.rdl, .{ 0, 0 });
-    draw.addRect(.{ .pos = .{ 0, 0 }, .size = @floatFromInt(child.size), .tint = color });
+    draw.addRect(.{ .pos = .{ 0, 0 }, .size = child.size, .tint = color });
     return .{ .size = child.size, .rdl = draw };
 }
 const ScrollState = struct {
@@ -786,7 +786,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
 
     scroll_state.offset += scroll_by[1];
 
-    var cursor: i32 = @intFromFloat(scroll_state.offset);
+    var cursor: f32 = scroll_state.offset;
 
     const idx_initial = bytesToIndex(&scroll_state.anchor, Index);
     var idx = idx_initial.update(context);
@@ -806,7 +806,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
 
             backwards_cursor -= child.size[1];
             scroll_state.anchor = indexToBytes(backwards_index);
-            scroll_state.offset -= @floatFromInt(child.size[1]);
+            scroll_state.offset -= child.size[1];
             rdl.place(child.rdl, .{ 0, backwards_cursor });
         }
     }
@@ -819,7 +819,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
 
         if (cursor < 0) blk: {
             scroll_state.anchor = indexToBytes(idx.?.next(context) orelse break :blk);
-            scroll_state.offset += @floatFromInt(child.size[1]);
+            scroll_state.offset += child.size[1];
         }
         rdl.place(child.rdl, .{ 0, cursor });
         cursor += child.size[1];
@@ -879,8 +879,8 @@ fn permute(len: usize, index: usize) usize {
 }
 
 const WindowInfo = struct {
-    position: @Vector(2, i32),
-    size: @Vector(2, i32),
+    position: @Vector(2, f32),
+    size: @Vector(2, f32),
     this_frame_result: ?*RepositionableDrawList,
 };
 pub const WindowManager = struct {
@@ -927,8 +927,8 @@ pub const WindowManager = struct {
         if (window_ptr.this_frame_result != null) @panic("addWindow called twice for the same id");
         window_ptr.this_frame_result = child_res.rdl;
     }
-    pub fn dragWindow(self: *WindowManager, window_id: ID, offset: @Vector(2, i32), anchors: struct { top: bool, left: bool, bottom: bool, right: bool }) void {
-        if (@reduce(.And, offset == @Vector(2, i32){ 0, 0 })) return;
+    pub fn dragWindow(self: *WindowManager, window_id: ID, offset: @Vector(2, f32), anchors: struct { top: bool, left: bool, bottom: bool, right: bool }) void {
+        if (@reduce(.And, offset == @Vector(2, f32){ 0, 0 })) return;
         const window = self.windows.getPtr(window_id).?;
 
         var top = window.position[1]; // var left, var top = window.position;
@@ -948,7 +948,7 @@ pub const WindowManager = struct {
         return self.windows.keys()[self.windows.count() - 1].eql(window_id);
     }
     fn fitWindow(self: *WindowManager, window: *WindowInfo) void {
-        window.size = @max(window.size, @Vector(2, i32){ 10, 10 });
+        window.size = @max(window.size, @Vector(2, f32){ 10, 10 });
         window.position = @min(window.position, self.b2.frame.frame_cfg.size);
     }
     pub fn bringToFrontWindow(self: *WindowManager, window_id: ID) void {
