@@ -5,6 +5,7 @@ TODO
 - [x] Try renderdoc https://renderdoc.org/ (linux or windows)
 - [x] Use rr next time there's a bug
 - [ ] Try android gpu inspector https://developer.android.com/agi/start
+- [ ] Try undo.io on x86_64 linux to see if it works with the gpu
 
 Tasks:
 

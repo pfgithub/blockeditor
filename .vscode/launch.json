@@ -8,17 +8,30 @@
             "trace": "Off",
         },
         {
+            "name": "Debug Blockeditor",
             "preLaunchTask": "Build blockeditor (Debug)",
             "type": "midas-gdb",
             "request": "launch",
-            "name": "Debug blockeditor",
-            "program": "zig-out/bin/blockeditor",
+            "program": "${workspaceFolder}/zig-out/bin/blockeditor",
             "cwd": "${workspaceFolder}",
             "use-dap": true, // set to false only if Midas stops working.
             "gdbPath": "gdb", // if GDB is on $PATH, this field is not required
-            "stopOnEntry": true,
+            "stopOnEntry": false,
             "trace": "Off",
             "allStopMode": true
+        },
+        {
+          "name": "Debug Blockedigtor (Mac)",
+          "preLaunchTask": "Build blockeditor (Debug)",
+          "type": "cppdbg",
+          "request": "launch",
+          "program": "${workspaceFolder}/zig-out/bin/blockeditor",
+          "args": [],
+          "stopAtEntry": false,
+          "cwd": "${workspaceFolder}",
+          "environment": [],
+          "externalConsole": false,
+          "MIMode": "lldb"
         }
     ]
 }
