@@ -9,6 +9,19 @@
                 "build",
                 "--prominent-compile-errors"
             ],
+            "problemMatcher":"$zig",
+        },
+        {
+            "type": "process",
+            "label": "Build blockeditor (ReleaseSafe + Tracy)",
+            "command": "zig",
+            "args": [
+                "build",
+                "--prominent-compile-errors",
+                "-Doptimize=ReleaseSafe",
+                "-Dtracy",
+            ],
+            "problemMatcher":"$zig"
         }
     ]
 }
