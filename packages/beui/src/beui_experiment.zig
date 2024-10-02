@@ -890,8 +890,16 @@ pub const WindowManager = struct {
     // - windows support docking. you can dock a window to another window to make it tabbed,
     //   and you can dock a tabbed window to another window to have two layers of tabs
 
+    // currently, WindowManager styles the windows. Ideally, the user would be able to style the
+    // windows however they want, maybe with a special WindowCallInfo arg and WindowChild return
+    // type. The theme window then has to handle all the styling stuff about the window:
+    // - tabs, borders, resizing, ... . Or maybe that isn't possible. And even more ideally,
+    //   beui2 exports an unstyled component for the window so it can be styled however you
+    //   want without having to reimplement the whole interaction model.
+
     b2: *Beui2,
     windows: IdArrayMap(WindowInfo),
+    /// 'dependency injection' so child components can see if they're focused
     current_window: ?ID,
 
     pub fn init(b2: *Beui2, gpa: std.mem.Allocator) WindowManager {
