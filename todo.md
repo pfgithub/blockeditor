@@ -98,6 +98,15 @@ wishlist:
   `(lhs: Query, rhs: Count) -> std.math.Order`. if it returns `.gt` but the node to the right of it
   returns `.lt` then we know the target node.
 - [ ] in editor, pinch to zoom out and see an overview of all the decls. pinch to zoom back in.
+- [ ] get input latency to 0 by using wayland https://stackoverflow.com/questions/19102189/noticable-lag-in-a-simple-opengl-program-with-mouse-input-through-glfw
+  - wayland makes it possible for your application to consistently send its frames at the same
+    rate as the mouse cursor updates. that's not zero delay but that's probably the lowest
+    possible amount of delay you could get on a computer program running within a 
+  - glfw pr: https://github.com/glfw/glfw/pull/1406 . we can merge that locally along with
+    trackpad gestures https://github.com/glfw/glfw/pull/2419 in our copy of glfw.
+  - it still won't be perfect - the trick is the wayland compositor keeps capturing cursor events
+    until the end of the frame, while our application captures it at the start of the frame.
+    and apparently gpus have a special mechanism for rendering a perfect cursor.
 
 
 future blocks:
