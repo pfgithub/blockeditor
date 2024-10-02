@@ -4,8 +4,21 @@
             "type": "midas-rr",
             "request": "attach",
             "use-dap": true, // set to false if Midas stops working.
-            "name": "rr",
+            "name": "Run saved rr trace",
             "trace": "Off",
+        },
+        {
+            "preLaunchTask": "Build blockeditor (Debug)",
+            "type": "midas-gdb",
+            "request": "launch",
+            "name": "Debug blockeditor",
+            "program": "zig-out/bin/blockeditor",
+            "cwd": "${workspaceFolder}",
+            "use-dap": true, // set to false only if Midas stops working.
+            "gdbPath": "gdb", // if GDB is on $PATH, this field is not required
+            "stopOnEntry": true,
+            "trace": "Off",
+            "allStopMode": true
         }
     ]
 }
