@@ -49,6 +49,7 @@ pub fn build(b: *std.Build) void {
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
 
     const blockeditor_exe = deps.beui_impl_glfw_wgpu.InstallFile2.create(b, blockeditor_dep.namedLazyPath("blockeditor"), .bin, null);
+    b.getInstallStep().dependOn(&blockeditor_exe.step);
     b.installArtifact(blocks_net_dep.artifact("server"));
     b.installArtifact(texteditor_dep.artifact("zls"));
     b.installArtifact(blocks_dep.artifact("bench"));

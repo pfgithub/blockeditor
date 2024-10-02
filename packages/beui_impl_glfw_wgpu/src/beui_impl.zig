@@ -716,7 +716,7 @@ pub fn main() !void {
 
     var timer = try std.time.Timer.start();
 
-    while (!window.shouldClose() and window.getKey(.escape) != .press) {
+    while (!window.shouldClose()) {
         tracy.frameMark();
         timer.reset();
 
