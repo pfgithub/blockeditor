@@ -905,6 +905,10 @@ pub const WindowManager = struct {
         self.windows.deinit();
     }
 
+    fn addWindow_child(child: *const Component(StandardCallInfo, void, StandardChild), call_info: StandardCallInfo, _: void) StandardChild {
+        const ui = call_info.ui(@src());
+        return child.call(ui.sub(@src()), {});
+    }
     pub fn addWindow(self: *WindowManager, window_id: ID, child: Component(StandardCallInfo, void, StandardChild)) void {
         const gpres = self.windows.getOrPut(window_id) catch @panic("oom");
         if (!gpres.found_existing) {
@@ -917,10 +921,10 @@ pub const WindowManager = struct {
         const prev_window = self.current_window;
         self.current_window = window_id;
         defer self.current_window = prev_window;
-        const child_res = child.call(.{
+        const child_res = Theme.windowChrome(.{
             .caller_id = window_id.sub(@src()),
             .constraints = .{ .available_size = .{ .w = gpres.value_ptr.size[0], .h = gpres.value_ptr.size[1] } },
-        }, {});
+        }, .{}, .from(&child, addWindow_child));
         // after calling child, the hash map might have reordered itself. we must get a new pointer
         const window_ptr = self.windows.getPtr(window_id).?;
         // this check is done here just in case the child called addWindow with its own id so we still catch that.
