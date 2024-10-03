@@ -275,7 +275,7 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         }};
 
         const vertex_buffers = [_]wgpu.VertexBufferLayout{.{
-            .array_stride = std.mem.alignForward(usize, @sizeOf(Genres.Vertex), @alignOf(Genres.Vertex)),
+            .array_stride = @sizeOf(Genres.Vertex),
             .attribute_count = Genres.attrs.len,
             .attributes = Genres.attrs.ptr,
         }};

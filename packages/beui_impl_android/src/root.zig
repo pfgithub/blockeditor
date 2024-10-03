@@ -122,7 +122,7 @@ export fn zig_opengl_renderFrame() void {
     {
         c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
         defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-        c.glBufferData(c.GL_ARRAY_BUFFER, @intCast(std.mem.alignForward(usize, @sizeOf(Vertex), @alignOf(Vertex)) * draw_list.vertices.items.len), draw_list.vertices.items.ptr, c.GL_STATIC_DRAW);
+        c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(Vertex), draw_list.vertices.items.ptr, c.GL_STATIC_DRAW);
     }
     {
         // rewrite index data to not use base_vertex. glDrawElementsBaseVertex is available in gles3.2, but the emulator
@@ -190,7 +190,7 @@ const Index = Beui.draw_lists.RenderListIndex;
 
 fn setupAttribs(comptime V: type) void {
     comptime var index: c.GLuint = 0;
-    const stride: c.GLint = @intCast(std.mem.alignForward(usize, @sizeOf(V), @alignOf(V)));
+    const stride: c.GLint = @intCast(@sizeOf(V));
     inline for (@typeInfo(V).@"struct".fields) |field| {
         const offset: ?*const anyopaque = @ptrFromInt(@offsetOf(V, field.name));
         c.glEnableVertexAttribArray(index);
