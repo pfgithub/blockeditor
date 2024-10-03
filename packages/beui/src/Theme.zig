@@ -4,16 +4,14 @@ const Beui = @import("Beui.zig");
 const B2 = @import("beui_experiment.zig");
 
 const WindowChromeCfg = struct {}; // put a close button here for example, then pass it to the child or use an interaction token.
-pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child: B2.Component(B2.StandardCallInfo, void, B2.StandardChild)) B2.StandardChild {
+pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, ikeys: B2.WindowIkeys, child: B2.Component(B2.StandardCallInfo, void, B2.StandardChild)) B2.StandardChild {
     _ = cfg;
 
     var ui = call_info.ui(@src());
 
     const draw = ui.id.b2.draw();
     const wm = &ui.id.b2.persistent.wm;
-
-    const activate_window_ikey = ui.id.sub(@src());
-    const activate_window_ires = ui.id.b2.mouseCaptureResults(activate_window_ikey);
+    const size: @Vector(2, f32) = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? };
 
     const in_front = wm.isInFront(wm.current_window.?);
     const border_color: Beui.Color = switch (in_front) {
@@ -21,58 +19,13 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
         false => .fromHexRgb(0x770000),
     };
 
-    if (activate_window_ires.observed_mouse_down) {
-        wm.bringToFrontWindow(wm.current_window.?);
-    }
-
-    const drag_all_ikey = ui.id.sub(@src());
-    const drag_top_ikey = ui.id.sub(@src());
-    const drag_top_right_ikey = ui.id.sub(@src());
-    const drag_right_ikey = ui.id.sub(@src());
-    const drag_bottom_right_ikey = ui.id.sub(@src());
-    const drag_bottom_ikey = ui.id.sub(@src());
-    const drag_bottom_left_ikey = ui.id.sub(@src());
-    const drag_left_ikey = ui.id.sub(@src());
-    const drag_top_left_ikey = ui.id.sub(@src());
-    if (ui.id.b2.mouseCaptureResults(drag_all_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = true, .bottom = true, .right = true });
-    }
-    if (ui.id.b2.mouseCaptureResults(drag_top_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = false, .bottom = false, .right = false });
-    }
-    if (ui.id.b2.mouseCaptureResults(drag_top_right_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = false, .bottom = false, .right = true });
-    }
-    if (ui.id.b2.mouseCaptureResults(drag_right_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = false, .right = true });
-    }
-    if (ui.id.b2.mouseCaptureResults(drag_bottom_right_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = true, .right = true });
-    }
-    if (ui.id.b2.mouseCaptureResults(drag_bottom_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = true, .right = false });
-    }
-    if (ui.id.b2.mouseCaptureResults(drag_bottom_left_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = true, .bottom = true, .right = false });
-    }
-    if (ui.id.b2.mouseCaptureResults(drag_left_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = true, .bottom = false, .right = false });
-    }
-    if (ui.id.b2.mouseCaptureResults(drag_top_left_ikey).mouse_left_held) {
-        wm.dragWindow(wm.current_window.?, ui.id.b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = true, .bottom = false, .right = false });
-    }
-
-    // remove frame delay from resize
-    const size = wm.windows.get(wm.current_window.?).?.size;
-    ui.constraints.available_size = .{ .w = size[0], .h = size[1] };
-
     const titlebar_height = 20;
     const border_width = 1;
     const resize_width = 10;
 
     // detect any mouse down event over the window that hasn't been captured by someone else
     draw.addMouseEventCapture(
-        activate_window_ikey,
+        ikeys.activate_window_ikey,
         .{ 0, 0 },
         .{ size[0], size[1] },
         .{ .observe_mouse_down = true },
@@ -89,7 +42,7 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
         .tint = border_color,
     });
     draw.addMouseEventCapture(
-        drag_all_ikey,
+        ikeys.drag_all_ikey,
         .{ 0, 0 },
         .{ size[0], titlebar_height },
         .{ .capture_click = .arrow },
@@ -112,14 +65,14 @@ pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, child:
 
     // resize handlers
     {
-        draw.addMouseEventCapture(drag_top_ikey, .{ 0, -resize_width }, .{ size[0], resize_width }, .{ .capture_click = .resize_ns });
-        draw.addMouseEventCapture(drag_top_right_ikey, .{ size[0], -resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
-        draw.addMouseEventCapture(drag_right_ikey, .{ size[0], 0 }, .{ resize_width, size[1] }, .{ .capture_click = .resize_ew });
-        draw.addMouseEventCapture(drag_bottom_right_ikey, .{ size[0], size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
-        draw.addMouseEventCapture(drag_bottom_ikey, .{ 0, size[1] }, .{ size[0], resize_width }, .{ .capture_click = .resize_ns });
-        draw.addMouseEventCapture(drag_bottom_left_ikey, .{ -resize_width, size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
-        draw.addMouseEventCapture(drag_left_ikey, .{ -resize_width, 0 }, .{ resize_width, size[1] }, .{ .capture_click = .resize_ew });
-        draw.addMouseEventCapture(drag_top_left_ikey, .{ -resize_width, -resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
+        draw.addMouseEventCapture(ikeys.drag_top_ikey, .{ 0, -resize_width }, .{ size[0], resize_width }, .{ .capture_click = .resize_ns });
+        draw.addMouseEventCapture(ikeys.drag_top_right_ikey, .{ size[0], -resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
+        draw.addMouseEventCapture(ikeys.drag_right_ikey, .{ size[0], 0 }, .{ resize_width, size[1] }, .{ .capture_click = .resize_ew });
+        draw.addMouseEventCapture(ikeys.drag_bottom_right_ikey, .{ size[0], size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
+        draw.addMouseEventCapture(ikeys.drag_bottom_ikey, .{ 0, size[1] }, .{ size[0], resize_width }, .{ .capture_click = .resize_ns });
+        draw.addMouseEventCapture(ikeys.drag_bottom_left_ikey, .{ -resize_width, size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
+        draw.addMouseEventCapture(ikeys.drag_left_ikey, .{ -resize_width, 0 }, .{ resize_width, size[1] }, .{ .capture_click = .resize_ew });
+        draw.addMouseEventCapture(ikeys.drag_top_left_ikey, .{ -resize_width, -resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
     }
 
     // catch any straggling clicks or scrolls over the window so they don't fall to a window behind us

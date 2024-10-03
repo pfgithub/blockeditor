@@ -883,6 +883,31 @@ const WindowInfo = struct {
     size: @Vector(2, f32),
     this_frame_result: ?*RepositionableDrawList,
 };
+
+// windows:
+// - let's allow their resize to be delayed by one frame. that's kind of required unfortunately.
+//   - unless what if we could in this order:
+//     - at the beginning of the frame, handle window movement from last frame
+//       - we can do this by passing in ikeys to Theme.windowChrome, and handling window movement
+//         in a `tick()` fn or on the first `addWindow` call
+//     - then, add windows. they have accurate positions already and will be rendered the right size
+//     - I think that makes sense
+
+pub const WindowIkeys = struct {
+    window_id: ID,
+
+    activate_window_ikey: ID,
+
+    drag_all_ikey: ID,
+    drag_top_ikey: ID,
+    drag_top_right_ikey: ID,
+    drag_right_ikey: ID,
+    drag_bottom_right_ikey: ID,
+    drag_bottom_ikey: ID,
+    drag_bottom_left_ikey: ID,
+    drag_left_ikey: ID,
+    drag_top_left_ikey: ID,
+};
 pub const WindowManager = struct {
     // TARGET:
     // - windows have titles and collapse buttons / close buttons
@@ -902,15 +927,64 @@ pub const WindowManager = struct {
     /// 'dependency injection' so child components can see if they're focused
     current_window: ?ID,
 
+    this_frame_window_ikeys: std.ArrayList(WindowIkeys),
+    last_frame_window_ikeys: std.ArrayList(WindowIkeys),
+
     pub fn init(b2: *Beui2, gpa: std.mem.Allocator) WindowManager {
         return .{
             .b2 = b2,
             .windows = .init(gpa),
             .current_window = null,
+
+            .this_frame_window_ikeys = .init(gpa),
+            .last_frame_window_ikeys = .init(gpa),
         };
     }
     pub fn deinit(self: *WindowManager) void {
+        self.last_frame_window_ikeys.deinit();
+        self.this_frame_window_ikeys.deinit();
         self.windows.deinit();
+    }
+
+    fn maybeHandleInteractionForLastFrame(self: *WindowManager, b2: *Beui2) void {
+        if (self.last_frame_window_ikeys.items.len == 0) {
+            return;
+        }
+        defer self.last_frame_window_ikeys.clearRetainingCapacity();
+
+        for (self.last_frame_window_ikeys.items) |ikeys| {
+            if (b2.mouseCaptureResults(ikeys.activate_window_ikey).observed_mouse_down) {
+                self.bringToFrontWindow(ikeys.window_id);
+            }
+
+            if (b2.mouseCaptureResults(ikeys.drag_all_ikey).mouse_left_held) {
+                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = true, .bottom = true, .right = true });
+            }
+            if (b2.mouseCaptureResults(ikeys.drag_top_ikey).mouse_left_held) {
+                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = false, .bottom = false, .right = false });
+            }
+            if (b2.mouseCaptureResults(ikeys.drag_top_right_ikey).mouse_left_held) {
+                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = false, .bottom = false, .right = true });
+            }
+            if (b2.mouseCaptureResults(ikeys.drag_right_ikey).mouse_left_held) {
+                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = false, .right = true });
+            }
+            if (b2.mouseCaptureResults(ikeys.drag_bottom_right_ikey).mouse_left_held) {
+                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = true, .right = true });
+            }
+            if (b2.mouseCaptureResults(ikeys.drag_bottom_ikey).mouse_left_held) {
+                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = true, .right = false });
+            }
+            if (b2.mouseCaptureResults(ikeys.drag_bottom_left_ikey).mouse_left_held) {
+                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = true, .bottom = true, .right = false });
+            }
+            if (b2.mouseCaptureResults(ikeys.drag_left_ikey).mouse_left_held) {
+                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = true, .bottom = false, .right = false });
+            }
+            if (b2.mouseCaptureResults(ikeys.drag_top_left_ikey).mouse_left_held) {
+                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = true, .bottom = false, .right = false });
+            }
+        }
     }
 
     fn addWindow_child(child: *const Component(StandardCallInfo, void, StandardChild), call_info: StandardCallInfo, _: void) StandardChild {
@@ -918,6 +992,8 @@ pub const WindowManager = struct {
         return child.call(ui.sub(@src()), {});
     }
     pub fn addWindow(self: *WindowManager, window_id: ID, child: Component(StandardCallInfo, void, StandardChild)) void {
+        self.maybeHandleInteractionForLastFrame(window_id.b2);
+
         const gpres = self.windows.getOrPut(window_id) catch @panic("oom");
         if (!gpres.found_existing) {
             gpres.value_ptr.* = .{
@@ -929,10 +1005,28 @@ pub const WindowManager = struct {
         const prev_window = self.current_window;
         self.current_window = window_id;
         defer self.current_window = prev_window;
+
+        const ikeys: WindowIkeys = .{
+            .window_id = window_id,
+
+            .activate_window_ikey = window_id.sub(@src()),
+
+            .drag_all_ikey = window_id.sub(@src()),
+            .drag_top_ikey = window_id.sub(@src()),
+            .drag_top_right_ikey = window_id.sub(@src()),
+            .drag_right_ikey = window_id.sub(@src()),
+            .drag_bottom_right_ikey = window_id.sub(@src()),
+            .drag_bottom_ikey = window_id.sub(@src()),
+            .drag_bottom_left_ikey = window_id.sub(@src()),
+            .drag_left_ikey = window_id.sub(@src()),
+            .drag_top_left_ikey = window_id.sub(@src()),
+        };
+        self.this_frame_window_ikeys.append(ikeys) catch @panic("oom");
+
         const child_res = Theme.windowChrome(.{
             .caller_id = window_id.sub(@src()),
             .constraints = .{ .available_size = .{ .w = gpres.value_ptr.size[0], .h = gpres.value_ptr.size[1] } },
-        }, .{}, .from(&child, addWindow_child));
+        }, .{}, ikeys, .from(&child, addWindow_child));
         // after calling child, the hash map might have reordered itself. we must get a new pointer
         const window_ptr = self.windows.getPtr(window_id).?;
         // this check is done here just in case the child called addWindow with its own id so we still catch that.
@@ -993,6 +1087,12 @@ pub const WindowManager = struct {
             // remove the frame result
             value.this_frame_result = null;
         }
+
+        // swap ikeys lists and clear this frame list
+        const last_frame_window_ikeys = self.last_frame_window_ikeys;
+        self.last_frame_window_ikeys = self.this_frame_window_ikeys;
+        self.this_frame_window_ikeys = last_frame_window_ikeys;
+        self.this_frame_window_ikeys.clearRetainingCapacity();
 
         return draw;
     }
