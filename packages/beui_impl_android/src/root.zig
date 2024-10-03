@@ -94,9 +94,6 @@ export fn zig_opengl_renderFrame() void {
     {
         var beui_vtable: BeuiVtable = .{};
         beui.newFrame(.{
-            .can_capture_keyboard = true,
-            .can_capture_mouse = true,
-            .draw_list = &draw_list,
             .arena = arena,
             .now_ms = std.time.milliTimestamp(),
             .user_data = @ptrCast(@alignCast(&beui_vtable)),
@@ -106,7 +103,7 @@ export fn zig_opengl_renderFrame() void {
 
         applyEvents();
 
-        const id = b2.newFrame(&beui, .{ .size = screen_size });
+        const id = b2.newFrame(.{ .size = screen_size });
         app.render(id.sub(@src()));
         b2.endFrame(&draw_list);
     }

@@ -17,7 +17,7 @@ const EditorTab = struct {
 gpa: std.mem.Allocator,
 
 db: db_mod.BlockDB,
-db_sync: blocks_net.TcpSync,
+db_sync: ?blocks_net.TcpSync,
 
 counter_block: *db_mod.BlockRef,
 counter_component: db_mod.TypedComponentRef(bi.CounterComponent),
@@ -29,10 +29,18 @@ tabs: std.ArrayList(*EditorTab),
 current_tab: usize,
 
 pub fn init(self: *App, gpa: std.mem.Allocator) void {
+    return self.initWithCfg(gpa, .{});
+}
+pub fn initWithCfg(self: *App, gpa: std.mem.Allocator, cfg: struct { enable_db_sync: bool = true }) void {
     self.gpa = gpa;
 
     self.db = db_mod.BlockDB.init(gpa);
-    self.db_sync.init(gpa, &self.db);
+    if (cfg.enable_db_sync) {
+        self.db_sync = @as(blocks_net.TcpSync, undefined);
+        self.db_sync.?.init(gpa, &self.db);
+    } else {
+        self.db_sync = null;
+    }
 
     self.counter_block = self.db.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
     self.counter_component = self.counter_block.typedComponent(bi.CounterBlock).?;
@@ -55,7 +63,7 @@ pub fn deinit(self: *App) void {
     self.zig_language.deinit();
     self.counter_component.unref();
     self.counter_block.unref();
-    self.db_sync.deinit();
+    if (self.db_sync) |*s| s.deinit();
     self.db.deinit();
 }
 
@@ -138,3 +146,37 @@ fn renderCounter(counter: db_mod.TypedComponentRef(bi.CounterComponent)) void {
         @panic("TODO: someone needs to keep a redo list");
     }
 }
+
+test "app renders" {
+    var app: App = undefined;
+    app.initWithCfg(std.testing.allocator, .{ .enable_db_sync = false });
+    defer app.deinit();
+
+    var arena_backing: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_backing.deinit();
+    const arena = arena_backing.allocator();
+
+    var b1: Beui = .{ .persistent = .{} };
+    var b2: B2.Beui2 = undefined;
+    b2.init(&b1, std.testing.allocator);
+    defer b2.deinit();
+
+    // render two frames
+    for (0..2) |_| {
+        b1.newFrame(.{
+            .arena = arena,
+            .now_ms = 0,
+            .user_data = null,
+            .vtable = &testing_vtable,
+        });
+        const root_id = b2.newFrame(.{ .size = .{ 200, 200 } });
+
+        app.render(root_id.sub(@src()));
+
+        b2.endFrame(null);
+        b1.endFrame();
+    }
+}
+const testing_vtable: Beui.FrameCfgVtable = .{
+    .type_id = @typeName(void),
+};

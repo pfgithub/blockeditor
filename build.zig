@@ -59,6 +59,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(b.getInstallStep());
     test_step.dependOn(&b.addRunArtifact(anywhere_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(beui_dep.artifact("test")).step);
+    test_step.dependOn(&b.addRunArtifact(blockeditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(blocks_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(blocks_net_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(loadimage_dep.artifact("test")).step);

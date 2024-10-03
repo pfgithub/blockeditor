@@ -57,19 +57,24 @@ pub fn leftMouseClickedCount(self: *Beui) usize {
 pub fn arena(self: *Beui) std.mem.Allocator {
     return self.frame.frame_cfg.?.arena;
 }
-pub fn draw(self: *Beui) *draw_lists.RenderList {
-    return self.frame.frame_cfg.?.draw_list;
-}
 
 pub fn setClipboard(self: *Beui, text_utf8: [:0]const u8) void {
     const cfg = &self.frame.frame_cfg.?;
+    if (cfg.vtable.set_clipboard == null) {
+        std.log.warn("Could not copy to clipboard; no clipboard defined", .{});
+        return;
+    }
     std.debug.assert(std.unicode.utf8ValidateSlice(text_utf8));
     std.debug.assert(std.mem.indexOfScalar(u8, text_utf8, '\x00') == null);
-    cfg.vtable.set_clipboard(cfg, text_utf8);
+    cfg.vtable.set_clipboard.?(cfg, text_utf8);
 }
 pub fn getClipboard(self: *Beui, value: *std.ArrayList(u8)) void {
     const cfg = &self.frame.frame_cfg.?;
-    cfg.vtable.get_clipboard(cfg, value);
+    if (cfg.vtable.get_clipboard == null) {
+        std.log.warn("Could not read from clipboard; no clipboard defined", .{});
+        return;
+    }
+    cfg.vtable.get_clipboard.?(cfg, value);
 }
 
 fn _maybeResetLeftClick(self: *Beui, now: i64) void {
@@ -167,24 +172,23 @@ pub fn EnumArray(comptime Enum: type, comptime Value: type) type {
     };
 }
 pub const FrameCfg = struct {
-    can_capture_keyboard: bool,
-    can_capture_mouse: bool,
+    can_capture_keyboard: bool = true,
+    can_capture_mouse: bool = true,
     arena: std.mem.Allocator,
-    draw_list: *draw_lists.RenderList,
     now_ms: i64,
 
-    user_data: *const anyopaque,
+    user_data: ?*const anyopaque,
     vtable: *const FrameCfgVtable,
 
     pub fn castUserData(self: *const FrameCfg, comptime T: type) *T {
         std.debug.assert(@typeName(T) == self.vtable.type_id);
-        return @ptrCast(@alignCast(@constCast(self.vtable)));
+        return @ptrCast(@alignCast(@constCast(self.user_data.?)));
     }
 };
 pub const FrameCfgVtable = struct {
     type_id: [*:0]const u8,
-    set_clipboard: *const fn (frame_cfg: *const FrameCfg, text_utf8: [:0]const u8) void,
-    get_clipboard: *const fn (frame_cfg: *const FrameCfg, clipboard_contents: *std.ArrayList(u8)) void,
+    set_clipboard: ?*const fn (frame_cfg: *const FrameCfg, text_utf8: [:0]const u8) void = null,
+    get_clipboard: ?*const fn (frame_cfg: *const FrameCfg, clipboard_contents: *std.ArrayList(u8)) void = null,
 };
 const PersistentEv = struct {
     config: struct {

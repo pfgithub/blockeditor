@@ -727,7 +727,6 @@ pub fn main() !void {
         beui.newFrame(.{
             .can_capture_keyboard = !zgui.io.getWantCaptureKeyboard(),
             .can_capture_mouse = !zgui.io.getWantCaptureMouse(),
-            .draw_list = &draw_list,
             .arena = arena,
             .now_ms = std.time.milliTimestamp(),
             .user_data = @ptrCast(@alignCast(&beui_vtable)),
@@ -770,7 +769,7 @@ pub fn main() !void {
             const id = blk: {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 newFrame");
                 defer b2ft_.end();
-                break :blk b2.newFrame(&beui, .{ .size = .{ @floatFromInt(fb_width), @floatFromInt(fb_height) } });
+                break :blk b2.newFrame(.{ .size = .{ @floatFromInt(fb_width), @floatFromInt(fb_height) } });
             };
 
             if (using_zgui) {

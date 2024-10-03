@@ -118,7 +118,8 @@ pub const Beui2 = struct {
         self.persistent.draw_lists.deinit();
     }
 
-    pub fn newFrame(self: *Beui2, beui: *Beui, frame_cfg: Beui2FrameCfg) ID {
+    pub fn newFrame(self: *Beui2, frame_cfg: Beui2FrameCfg) ID {
+        const beui = self.persistent.beui1;
         self.persistent.layout_cache.tick(beui);
         // handle events
         // - scroll: if there is a scroll event, hit test to find which handler it touched

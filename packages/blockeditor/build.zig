@@ -28,6 +28,22 @@ pub fn build(b: *std.Build) !void {
         },
     });
 
+    const app_test = b.addTest(.{
+        .root_source_file = b.path("src/App.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    app_test.root_module.addImport("anywhere", anywhere_dep.module("anywhere"));
+    app_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
+    app_test.root_module.addImport("blocks_net", blocks_net_dep.module("client"));
+    app_test.root_module.addImport("beui", beui_dep.module("beui"));
+    b.installArtifact(app_test);
+
+    const app_test_run = b.addRunArtifact(app_test);
+    app_test_run.step.dependOn(b.getInstallStep());
+    const test_run = b.step("test", "Test");
+    test_run.dependOn(&app_test_run.step);
+
     const beui_impl_glfw_wgpu_dep = b.dependency("beui_impl_glfw_wgpu", .{ .target = target, .optimize = optimize, .tracy = b.option(bool, "tracy", "") orelse false });
     const exe_path = beui_impl_glfw_wgpu.createApp("blockeditor", beui_impl_glfw_wgpu_dep, app_mod);
     b.addNamedLazyPath("blockeditor", exe_path);
