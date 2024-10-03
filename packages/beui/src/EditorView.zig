@@ -296,7 +296,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
         // - these conflict on mac. that's why vscode has different buttons for these two on mac, windows, and linux. you can
         //   never learn the right buttons
 
-        if (beui.isKeyPressed(.mouse_left)) {
+        if (click_info.mouse_left_pressed_down_this_frame) {
             const mode: ?Core.DragSelectionMode = switch (beui.leftMouseClickedCount()) {
                 1 => .{ .stop = .unicode_grapheme_cluster, .select = false },
                 2 => .{ .stop = .word, .select = true },
@@ -314,7 +314,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
                 self.core.executeCommand(.select_all);
             }
             self.selecting = true;
-        } else if (self.selecting and beui.isKeyHeld(.mouse_left)) {
+        } else if (self.selecting and click_info.mouse_left_held) {
             self.core.executeCommand(.{ .drag = .{ .pos = clicked_pos } });
         }
     }

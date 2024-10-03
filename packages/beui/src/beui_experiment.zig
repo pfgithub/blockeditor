@@ -243,7 +243,12 @@ pub const Beui2 = struct {
             mouse_pos = b1pos - mof.offset;
             observed_mouse_down = mof.observed_mouse_down;
         }
-        return .{ .mouse_left_held = mouse_left_held, .mouse_pos = mouse_pos, .observed_mouse_down = observed_mouse_down };
+        return .{
+            .mouse_left_pressed_down_this_frame = if (mouse_left_held) self.persistent.beui1.isKeyPressed(.mouse_left) else false,
+            .mouse_left_held = mouse_left_held,
+            .mouse_pos = mouse_pos,
+            .observed_mouse_down = observed_mouse_down,
+        };
     }
     pub fn scrollCaptureResults(self: *Beui2, capture_id: ID) @Vector(2, f32) {
         if (self.frame.scroll_target) |st| {
@@ -298,6 +303,7 @@ const GenericDrawListState = struct {
 };
 
 pub const MouseCaptureResults = struct {
+    mouse_left_pressed_down_this_frame: bool,
     mouse_left_held: bool,
     mouse_pos: @Vector(2, f32),
     observed_mouse_down: bool,
