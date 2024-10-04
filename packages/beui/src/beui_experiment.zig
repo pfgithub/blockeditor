@@ -206,11 +206,14 @@ pub const Beui2 = struct {
             .scroll_target = scroll_target,
         };
 
-        return .{
+        const res_id: ID = .{
             .b2 = self,
             .frame = self.persistent.frame_num,
             .str = &.{},
         };
+        self.persistent.wm.beginFrame(res_id.sub(@src()));
+
+        return res_id;
     }
     pub fn endFrame(self: *Beui2, renderlist: ?*render_list.RenderList) void {
         self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
@@ -317,7 +320,7 @@ const IDSegment = struct {
     }
     value: [IDSegmentSize]u8,
     tag: Tag,
-    const Tag = enum { src, loop, loop_child };
+    const Tag = enum { src, loop, loop_child, unique };
     const SrcStruct = struct {
         filename: [*:0]const u8,
         fn_name: [*:0]const u8,
@@ -353,13 +356,17 @@ const IDSegment = struct {
     }
 };
 pub const ID = struct {
+    var unique_id_idx: u64 = 0;
     b2: *Beui2,
     frame: u64,
     /// DO NOT READ POINTER WITHOUT CALLING .assertValid() FIRST.
     str: []const IDSegment,
 
-    // duplicate id safety is slow :/
     const duplicate_id_safety = std.debug.runtime_safety;
+
+    pub fn format(value: ID, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("<ID:{d}>", .{value.hash()});
+    }
 
     pub fn assertValid(self: ID) void {
         std.debug.assert(self.frame == self.b2.persistent.frame_num or self.frame + 1 == self.b2.persistent.frame_num);
@@ -396,6 +403,13 @@ pub const ID = struct {
         return result;
     }
 
+    pub fn unique(b2: *Beui2) ID {
+        unique_id_idx += 1;
+        const res = b2.frame.arena.alloc(IDSegment, 1) catch @panic("oom");
+        res[0] = .fromTagValue(.unique, u64, unique_id_idx);
+        // no need for duplicate safety; it's guaranteed not to be a duplicate
+        return .{ .b2 = b2, .frame = b2.persistent.frame_num, .str = res };
+    }
     pub fn pushLoop(self: ID, src: std.builtin.SourceLocation, comptime ChildT: type) ID {
         comptime {
             if (@sizeOf(ChildT) > IDSegment.IDSegmentSize) @compileError("loop ChildT size > max size");
@@ -444,7 +458,37 @@ const MouseEventCaptureConfig = struct {
     capture_click: ?Beui.Cursor = null,
     capture_scroll: struct { x: bool = false, y: bool = false } = .{},
 };
-const RepositionableDrawList = struct {
+pub const Corners = packed struct(u4) {
+    top_left: bool = false,
+    top_right: bool = false,
+    bottom_left: bool = false,
+    bottom_right: bool = false,
+    pub const top: Corners = .{ .top_left = true, .top_right = true };
+    pub const left: Corners = .{ .top_left = true, .bottom_left = true };
+    pub const bottom: Corners = .{ .bottom_left = true, .bottom_right = true };
+    pub const right: Corners = .{ .top_right = true, .bottom_right = true };
+    pub const all: Corners = .{ .top_left = true, .top_right = true, .bottom_left = true, .bottom_right = true };
+};
+const Sides = packed struct(u4) {
+    _top: bool = false,
+    _left: bool = false,
+    _bottom: bool = false,
+    _right: bool = false,
+    pub const top: Sides = .{ ._top = true };
+    pub const top_right: Sides = .{ ._top = true, ._right = true };
+    pub const right: Sides = .{ ._right = true };
+    pub const bottom_right: Sides = .{ ._bottom = true, ._right = true };
+    pub const bottom: Sides = .{ ._bottom = true };
+    pub const bottom_left: Sides = .{ ._bottom = true, ._left = true };
+    pub const left: Sides = .{ ._left = true };
+    pub const top_left: Sides = .{ ._top = true, ._left = true };
+};
+pub const RepositionableDrawList = struct {
+    const Reservation = struct {
+        index: usize,
+        frame: u64,
+        for_draw_list: *RepositionableDrawList,
+    };
     const RepositionableDrawChild = union(enum) {
         geometry: struct {
             vertices: []const render_list.RenderListVertex,
@@ -458,7 +502,7 @@ const RepositionableDrawList = struct {
             cfg: MouseEventCaptureConfig,
         },
         embed: struct {
-            child: *RepositionableDrawList,
+            child: ?*RepositionableDrawList,
             offset: @Vector(2, f32),
         },
         user_state: struct {
@@ -474,6 +518,16 @@ const RepositionableDrawList = struct {
     pub fn place(self: *RepositionableDrawList, child: *RepositionableDrawList, offset_pos: @Vector(2, f32)) void {
         std.debug.assert(!child.placed);
         self.content.append(.{ .embed = .{ .child = child, .offset = offset_pos } }) catch @panic("oom");
+        child.placed = true;
+    }
+    pub fn reserve(self: *RepositionableDrawList) Reservation {
+        self.content.append(.{ .embed = .{ .child = null, .offset = .{ 0, 0 } } }) catch @panic("oom");
+        return .{ .frame = self.b2.persistent.frame_num, .index = self.content.items.len - 1, .for_draw_list = self };
+    }
+    pub fn fill(self: *RepositionableDrawList, slot: Reservation, child: *RepositionableDrawList, offset: @Vector(2, f32)) void {
+        std.debug.assert(self.b2.persistent.frame_num == slot.frame);
+        std.debug.assert(self == slot.for_draw_list);
+        self.content.items[slot.index].embed = .{ .child = child, .offset = offset };
         child.placed = true;
     }
     pub fn addUserState(self: *RepositionableDrawList, id: ID, comptime StateT: type, state: *const StateT) void {
@@ -510,14 +564,26 @@ const RepositionableDrawList = struct {
             .tint = opts.tint,
         });
     }
-    pub fn addRect(self: *RepositionableDrawList, opts_in: struct {
-        pos: @Vector(2, f32),
-        size: @Vector(2, f32),
-        uv_pos: @Vector(2, f32) = .{ -1.0, -1.0 },
-        uv_size: @Vector(2, f32) = .{ 0, 0 },
-        image: ?render_list.RenderListImage = null,
-        tint: Beui.Color = .fromHexRgb(0xFFFFFF),
-    }) void {
+    pub fn addRect(
+        self: *RepositionableDrawList,
+        opts_in: struct {
+            pos: @Vector(2, f32),
+            size: @Vector(2, f32),
+            uv_pos: @Vector(2, f32) = .{ -1.0, -1.0 },
+            uv_size: @Vector(2, f32) = .{ 0, 0 },
+            image: ?render_list.RenderListImage = null,
+            tint: Beui.Color = .fromHexRgb(0xFFFFFF),
+            rounding: struct {
+                corners: Corners = .{},
+                style: enum {
+                    none,
+                    angle, // can be done using tris but we probably won't have smoothing. so maybe not tris.
+                    round,
+                } = .round,
+                radius: f32,
+            } = .{ .style = .none, .radius = 0 },
+        },
+    ) void {
         var opts = opts_in;
         if (opts.image == null) {
             opts.uv_pos = .{ -1.0, -1.0 };
@@ -588,7 +654,7 @@ const RepositionableDrawList = struct {
                     }) catch @panic("oom");
                 },
                 .embed => |eev| {
-                    eev.child.finalize(cfg, offset_pos + eev.offset);
+                    if (eev.child) |c| c.finalize(cfg, offset_pos + eev.offset);
                 },
                 .user_state => |usv| {
                     if (cfg.out_rdl_states) |v| {
@@ -885,10 +951,11 @@ fn permute(len: usize, index: usize) usize {
     return @intCast((a * @as(u128, index) + b) % len);
 }
 
-const WindowInfo = struct {
+const FinalWindowInfo = struct {
+    slot: RepositionableDrawList.Reservation,
+    is_filled: bool = false,
     position: @Vector(2, f32),
     size: @Vector(2, f32),
-    this_frame_result: ?*RepositionableDrawList,
 };
 
 // windows:
@@ -900,20 +967,54 @@ const WindowInfo = struct {
 //     - then, add windows. they have accurate positions already and will be rendered the right size
 //     - I think that makes sense
 
-pub const WindowIkeys = struct {
-    window_id: ID,
+const WindowListInfo = struct {
+    start_percent: f32, // first in the list is 0. next is 33%. next is 66%. end.
+    child_node: WindowTreeNode,
+};
+pub const WindowTreeNode = union(enum) {
+    tabs: std.ArrayList(WindowTreeNode),
+    list: struct {
+        direction: enum { x, y },
+        items: std.ArrayList(WindowListInfo),
+    },
+    final: ID,
 
-    activate_window_ikey: ID,
-
-    drag_all_ikey: ID,
-    drag_top_ikey: ID,
-    drag_top_right_ikey: ID,
-    drag_right_ikey: ID,
-    drag_bottom_right_ikey: ID,
-    drag_bottom_ikey: ID,
-    drag_bottom_left_ikey: ID,
-    drag_left_ikey: ID,
-    drag_top_left_ikey: ID,
+    fn deinit(self: *WindowTreeNode) void {
+        switch (self.*) {
+            .final => {},
+            .tabs => |*t| {
+                for (t.items) |*it| it.deinit();
+                t.deinit();
+            },
+            .list => |*l| {
+                for (l.items.items) |*it| it.child_node.deinit();
+                l.items.deinit();
+            },
+        }
+    }
+};
+const FloatingContainerID = enum(u64) {
+    _,
+    var current: u64 = 0;
+    pub fn next() FloatingContainerID {
+        current += 1;
+        return @enumFromInt(current);
+    }
+};
+pub const FloatingWindow = struct {
+    id: FloatingContainerID,
+    position: @Vector(2, f32),
+    size: @Vector(2, f32),
+    contents: WindowTreeNode,
+};
+const WindowIkey = struct {
+    ikey: ID, // recommended ID.unique()
+    interaction_model: WindowIkeyInteractionModel,
+};
+const WindowIkeyInteractionModel = union(enum) {
+    raise: struct { window: FloatingContainerID },
+    resize: struct { window: FloatingContainerID, sides: Sides },
+    ignore,
 };
 pub const WindowManager = struct {
     // TARGET:
@@ -929,179 +1030,196 @@ pub const WindowManager = struct {
     //   beui2 exports an unstyled component for the window so it can be styled however you
     //   want without having to reimplement the whole interaction model.
 
+    // future:
+    // - eventually this will manage overlay windows too, like context menus
+    //   - fn addContextMenu(anchor_pos: RdlPoint, .bottom_right, child: Component())
+    //     - child recieves max_width and max_height as the size of the viewport
+    //     - then, when rendering, we place it near anchor_pos in the specified direction
+    // - if we want the ability to hover over a window to see a preview:
+    //   - while hovering, ask for the window to render this frame
+    //   - rather than posting the draw list for the hovered window, instead render it
+    //     to a small image and save it in the image cache. then render that as the preview.
+    //   - that's fun
+
     b2: *Beui2,
-    windows: IdArrayMap(WindowInfo),
     /// 'dependency injection' so child components can see if they're focused
     current_window: ?ID,
 
-    this_frame_window_ikeys: std.ArrayList(WindowIkeys),
-    last_frame_window_ikeys: std.ArrayList(WindowIkeys),
+    /// holds pointers so we can store a pointer for <1 frame in WindowIkeyInteractionModel
+    floating_containers: std.ArrayList(FloatingWindow),
+    windows: IdArrayMap(?FinalWindowInfo),
+    this_frame_rdl: ?*RepositionableDrawList,
+
+    ikeys: std.ArrayList(WindowIkey),
+    floating_container_ids: ?ID,
 
     pub fn init(b2: *Beui2, gpa: std.mem.Allocator) WindowManager {
+        // b2 is not initialized yet, so b2.persistent.gpa is undefined
         return .{
             .b2 = b2,
             .windows = .init(gpa),
             .current_window = null,
-
-            .this_frame_window_ikeys = .init(gpa),
-            .last_frame_window_ikeys = .init(gpa),
+            .floating_containers = .init(gpa),
+            .ikeys = .init(gpa),
+            .this_frame_rdl = null,
+            .floating_container_ids = null,
         };
     }
     pub fn deinit(self: *WindowManager) void {
-        self.last_frame_window_ikeys.deinit();
-        self.this_frame_window_ikeys.deinit();
+        self.ikeys.deinit();
+        for (self.floating_containers.items) |*item| item.contents.deinit();
+        self.floating_containers.deinit();
         self.windows.deinit();
     }
 
-    fn maybeHandleInteractionForLastFrame(self: *WindowManager, b2: *Beui2) void {
-        if (self.last_frame_window_ikeys.items.len == 0) {
-            return;
-        }
-        defer self.last_frame_window_ikeys.clearRetainingCapacity();
+    pub fn idForFloatingContainer(self: *WindowManager, src: std.builtin.SourceLocation, fc: FloatingContainerID) ID {
+        return self.floating_container_ids.?.pushLoopValue(src, fc);
+    }
+    pub fn addIkey(self: *WindowManager, id: ID, model: WindowIkeyInteractionModel) ID {
+        self.ikeys.append(.{ .ikey = id, .interaction_model = model }) catch @panic("oom");
+        return id;
+    }
 
-        for (self.last_frame_window_ikeys.items) |ikeys| {
-            if (b2.mouseCaptureResults(ikeys.activate_window_ikey).observed_mouse_down) {
-                self.bringToFrontWindow(ikeys.window_id);
-            }
-
-            if (b2.mouseCaptureResults(ikeys.drag_all_ikey).mouse_left_held) {
-                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = true, .bottom = true, .right = true });
-            }
-            if (b2.mouseCaptureResults(ikeys.drag_top_ikey).mouse_left_held) {
-                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = false, .bottom = false, .right = false });
-            }
-            if (b2.mouseCaptureResults(ikeys.drag_top_right_ikey).mouse_left_held) {
-                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = false, .bottom = false, .right = true });
-            }
-            if (b2.mouseCaptureResults(ikeys.drag_right_ikey).mouse_left_held) {
-                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = false, .right = true });
-            }
-            if (b2.mouseCaptureResults(ikeys.drag_bottom_right_ikey).mouse_left_held) {
-                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = true, .right = true });
-            }
-            if (b2.mouseCaptureResults(ikeys.drag_bottom_ikey).mouse_left_held) {
-                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = false, .bottom = true, .right = false });
-            }
-            if (b2.mouseCaptureResults(ikeys.drag_bottom_left_ikey).mouse_left_held) {
-                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = true, .bottom = true, .right = false });
-            }
-            if (b2.mouseCaptureResults(ikeys.drag_left_ikey).mouse_left_held) {
-                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = false, .left = true, .bottom = false, .right = false });
-            }
-            if (b2.mouseCaptureResults(ikeys.drag_top_left_ikey).mouse_left_held) {
-                self.dragWindow(ikeys.window_id, b2.persistent.beui1.frame.mouse_offset, .{ .top = true, .left = true, .bottom = false, .right = false });
-            }
+    fn dealWithItem(self: *WindowManager, item: *WindowTreeNode) void {
+        _ = self;
+        switch (item.*) {
+            .final => |*id| id.* = id.refresh(),
+            else => @panic("TODO dealWithItem"),
         }
     }
 
-    fn addWindow_child(child: *const Component(StandardCallInfo, void, StandardChild), call_info: StandardCallInfo, _: void) StandardChild {
-        const ui = call_info.ui(@src());
-        return child.call(ui.sub(@src()), {});
+    // 1. at the start of the frame:
+    fn beginFrame(self: *WindowManager, root_id: ID) void {
+        self.this_frame_rdl = self.b2.draw();
+        self.floating_container_ids = root_id.pushLoop(@src(), FloatingContainerID);
+
+        // 1a. handle interactions from the previous frame
+        const b2 = self.b2;
+        for (self.ikeys.items) |ikey| {
+            switch (ikey.interaction_model) {
+                .raise => |im| {
+                    if (b2.mouseCaptureResults(ikey.ikey).observed_mouse_down) {
+                        self.bringToFrontWindow(im.window);
+                    }
+                },
+                .resize => |im| {
+                    if (b2.mouseCaptureResults(ikey.ikey).mouse_left_held) {
+                        self.dragWindow(im.window, b2.persistent.beui1.frame.mouse_offset, im.sides);
+                    }
+                },
+                .ignore => {},
+            }
+        }
+        self.ikeys.clearRetainingCapacity();
+
+        // 1b.
+        // 1b.i: close windows
+        for (self.windows.values()) |*win| {
+            if (win.* == null) continue;
+            if (win.*.?.is_filled) continue;
+            @panic("TODO close window");
+        }
+        // 1b.ii: unrequest all windows
+        for (self.windows.values()) |*win| win.* = null;
+        // 1b.iii: refresh ids on all windows
+        for (self.windows.keys()) |*k| k.* = k.refresh();
+        for (self.floating_containers.items) |*fc| self.dealWithItem(&fc.contents);
+
+        // 1c. loop over every window node and draw it using Theme.drawFloatingContainer
+        //      (loops in reverse because the last item in floating_containers is the topmost window)
+        var container_i: usize = self.floating_containers.items.len;
+        while (container_i > 0) {
+            container_i -= 1;
+            const fc = &self.floating_containers.items[container_i];
+            Theme.drawFloatingContainer(self, fc);
+        }
     }
+
+    // 2. during the frame (fn addWindow)
     pub fn addWindow(self: *WindowManager, window_id: ID, child: Component(StandardCallInfo, void, StandardChild)) void {
-        self.maybeHandleInteractionForLastFrame(window_id.b2);
-
+        // 2a. get the window from the map
         const gpres = self.windows.getOrPut(window_id) catch @panic("oom");
         if (!gpres.found_existing) {
-            gpres.value_ptr.* = .{
+            // - oops! this will add to the back of the list! and then it will show up in front next frame. maybe each floating
+            //   container gets an rdl and then we order them at the end of the frame.
+            gpres.value_ptr.* = null;
+            self.floating_containers.append(.{
+                .id = .next(),
                 .position = .{ 50, 50 },
-                .size = .{ 200, 400 },
-                .this_frame_result = null,
-            };
+                .size = .{ 400, 300 },
+                .contents = .{
+                    .final = window_id,
+                },
+            }) catch @panic("oom");
+            Theme.drawFloatingContainer(self, &self.floating_containers.items[self.floating_containers.items.len - 1]);
         }
+
+        // 2b. if it has no slot, skip it. ie its parent is collapsed
+        if (gpres.value_ptr.* == null) return; // window isn't wanted this frame
+
+        // 2c. render it and put the resulting rdl in the map
+        if (gpres.value_ptr.*.?.is_filled) @panic("trying to fill the same window id twice");
+        gpres.value_ptr.*.?.is_filled = true;
+
+        const slot: RepositionableDrawList.Reservation = gpres.value_ptr.*.?.slot;
+        const pos = gpres.value_ptr.*.?.position;
+        const size = gpres.value_ptr.*.?.size;
+
         const prev_window = self.current_window;
         self.current_window = window_id;
         defer self.current_window = prev_window;
 
-        const ikeys: WindowIkeys = .{
-            .window_id = window_id,
-
-            .activate_window_ikey = window_id.sub(@src()),
-
-            .drag_all_ikey = window_id.sub(@src()),
-            .drag_top_ikey = window_id.sub(@src()),
-            .drag_top_right_ikey = window_id.sub(@src()),
-            .drag_right_ikey = window_id.sub(@src()),
-            .drag_bottom_right_ikey = window_id.sub(@src()),
-            .drag_bottom_ikey = window_id.sub(@src()),
-            .drag_bottom_left_ikey = window_id.sub(@src()),
-            .drag_left_ikey = window_id.sub(@src()),
-            .drag_top_left_ikey = window_id.sub(@src()),
-        };
-        self.this_frame_window_ikeys.append(ikeys) catch @panic("oom");
-
-        const child_res = Theme.windowChrome(.{
+        const child_res = child.call(.{
             .caller_id = window_id.sub(@src()),
-            .constraints = .{ .available_size = .{ .w = gpres.value_ptr.size[0], .h = gpres.value_ptr.size[1] } },
-        }, .{}, ikeys, .from(&child, addWindow_child));
-        // after calling child, the hash map might have reordered itself. we must get a new pointer
-        const window_ptr = self.windows.getPtr(window_id).?;
-        // this check is done here just in case the child called addWindow with its own id so we still catch that.
-        if (window_ptr.this_frame_result != null) @panic("addWindow called twice for the same id");
-        window_ptr.this_frame_result = child_res.rdl;
+            .constraints = .{ .available_size = .{ .w = size[0], .h = size[1] } },
+        }, {});
+        // child.call() invalidates gpres
+        self.this_frame_rdl.?.fill(slot, child_res.rdl, pos);
     }
-    pub fn dragWindow(self: *WindowManager, window_id: ID, offset: @Vector(2, f32), anchors: struct { top: bool, left: bool, bottom: bool, right: bool }) void {
+    fn dragWindow(self: *WindowManager, window_id: FloatingContainerID, offset: @Vector(2, f32), anchors: Sides) void {
         if (@reduce(.And, offset == @Vector(2, f32){ 0, 0 })) return;
-        const window = self.windows.getPtr(window_id).?;
+        const idx = self.floatingContainerIndex(window_id);
+        const window = &self.floating_containers.items[idx];
 
         var top = window.position[1]; // var left, var top = window.position;
         var left = window.position[0];
         var bottom = window.position[1] + window.size[1]; // var right, var bottom = window.position + window.size;
         var right = window.position[0] + window.size[0];
 
-        if (anchors.top) top += offset[1];
-        if (anchors.left) left += offset[0];
-        if (anchors.bottom) bottom += offset[1];
-        if (anchors.right) right += offset[0];
+        if (anchors._top) top += offset[1];
+        if (anchors._left) left += offset[0];
+        if (anchors._bottom) bottom += offset[1];
+        if (anchors._right) right += offset[0];
 
         window.position = .{ left, top };
         window.size = .{ right - left, bottom - top };
     }
-    pub fn isInFront(self: *WindowManager, window_id: ID) bool {
-        return self.windows.keys()[self.windows.count() - 1].eql(window_id);
+    fn isInFront(self: *WindowManager, window_id: FloatingContainerID) bool {
+        return self.floating_containers.items[self.floating_containers.items.len - 1].id == window_id;
     }
-    fn fitWindow(self: *WindowManager, window: *WindowInfo) void {
-        window.size = @max(window.size, @Vector(2, f32){ 10, 10 });
-        window.position = @min(window.position, self.b2.frame.frame_cfg.size);
-    }
-    pub fn bringToFrontWindow(self: *WindowManager, window_id: ID) void {
+    fn bringToFrontWindow(self: *WindowManager, window_id: FloatingContainerID) void {
         if (self.isInFront(window_id)) return;
-        const window = self.windows.fetchOrderedRemove(window_id).?;
-        self.windows.put(window.key, window.value) catch @panic("oom");
+        const idx = self.floatingContainerIndex(window_id);
+        const floating_container = self.floating_containers.orderedRemove(idx);
+        self.floating_containers.appendAssumeCapacity(floating_container);
+    }
+
+    fn floatingContainerIndex(self: *WindowManager, id: FloatingContainerID) usize {
+        for (self.floating_containers.items, 0..) |itm, i| {
+            if (itm.id == id) return i;
+        }
+        unreachable;
     }
 
     fn render(self: *WindowManager) *RepositionableDrawList {
-        const draw = self.b2.draw();
-
-        // iterate in reverse so we can delete windows. and because the frontmost window is at the end.
-        var i: usize = self.windows.values().len;
-        while (i > 0) {
-            i -= 1;
-            const key = &self.windows.keys()[i];
-            const value = &self.windows.values()[i];
-            const value_rdl = value.this_frame_result orelse {
-                // delete this window
-                // orderedRemove shouldn't be used in a loop but it doesn't really matter here unless you're closing 1000 windows all at once
-                std.debug.assert(self.windows.orderedRemove(key.*));
-                continue;
-            };
-            // refresh key so it's valid for next frame
-            key.* = key.refresh();
-            // fit the window so it is on the screen
-            self.fitWindow(value);
-            // draw the window
-            draw.place(value_rdl, value.position);
-            // remove the frame result
-            value.this_frame_result = null;
-        }
-
-        // swap ikeys lists and clear this frame list
-        const last_frame_window_ikeys = self.last_frame_window_ikeys;
-        self.last_frame_window_ikeys = self.this_frame_window_ikeys;
-        self.this_frame_window_ikeys = last_frame_window_ikeys;
-        self.this_frame_window_ikeys.clearRetainingCapacity();
-
-        return draw;
+        defer self.floating_container_ids = null;
+        defer self.this_frame_rdl = null;
+        self.this_frame_rdl.?.addRect(.{
+            .pos = .{ 0, 0 },
+            .size = self.b2.frame.frame_cfg.size,
+            .tint = .fromHexRgb(0x2e2e2e),
+        });
+        return self.this_frame_rdl.?;
     }
 };
 

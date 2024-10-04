@@ -3,97 +3,95 @@
 const Beui = @import("Beui.zig");
 const B2 = @import("beui_experiment.zig");
 
-const WindowChromeCfg = struct {}; // put a close button here for example, then pass it to the child or use an interaction token.
-pub fn windowChrome(call_info: B2.StandardCallInfo, cfg: WindowChromeCfg, ikeys: B2.WindowIkeys, child: B2.Component(B2.StandardCallInfo, void, B2.StandardChild)) B2.StandardChild {
-    _ = cfg;
+// so here's the plan:
+// - can't predraw the windows at the start of the frame because that introduces frame delay for opening or closing a window
+// so we will:
+// 1. at the start of the frame:
+//   a. handle interactions from the previous frame
+//   b. update data
+//       i. close any closed windows
+//       ii. unrequest all windows
+//       iii. refresh ids on all windows
+//   c. loop over every window node and draw it using Theme.drawFloatingContainer
+// 2. during the frame (fn addWindow)
+//   a. get the window from the map
+//     - if it is not found, add a new floating window and draw it using Theme.drawFloatingContainer
+//       - oops! this will add to the back of the list! and then it will show up in front next frame. maybe each floating
+//         container gets an rdl and then we order them at the end of the frame.
+//   b. if it has no slot, skip it. ie its parent is collapsed
+//   c. render it and put the resulting rdl in the map
+// 3. at the end of the frame:
+//   a. render the final windows
+// frame perfect:
+// - opening windows. they show up the same frame they're opened.
+// - moving and resizing windows. the move/resize is applied before the window contents render
+// not frame perfect:
+// - closing windows. this takes two frames - one frame to find out it's gone, and the next to shift the rest of the
+//   windows to accomodate.
+// not accounted for:
+// - how to save/load a layout? I guess we can do it in a way that will require 1 frame of delay on application launch
 
-    var ui = call_info.ui(@src());
+fn drawWindowNode(wm: *B2.WindowManager, win: *const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
+    const rdl = wm.this_frame_rdl.?;
+    switch (win.*) {
+        .final => |id| {
+            if (!cfg.parent_is_tabs) {
+                // TODO draw titlebar
+            }
 
-    const draw = ui.id.b2.draw();
-    const wm = &ui.id.b2.persistent.wm;
-    const size: @Vector(2, f32) = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? };
-
-    const in_front = wm.isInFront(wm.current_window.?);
-    const border_color: Beui.Color = switch (in_front) {
-        true => .fromHexRgb(0xFF0000),
-        false => .fromHexRgb(0x770000),
-    };
-
-    const titlebar_height = 20;
-    const border_width = 1;
-    const resize_width = 10;
-
-    // detect any mouse down event over the window that hasn't been captured by someone else
-    draw.addMouseEventCapture(
-        ikeys.activate_window_ikey,
-        .{ 0, 0 },
-        .{ size[0], size[1] },
-        .{ .observe_mouse_down = true },
-    );
-
-    const child_res = child.call(ui.subWithOffset(@src(), .{ border_width * 2, titlebar_height + border_width }), {});
-
-    // TODO: clip result
-    draw.place(child_res.rdl, .{ border_width, titlebar_height });
-
-    draw.addRect(.{
-        .pos = .{ 0, 0 },
-        .size = .{ size[0], titlebar_height },
-        .tint = border_color,
-    });
-    draw.addMouseEventCapture(
-        ikeys.drag_all_ikey,
-        .{ 0, 0 },
-        .{ size[0], titlebar_height },
-        .{ .capture_click = .arrow },
-    );
-    draw.addRect(.{
-        .pos = .{ 0, titlebar_height },
-        .size = .{ border_width, size[1] - titlebar_height },
-        .tint = border_color,
-    });
-    draw.addRect(.{
-        .pos = .{ size[0] - border_width, titlebar_height },
-        .size = .{ border_width, size[1] - titlebar_height },
-        .tint = border_color,
-    });
-    draw.addRect(.{
-        .pos = .{ border_width, size[1] - border_width },
-        .size = .{ size[0] - border_width * 2, border_width },
-        .tint = border_color,
-    });
-
-    // resize handlers
-    {
-        draw.addMouseEventCapture(ikeys.drag_top_ikey, .{ 0, -resize_width }, .{ size[0], resize_width }, .{ .capture_click = .resize_ns });
-        draw.addMouseEventCapture(ikeys.drag_top_right_ikey, .{ size[0], -resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
-        draw.addMouseEventCapture(ikeys.drag_right_ikey, .{ size[0], 0 }, .{ resize_width, size[1] }, .{ .capture_click = .resize_ew });
-        draw.addMouseEventCapture(ikeys.drag_bottom_right_ikey, .{ size[0], size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
-        draw.addMouseEventCapture(ikeys.drag_bottom_ikey, .{ 0, size[1] }, .{ size[0], resize_width }, .{ .capture_click = .resize_ns });
-        draw.addMouseEventCapture(ikeys.drag_bottom_left_ikey, .{ -resize_width, size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
-        draw.addMouseEventCapture(ikeys.drag_left_ikey, .{ -resize_width, 0 }, .{ resize_width, size[1] }, .{ .capture_click = .resize_ew });
-        draw.addMouseEventCapture(ikeys.drag_top_left_ikey, .{ -resize_width, -resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
+            const slot = rdl.reserve();
+            const win_data = wm.windows.getPtr(id).?;
+            win_data.* = .{ .slot = slot, .position = offset_pos, .size = offset_size };
+        },
+        .tabs => |t| {
+            _ = t;
+            @panic("TODO tabs");
+        },
+        .list => |l| {
+            _ = l;
+            @panic("TODO list");
+        },
     }
+}
 
-    // catch any straggling clicks or scrolls over the window so they don't fall to a window behind us
-    draw.addMouseEventCapture(
-        ui.id.sub(@src()),
-        .{ 0, 0 },
-        .{ size[0], size[1] },
-        .{ .capture_click = .arrow, .capture_scroll = .{ .x = true, .y = true } },
-    );
-    // draw a final background for the window
-    draw.addRect(.{
-        .pos = .{ 0, 0 },
-        .size = .{ size[0], size[1] },
-        .tint = .fromHexRgb(0xFFFFFF),
+pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *const B2.FloatingWindow) void {
+    const id = wm.idForFloatingContainer(@src(), win.id);
+    const rdl = wm.this_frame_rdl.?;
+
+    const border_width: f32 = 6.0;
+    const resize_width = border_width * 2;
+
+    const win_pos = win.position;
+    const win_size = win.size;
+    const whole_pos: @Vector(2, f32) = win_pos + @Vector(2, f32){ -border_width, -border_width };
+    const whole_size: @Vector(2, f32) = win_size + @Vector(2, f32){ border_width * 2, border_width * 2 };
+    const whole_pos_incl_resize: @Vector(2, f32) = win_pos + @Vector(2, f32){ -resize_width, -resize_width };
+    const whole_size_incl_resize: @Vector(2, f32) = win_size + @Vector(2, f32){ resize_width * 2, resize_width * 2 };
+
+    // add the raise capture
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .raise = .{ .window = win.id } }), whole_pos_incl_resize, whole_size_incl_resize, .{ .observe_mouse_down = true });
+
+    // add the resize captures
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top } }), .{ win_pos[0], win_pos[1] + -resize_width }, .{ win_size[0], resize_width }, .{ .capture_click = .resize_ns });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top_right } }), .{ win_pos[0] + win_size[0], win_pos[1] - resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .right } }), .{ win_pos[0] + win_size[0], win_pos[1] }, .{ resize_width, win_size[1] }, .{ .capture_click = .resize_ew });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .bottom_right } }), .{ win_pos[0] + win_size[0], win_pos[1] + win_size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .bottom } }), .{ win_pos[0], win_pos[1] + win_size[1] }, .{ win_size[0], resize_width }, .{ .capture_click = .resize_ns });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .bottom_left } }), .{ win_pos[0] - resize_width, win_pos[1] + win_size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .left } }), .{ win_pos[0] - resize_width, win_pos[1] }, .{ resize_width, win_size[1] }, .{ .capture_click = .resize_ew });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top_left } }), .{ win_pos[0] - resize_width, win_pos[1] - resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
+
+    // render the children
+    drawWindowNode(wm, &win.contents, win_pos, win_size, .{ .parent_is_tabs = false });
+
+    // add the black rectangle
+    rdl.addRect(.{
+        .pos = whole_pos,
+        .size = whole_size,
+        .tint = .fromHexRgb(0x000000),
+        .rounding = .{ .corners = .all, .radius = 12.0 },
     });
 
-    // renders:
-    // - title bar
-    // - 1px borders
-    // - click handler for dragging title bar
-    // - click handler for resizing window (goes outside of the borders). these should set custom cursors.
-
-    return .{ .rdl = draw, .size = size };
+    // add the fallthrough capture so events don't fall through the black rectangle
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .ignore), whole_pos, whole_size, .{ .capture_click = .arrow, .capture_scroll = .{ .x = true, .y = true } });
 }
