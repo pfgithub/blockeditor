@@ -79,6 +79,13 @@ Tasks:
   - when parsing, split any spans longer than MAX_LEN into multiple
   - when inserting, split into chunks of MAX_LEN
   - when extending, chunk into MAX_LEN
+- [ ] implement rounding
+- [ ] implement CPU-side clipping for draw lists. as long as it contains only axis-aligned rectangles, we
+  can clip easily. if it's not axis-aligned rectangles then we might have to do gpu clipping (in the draw
+  list Command struct, add an option for clipping and then add extra commands to clip). collision based
+  event handlers definitely need to be cpu clipped, not gpu clipped.
+- [ ] switch event handling to be callback based. we'll have to figure out how to in the callback make
+  sure a pointer hasn't invalidated. and then the callback can tell us if we should render a frame or not.
 
 wishlist:
 

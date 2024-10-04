@@ -129,6 +129,7 @@ pub fn render(self: *App, call_id: B2.ID) void {
     // const wm = b2.windowManager();
     // b2.windows.add()
 
+    id.b2.persistent.wm.addWindow(id.sub(@src()), .from(self, render__debugTexture));
     for (self.tabs.items) |tab| {
         id.b2.persistent.wm.addWindow(id.sub(@src()), .from(&render__editor__Context{ .self = self, .tab = tab }, render__editor));
     }
@@ -167,6 +168,20 @@ const RenderTreeIndex = struct {
         return .{ .i = itm.i + 1 };
     }
 };
+fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+    const ui = call_info.ui(@src());
+    const rdl = ui.id.b2.draw();
+    // TODO should be scrollable, vertical and horizontal
+    // maybe window can autoscroll when content exceeds its bounds
+    rdl.addRect(.{
+        .pos = .{ 0, 0 },
+        .size = .{ 2048, 2048 },
+        .uv_pos = .{ 0, 0 },
+        .uv_size = .{ 1, 1 },
+        .image = .editor_view_glyphs,
+    });
+    return .{ .rdl = rdl, .size = .{ 2048, 2048 } };
+}
 fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
     const ui = call_info.ui(@src());
 
