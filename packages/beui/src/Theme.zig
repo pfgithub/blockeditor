@@ -36,11 +36,20 @@ const border_width: f32 = 6.0;
 
 const titlebar_height: f32 = border_width * 4;
 
+fn drawWindowFinal(window_content_id: B2.ID, wm: *B2.WindowManager, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
+    const rdl = wm.this_frame_rdl.?;
+    const slot = rdl.reserve();
+    const win_data = wm.windows.getPtr(window_content_id).?;
+    win_data.* = .{ .slot = slot, .position = offset_pos, .size = offset_size };
+}
 fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
     const rdl = wm.this_frame_rdl.?;
+    const window_id = wm.idForWindowTreeNode(@src(), win.id);
     switch (win.value) {
-        .final => |id| {
-            if (!cfg.parent_is_tabs) {
+        .final => |window_content_id| {
+            if (cfg.parent_is_tabs) {
+                return drawWindowFinal(window_content_id, wm, offset_pos, offset_size);
+            } else {
                 // draw titlebar
                 rdl.addRect(.{
                     .pos = offset_pos,
@@ -51,13 +60,9 @@ fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager,
                         .radius = 6.0,
                     },
                 });
-                rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = root_container, .sides = .all } }), offset_pos, .{ offset_size[0], titlebar_height + border_width }, .{ .capture_click = .arrow });
-                return drawWindowNode(root_container, wm, win, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
+                rdl.addMouseEventCapture(wm.addIkey(window_id.sub(@src()), .{ .resize = .{ .window = root_container, .sides = .all } }), offset_pos, .{ offset_size[0], titlebar_height + border_width }, .{ .capture_click = .arrow });
+                return drawWindowFinal(window_content_id, wm, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width });
             }
-
-            const slot = rdl.reserve();
-            const win_data = wm.windows.getPtr(id).?;
-            win_data.* = .{ .slot = slot, .position = offset_pos, .size = offset_size };
         },
         .tabs => |t| {
             _ = t;

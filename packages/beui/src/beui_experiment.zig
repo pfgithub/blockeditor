@@ -1088,6 +1088,7 @@ pub const WindowManager = struct {
 
     ikeys: std.ArrayList(WindowIkey),
     floating_container_ids: ?ID,
+    window_tree_node_ids: ?ID,
 
     pub fn init(b2: *Beui2, gpa: std.mem.Allocator) WindowManager {
         // b2 is not initialized yet, so b2.persistent.gpa is undefined
@@ -1099,6 +1100,7 @@ pub const WindowManager = struct {
             .ikeys = .init(gpa),
             .this_frame_rdl = null,
             .floating_container_ids = null,
+            .window_tree_node_ids = null,
         };
     }
     pub fn deinit(self: *WindowManager) void {
@@ -1110,6 +1112,9 @@ pub const WindowManager = struct {
 
     pub fn idForFloatingContainer(self: *WindowManager, src: std.builtin.SourceLocation, fc: FloatingContainerID) ID {
         return self.floating_container_ids.?.pushLoopValue(src, fc);
+    }
+    pub fn idForWindowTreeNode(self: *WindowManager, src: std.builtin.SourceLocation, fc: WindowTreeNodeID) ID {
+        return self.window_tree_node_ids.?.pushLoopValue(src, fc);
     }
     pub fn addIkey(self: *WindowManager, id: ID, model: WindowIkeyInteractionModel) ID {
         self.ikeys.append(.{ .ikey = id, .interaction_model = model }) catch @panic("oom");
@@ -1128,6 +1133,7 @@ pub const WindowManager = struct {
     fn beginFrame(self: *WindowManager, root_id: ID) void {
         self.this_frame_rdl = self.b2.draw();
         self.floating_container_ids = root_id.pushLoop(@src(), FloatingContainerID);
+        self.window_tree_node_ids = root_id.pushLoop(@src(), WindowTreeNodeID);
 
         // 1a. handle interactions from the previous frame
         const b2 = self.b2;
