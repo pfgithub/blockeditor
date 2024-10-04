@@ -5,6 +5,7 @@ const db_mod = blocks_mod.blockdb;
 const Beui = @import("beui").Beui;
 const blocks_net = @import("blocks_net");
 const anywhere = @import("anywhere");
+const tracy = anywhere.tracy;
 const zgui = anywhere.zgui;
 const B2 = Beui.beui_experiment;
 
@@ -122,10 +123,16 @@ pub fn render(self: *App, call_id: B2.ID) void {
     id.b2.persistent.wm.addWindow(id.sub(@src()), .from(self, render__window));
 }
 fn render__scrollDemo(_: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+    const tctx = tracy.traceNamed(@src(), "App scrollDemo");
+    defer tctx.end();
+
     const ui = call_info.ui(@src());
     return B2.scrollDemo(ui.sub(@src()));
 }
 fn render__window(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+    const tctx = tracy.traceNamed(@src(), "App editor");
+    defer tctx.end();
+
     const ui = call_info.ui(@src());
 
     return self.tabs.items[self.current_tab].editor_view.gui(ui.sub(@src()), ui.id.b2.persistent.beui1);

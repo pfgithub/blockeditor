@@ -930,10 +930,7 @@ fn scrollDemo_0_3(my_list: *const []const []const []const u8, caller_id: Standar
 
     var res_str: []const u8 = "";
 
-    var list_len: usize = 1;
-    for (my_list.*) |m| list_len *= m.len;
-
-    var i = permute(list_len, index.i);
+    var i = index.i;
     for (my_list.*, 0..) |items, j| {
         const sub_i = i % items.len;
         res_str = ui.id.b2.fmt("{s}{s}{s}", .{ res_str, if (j == 0) "" else " ", items[sub_i] });
@@ -941,14 +938,6 @@ fn scrollDemo_0_3(my_list: *const []const []const []const u8, caller_id: Standar
     }
 
     return defaultTextButton(ui.sub(@src()), res_str, null);
-}
-
-fn permute(len: usize, index: usize) usize {
-    const a = 6364136223846793005;
-    const b = 1442695040888963407;
-    comptime std.debug.assert(std.math.gcd(a, b) == 1);
-
-    return @intCast((a * @as(u128, index) + b) % len);
 }
 
 const FinalWindowInfo = struct {
