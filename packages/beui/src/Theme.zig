@@ -3,7 +3,8 @@
 const Beui = @import("Beui.zig");
 const B2 = @import("beui_experiment.zig");
 
-pub const window_padding: f32 = 12;
+pub const window_padding: f32 = border_width * 2;
+const border_width: f32 = 6.0;
 
 // so here's the plan:
 // - can't predraw the windows at the start of the frame because that introduces frame delay for opening or closing a window
@@ -33,12 +34,25 @@ pub const window_padding: f32 = 12;
 // not accounted for:
 // - how to save/load a layout? I guess we can do it in a way that will require 1 frame of delay on application launch
 
-fn drawWindowNode(wm: *B2.WindowManager, win: *const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
+const titlebar_height: f32 = border_width * 4;
+
+fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
     const rdl = wm.this_frame_rdl.?;
     switch (win.*) {
         .final => |id| {
             if (!cfg.parent_is_tabs) {
-                // TODO draw titlebar
+                // draw titlebar
+                rdl.addRect(.{
+                    .pos = offset_pos,
+                    .size = .{ offset_size[0], titlebar_height },
+                    .tint = .fromHexRgb(0x2e2e2e),
+                    .rounding = .{
+                        .corners = .all,
+                        .radius = 6.0,
+                    },
+                });
+                rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = root_container, .sides = .all } }), offset_pos, .{ offset_size[0], titlebar_height + border_width }, .{ .capture_click = .arrow });
+                return drawWindowNode(root_container, wm, win, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
             }
 
             const slot = rdl.reserve();
@@ -60,7 +74,6 @@ pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *const B2.FloatingWindo
     const id = wm.idForFloatingContainer(@src(), win.id);
     const rdl = wm.this_frame_rdl.?;
 
-    const border_width: f32 = 6.0;
     const resize_width = border_width * 2;
 
     const win_pos = win.position;
@@ -84,7 +97,7 @@ pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *const B2.FloatingWindo
     rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top_left } }), .{ win_pos[0] - resize_width, win_pos[1] - resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
 
     // render the children
-    drawWindowNode(wm, &win.contents, win_pos, win_size, .{ .parent_is_tabs = false });
+    drawWindowNode(win.id, wm, &win.contents, win_pos, win_size, .{ .parent_is_tabs = false });
 
     // add the black rectangle
     rdl.addRect(.{

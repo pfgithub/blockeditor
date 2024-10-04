@@ -517,6 +517,7 @@ const Sides = packed struct(u4) {
     pub const bottom_left: Sides = .{ ._bottom = true, ._left = true };
     pub const left: Sides = .{ ._left = true };
     pub const top_left: Sides = .{ ._top = true, ._left = true };
+    pub const all: Sides = .{ ._top = true, ._left = true, ._bottom = true, ._right = true };
 };
 pub const RepositionableDrawList = struct {
     const Reservation = struct {
@@ -1017,7 +1018,7 @@ pub const WindowTreeNode = union(enum) {
         }
     }
 };
-const FloatingContainerID = enum(u64) {
+pub const FloatingContainerID = enum(u64) {
     _,
     var current: u64 = 0;
     pub fn next() FloatingContainerID {
