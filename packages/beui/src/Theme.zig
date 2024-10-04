@@ -38,7 +38,7 @@ const titlebar_height: f32 = border_width * 4;
 
 fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
     const rdl = wm.this_frame_rdl.?;
-    switch (win.*) {
+    switch (win.value) {
         .final => |id| {
             if (!cfg.parent_is_tabs) {
                 // draw titlebar

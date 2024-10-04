@@ -996,16 +996,19 @@ const WindowListInfo = struct {
     start_percent: f32, // first in the list is 0. next is 33%. next is 66%. end.
     child_node: WindowTreeNode,
 };
-pub const WindowTreeNode = union(enum) {
+pub const WindowTreeNodeUnion = union(enum) {
     tabs: std.ArrayList(WindowTreeNode),
     list: struct {
         direction: enum { x, y },
         items: std.ArrayList(WindowListInfo),
     },
     final: ID,
-
+};
+pub const WindowTreeNode = struct {
+    id: WindowTreeNodeID,
+    value: WindowTreeNodeUnion,
     fn deinit(self: *WindowTreeNode) void {
-        switch (self.*) {
+        switch (self.value) {
             .final => {},
             .tabs => |*t| {
                 for (t.items) |*it| it.deinit();
@@ -1016,6 +1019,14 @@ pub const WindowTreeNode = union(enum) {
                 l.items.deinit();
             },
         }
+    }
+};
+pub const WindowTreeNodeID = enum(u64) {
+    _,
+    var current: u64 = 0;
+    pub fn next() WindowTreeNodeID {
+        current += 1;
+        return @enumFromInt(current);
     }
 };
 pub const FloatingContainerID = enum(u64) {
@@ -1107,7 +1118,7 @@ pub const WindowManager = struct {
 
     fn dealWithItem(self: *WindowManager, item: *WindowTreeNode) void {
         _ = self;
-        switch (item.*) {
+        switch (item.value) {
             .final => |*id| id.* = id.refresh(),
             else => @panic("TODO dealWithItem"),
         }
@@ -1173,7 +1184,8 @@ pub const WindowManager = struct {
                 .position = .{ 50, 50 },
                 .size = .{ 400, 300 },
                 .contents = .{
-                    .final = window_id,
+                    .id = .next(),
+                    .value = .{ .final = window_id },
                 },
             }) catch @panic("oom");
             Theme.drawFloatingContainer(self, &self.floating_containers.items[self.floating_containers.items.len - 1]);
