@@ -15,6 +15,7 @@ const bi = @import("blockinterface2.zig");
 const util = @import("util.zig");
 const build_options = @import("build_options");
 const anywhere = @import("anywhere");
+const tracy = anywhere.tracy;
 
 pub const anywhere_cfg: anywhere.AnywhereCfg = .{
     .tracy = if (build_options.use_tracy) @import("tracy") else null,
@@ -1037,6 +1038,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         pub fn lynColFromPosition(self: *const Doc, position: Position) LynCol {
+            const tctx = tracy.trace(@src());
+            defer tctx.end();
             const res = self._findEntrySpan(position);
             const span_data = self.span_bbt.getNodeDataPtrConst(res.span_index).?;
             const span_count = self.span_bbt.getCountForNode(res.span_index);
@@ -1048,6 +1051,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             return .{ .lyn = total_count.newline_count, .col = total_count.bytes_after_newline_count };
         }
         pub fn positionFromLynCol(self: *const Doc, lyn_col: LynCol) ?Position {
+            const tctx = tracy.trace(@src());
+            defer tctx.end();
             const span = self.span_bbt.findNodeForQuery(Span.Count.LynColQuery{ .lyn = lyn_col.lyn, .col = lyn_col.col });
             if (span == .none or span == .root) return null; // not found
             const span_data = self.span_bbt.getNodeDataPtrConst(span).?;
@@ -1055,6 +1060,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             var current_position = self.span_bbt.getCountForNode(span);
             // now we have to walk
             const slice = self.buffer.items[span_data.bufbyte.?..][0..span_data.length];
+            const tctx_ = tracy.traceNamed(@src(), "count chars");
+            defer tctx_.end();
             for (slice, 0..) |char, i| {
                 switch (std.math.order(current_position.newline_count, lyn_col.lyn)) {
                     .lt => {},

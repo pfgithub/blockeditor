@@ -79,6 +79,9 @@ pub fn deinit(self: *EditorView) void {
 }
 
 fn layoutLine(self: *EditorView, beui: *Beui, layout_cache: *LayoutCache, line_middle: Core.Position) LayoutCache.LayoutInfo {
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
     std.debug.assert(self._layout_temp_al.items.len == 0);
     defer self._layout_temp_al.clearRetainingCapacity();
 
@@ -87,7 +90,11 @@ fn layoutLine(self: *EditorView, beui: *Beui, layout_cache: *LayoutCache, line_m
     const line_start_docbyte = self.core.document.value.docbyteFromPosition(line_start);
     const line_len = self.core.document.value.docbyteFromPosition(line_end) - line_start_docbyte;
 
-    self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
+    {
+        const tctx_ = tracy.traceNamed(@src(), "readSlice");
+        defer tctx_.end();
+        self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
+    }
 
     return layout_cache.layoutLine(beui, self._layout_temp_al.items);
 }
@@ -408,8 +415,8 @@ const GuiRenderLineCtx = struct {
     },
 };
 fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index: ScrollIndex) B2.StandardChild {
-    const tctx_ = tracy.traceNamed(@src(), "handle line");
-    defer tctx_.end();
+    const tctx = tracy.traceNamed(@src(), "handle line");
+    defer tctx.end();
     const ui = call_info.ui(@src());
 
     const self = ctx.self;
@@ -447,6 +454,8 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
     if (is_first_line) cursor_pos[1] += B2.Theme.window_padding;
     var length_with_no_selection_render: f32 = 0.0;
     for (layout_test.items, 0..) |item, i| {
+        const tctx_ = tracy.traceNamed(@src(), "handle char");
+        defer tctx_.end();
         // eventually, we would like to make this a beui.renderText() call, with spans specifying color zones and font changes
         // then, renderText can completely cache the drawn vertices and append them as long as nothing changed since last frame
         // - if the text changes, have to re-layout and rerender

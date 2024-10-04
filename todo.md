@@ -75,6 +75,10 @@ Tasks:
   they moved imgui to cmake, with patches. so maybe we can depend on cmake and make and use
   that in the build script to build tracy.
 - [ ] text editor: fix the last line is buggy
+- [ ] document: limit the length of combined spans to MAX_LEN.
+  - when parsing, split any spans longer than MAX_LEN into multiple
+  - when inserting, split into chunks of MAX_LEN
+  - when extending, chunk into MAX_LEN
 
 wishlist:
 

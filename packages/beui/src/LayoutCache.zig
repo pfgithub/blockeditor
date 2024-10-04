@@ -3,6 +3,7 @@ const Beui = @import("Beui.zig");
 const ft = Beui.font_experiment.ft;
 const hb = Beui.font_experiment.hb;
 const sb = Beui.font_experiment.sb;
+const tracy = @import("anywhere").tracy;
 
 const LayoutCache = @This();
 
@@ -130,6 +131,9 @@ pub fn tick(self: *LayoutCache, beui: *Beui) void {
 
 /// result pointer is valid until next layoutLine() call
 pub fn layoutLine(self: *LayoutCache, beui: *Beui, line_text: []const u8) LayoutInfo {
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
     const gpres = self.layout_cache.getOrPut(line_text) catch @panic("oom");
     if (gpres.found_existing) {
         gpres.value_ptr.last_used = beui.frame.frame_cfg.?.now_ms;
@@ -149,6 +153,9 @@ pub fn layoutLine(self: *LayoutCache, beui: *Beui, line_text: []const u8) Layout
     return gpres.value_ptr.*;
 }
 fn layoutLine_internal(self: *LayoutCache, line_text: []const u8, layout_result_al: *std.ArrayList(LayoutItem)) LayoutInfo {
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
     const line_height: f32 = 16;
 
     if (line_text.len == 0) return .{
