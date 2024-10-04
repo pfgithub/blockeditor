@@ -712,7 +712,7 @@ pub const RepositionableDrawList = struct {
 //     const draw = ui.id.b2.draw();
 // }
 
-fn textOnly(
+pub fn textOnly(
     call_info: StandardCallInfo,
     text: []const u8,
     color: Beui.Color,
@@ -878,6 +878,18 @@ fn bytesToIndex(bytes: *const [IDSegment.IDSegmentSize]u8, comptime T: type) T {
 var _scroll_state: ?ScrollState = null;
 
 pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime Index: type, child_component: Component(StandardCallInfo, Index, StandardChild)) StandardChild {
+    // TODO sticky lines:
+    // - sticky items stick to the top
+    // - Index.parentSticky(current_node) -> sticky item to render
+    // how it works:
+    // - after finishing rendering children, get the parentSticky of the current first line
+    // - then, render it at the top
+    // - add an overlay click handler over it that says: if mouse down within bounds, jump to line
+    //   (next frame, at the beginning, if there was mouse down within its bounds, we set the scroll target to its index and the scroll offset to 0)
+    //   it also clicks through and does any regular click events because it's just a capturing handler.
+    // TODO: scrollbar
+    // - can't render a scrollbar without a height. so we'll need to set up height estimation.
+
     const ui = call_info.ui(@src());
     if (ui.constraints.available_size.w == null or ui.constraints.available_size.h == null) @panic("scroller2 requires known available size");
 
