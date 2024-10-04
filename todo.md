@@ -78,6 +78,7 @@ Tasks:
 
 wishlist:
 
+- [ ] in text editor, if the newline before the start of this line is selected, render selection in the gutter to make it even more clear.
 - [ ] text_editor.Core undo and redo don't have to be seperate stacks. they can be just
   one arraylist where when you read an undo, you move the cursor left, and read a redo
   move the cursor right. and to add a new undo, clear everything right of the cursor.

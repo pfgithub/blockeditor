@@ -3,6 +3,8 @@
 const Beui = @import("Beui.zig");
 const B2 = @import("beui_experiment.zig");
 
+pub const window_padding: f32 = 12;
+
 // so here's the plan:
 // - can't predraw the windows at the start of the frame because that introduces frame delay for opening or closing a window
 // so we will:
