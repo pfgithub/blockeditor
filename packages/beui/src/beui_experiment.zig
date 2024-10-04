@@ -456,9 +456,12 @@ pub const ID = struct {
         return self._addInternal(&.{ .fromSrc(src), .fromTagValue(.loop, IDSegment.LoopStruct, .{ .child_t = child_t }) });
     }
     pub fn pushLoopValue(self: ID, src: std.builtin.SourceLocation, child_t: anytype) ID {
-        return self._pushLoopValueSlice(src, @typeName(@TypeOf(child_t)), std.mem.asBytes(&child_t));
+        return self._addInternal(&.{ .fromSrc(src), self._loopValue(@typeName(@TypeOf(child_t)), std.mem.asBytes(&child_t)) });
     }
-    fn _pushLoopValueSlice(self: ID, src: std.builtin.SourceLocation, child_t: [*:0]const u8, child_v: []const u8) ID {
+    pub fn pushLoopValueNoSrc(self: ID, child_t: anytype) ID {
+        return self._addInternal(&.{self._loopValue(@typeName(@TypeOf(child_t)), std.mem.asBytes(&child_t))});
+    }
+    fn _loopValue(self: ID, child_t: [*:0]const u8, child_v: []const u8) IDSegment {
         self.assertValid();
         if (self.str.len == 0) @panic("pushLoopValue called without pushLoop");
         const last = self.str[self.str.len - 1];
@@ -466,7 +469,7 @@ pub const ID = struct {
         const last_loop = last.readAsType(IDSegment.LoopStruct);
         if (last_loop.child_t != child_t) @panic("pushLoopValue called with different type than from pushLoop");
         std.debug.assert(child_v.len <= IDSegment.IDSegmentSize);
-        return self._addInternal(&.{ .fromSrc(src), .fromTagSlice(.loop_child, child_v) });
+        return .fromTagSlice(.loop_child, child_v);
     }
 
     pub fn sub(self: ID, src: std.builtin.SourceLocation) ID {
@@ -893,7 +896,9 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
     const ui = call_info.ui(@src());
     if (ui.constraints.available_size.w == null or ui.constraints.available_size.h == null) @panic("scroller2 requires known available size");
 
-    var rdl = ui.id.b2.draw();
+    const rdl = ui.id.b2.draw();
+    const capture_sticky_click_rdl = ui.id.b2.draw();
+    const capture_sticky_reservation = rdl.reserve();
     const height = ui.constraints.available_size.h.?;
 
     const scroll_ev_capture_id = ui.id.sub(@src());
@@ -921,7 +926,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
         while (backwards_cursor > 0) {
             backwards_index = backwards_index.prev(context) orelse break;
 
-            const child = child_component.call(.{ .caller_id = loop_index.pushLoopValue(@src(), backwards_index), .constraints = .{
+            const child = child_component.call(.{ .caller_id = loop_index.pushLoopValueNoSrc(backwards_index), .constraints = .{
                 .available_size = .{ .w = ui.constraints.available_size.w.?, .h = null },
             } }, backwards_index);
 
@@ -934,11 +939,11 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
     while (idx != null) {
         if (cursor > height) break;
 
-        const child = child_component.call(.{ .caller_id = loop_index.pushLoopValue(@src(), idx.?), .constraints = .{
+        const child = child_component.call(.{ .caller_id = loop_index.pushLoopValueNoSrc(idx.?), .constraints = .{
             .available_size = .{ .w = ui.constraints.available_size.w.?, .h = null },
         } }, idx.?);
 
-        if (cursor < 0) blk: {
+        if (cursor < -child.size[1]) blk: {
             scroll_state.anchor = indexToBytes(idx.?.next(context) orelse break :blk);
             scroll_state.offset += child.size[1];
         }
@@ -947,6 +952,33 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
 
         idx = idx.?.next(context);
     }
+
+    var capture_sticky_offset: f32 = 0;
+    // disabled for now because it doesn't work right and I'm not sure how to make it work.
+    // some kind of you have to look at where items rendered on screen or something
+    if (@hasDecl(Index, "parentSticky") and false) blk: {
+        var sticky = bytesToIndex(&scroll_state.anchor, Index);
+        if (scroll_state.offset > 0) break :blk; // we're off the top of the page! no need for stickies
+        if (scroll_state.offset < 0) sticky = sticky.next(context) orelse break :blk;
+        var i: usize = 0;
+        const STICKY_LIMIT = 1;
+        while (true) : (i += 1) {
+            if (i >= STICKY_LIMIT) break;
+            sticky = sticky.parentSticky(context) orelse break;
+
+            // ideally we would call pushLoopValueNoSrc() but to do that first we need to see if we've already rendered
+            // this item, and if we have, use it and take it out of the render list instead of rerendering it.
+            const child = child_component.call(.{ .caller_id = loop_index.pushLoopValue(@src(), sticky), .constraints = .{
+                .available_size = .{ .w = ui.constraints.available_size.w.?, .h = null },
+            } }, sticky);
+
+            capture_sticky_offset += child.size[1];
+            // TODO: place click observer
+            capture_sticky_click_rdl.place(child.rdl, .{ 0, -capture_sticky_offset });
+        }
+    }
+
+    rdl.fill(capture_sticky_reservation, capture_sticky_click_rdl, .{ 0, capture_sticky_offset });
 
     rdl.addMouseEventCapture(
         scroll_ev_capture_id,

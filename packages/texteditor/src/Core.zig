@@ -1351,12 +1351,22 @@ pub const CursorPositions = struct {
         std.mem.sort(PositionItem, self.positions.items, {}, PositionItem.compareFn);
     }
 
+    pub fn reset(self: *CursorPositions) void {
+        self.idx = 0;
+        self.count = 0;
+        self.last_query = 0;
+        self.last_query_result = null;
+    }
     pub fn advanceAndRead(self: *CursorPositions, docbyte: u64) CursorPosRes {
         if (docbyte == self.last_query and self.last_query_result != null) return self.last_query_result.?;
         if (docbyte < self.last_query) {
-            // did not advance. return wrong information
-            return .{ .left_cursor = .none, .left_cursor_extra = null, .selected = false };
+            // did not advance.
+            self.reset();
         }
+        return self.advanceAndReadAssertAdvanced(docbyte);
+    }
+    pub fn advanceAndReadAssertAdvanced(self: *CursorPositions, docbyte: u64) CursorPosRes {
+        std.debug.assert(docbyte > self.last_query or self.last_query_result == null);
         var left_cursor: CursorPosState = .none;
         var left_cursor_extra: ?CursorPosition = null;
         while (true) : (self.idx += 1) {

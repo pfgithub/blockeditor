@@ -54,6 +54,16 @@ const ScrollIndex = struct {
         }
         return .{ .is_first_line = .no, .line_before_this_line = next_line };
     }
+    pub fn parentSticky(itm: ScrollIndex, self: *EditorView) ?ScrollIndex {
+        // make the first two lines sticky (assuming the second line is 28 long)
+        // TODO: use tree-sitter or indentation to determine which lines should actually be sticky
+        const block = self.core.document.value;
+
+        if (itm.is_first_line == .yes) return null;
+        const docbyte = block.docbyteFromPosition(itm.line_before_this_line);
+        if (docbyte == 0) return first(self);
+        return .{ .is_first_line = .no, .line_before_this_line = block.positionFromDocbyte(0) };
+    }
 
     /// returns the start docbyte of the line to render
     fn thisLine(itm: ScrollIndex, self: *EditorView) Core.Position {
@@ -442,16 +452,13 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
 
     const layout_test = self.layoutLine(ctx.beui, layout_cache, line_to_render);
     const line_start_docbyte = block.docbyteFromPosition(line_to_render);
-    const is_first_line = line_start_docbyte == 0;
     const rendered_area_end_docbyte = block.docbyteFromPosition(self.core.getNextLineStart(line_to_render));
-    const is_last_line = rendered_area_end_docbyte == block.length();
     const rendered_area_len = rendered_area_end_docbyte - line_start_docbyte;
 
     const line_state = ui.id.b2.frame.arena.alloc(LineCharState, rendered_area_len) catch @panic("oom");
     for (line_state) |*ls| ls.* = .{ .char_up_left_offset = LineCharState.null_offset, .height = 0, .char_position = .end };
 
     var cursor_pos: @Vector(2, f32) = .{ B2.Theme.window_padding, 0 };
-    if (is_first_line) cursor_pos[1] += B2.Theme.window_padding;
     var length_with_no_selection_render: f32 = 0.0;
     for (layout_test.items, 0..) |item, i| {
         const tctx_ = tracy.traceNamed(@src(), "handle char");
@@ -561,7 +568,6 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
         cursor_pos = @floor(cursor_pos);
     }
 
-    if (is_last_line) cursor_pos[1] += B2.Theme.window_padding;
     const res_height = layout_test.height + cursor_pos[1];
 
     const rs_id = ui.id.sub(@src());
