@@ -54,7 +54,7 @@ const BeuiVtable = struct {
     };
 };
 
-export fn zig_resize(w: f32, h: f32) void {
+export fn zig_resize(w: i32, h: i32) void {
     call_mutex.lock();
     defer call_mutex.unlock();
 
@@ -103,7 +103,7 @@ export fn zig_opengl_renderFrame() void {
 
         applyEvents();
 
-        const id = b2.newFrame(.{ .size = screen_size });
+        const id = b2.newFrame(.{ .size = @floatFromInt(screen_size) });
         app.render(id.sub(@src()));
         b2.endFrame(&draw_list);
     }
@@ -157,7 +157,7 @@ var shader_program: c.GLuint = 0;
 var vao: c.GLuint = 0;
 var vbo: c.GLuint = 0;
 var uniform_screen_size: c.GLint = 0;
-var screen_size: @Vector(2, f32) = .{ 100, 100 };
+var screen_size: @Vector(2, i32) = .{ 100, 100 };
 var ft_texture: c.GLuint = 0;
 var indices_buffer: c.GLuint = 0;
 
