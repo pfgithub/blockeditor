@@ -212,6 +212,7 @@ const FrameEv = struct {
     scroll_px: @Vector(2, f32) = .{ 0, 0 },
     mouse_offset: @Vector(2, f32) = .{ 0, 0 },
     cursor: Cursor = .arrow,
+    has_events: bool = false,
 };
 pub const Cursor = enum {
     arrow,

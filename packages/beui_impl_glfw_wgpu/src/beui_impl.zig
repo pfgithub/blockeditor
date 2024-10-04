@@ -20,6 +20,18 @@ const zgui = @import("zgui");
 const zm = @import("zmath");
 const zstbi = @import("zstbi");
 
+/// TODO: allow skipping frames. to do this we need to:
+/// - disable zgui, it dosen't like it
+/// - figure out why it takes 7 frames for the first render?
+/// - make sure anything that is frame delayed sets `b2.frame.is_imperfect = true`
+/// - make sure anything that wants to update does `b2.requestNextUpdateTime(<target_time>)`
+/// - make sure any animations do `b2.isAnimation()`
+/// - make it so most mouse captures only capture mouse position while clicked.
+/// - ask beui2 to see if we want to rerender given the current events. if not, wait, capture some more
+///   events, and retry. beui2 will see if the mouse moved but no one can see its position then it doesn't
+///   need to rerender.
+const allow_skip_frames = false;
+
 const window_title = "zig-gamedev: textured quad (wgpu)";
 
 pub const anywhere_cfg: anywhere.AnywhereCfg = .{
@@ -543,6 +555,7 @@ const callbacks = struct {
         const beui_key = zglfwKeyToBeuiKey(key) orelse return;
         _ = scancode;
         _ = mods;
+        beui.frame.has_events = true;
         handleKeyWithAction(beui, beui_key, action);
     }
     fn charCallback(window: *zglfw.Window, codepoint: u32) callconv(.C) void {
@@ -551,6 +564,7 @@ const callbacks = struct {
             std.log.warn("charCallback codepoint out of range: {d}", .{codepoint});
             return;
         };
+        beui.frame.has_events = true;
         const printed = std.fmt.allocPrint(beui.frame.frame_cfg.?.arena, "{s}{u}", .{ beui.frame.text_input, codepoint_u21 }) catch @panic("oom");
         beui.frame.text_input = printed;
     }
@@ -558,6 +572,7 @@ const callbacks = struct {
     fn scrollCallback(window: *zglfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
         const beui = window.getUserPointer(Beui).?;
         if (!beui.frame.frame_cfg.?.can_capture_mouse) return;
+        beui.frame.has_events = true;
         beui.frame.scroll_px += @floatCast(@Vector(2, f64){ xoffset, yoffset } * @Vector(2, f64){ 48, 48 });
     }
     fn cursorPosCallback(window: *zglfw.Window, xpos: f64, ypos: f64) callconv(.C) void {
@@ -569,6 +584,7 @@ const callbacks = struct {
             beui.persistent.mouse_pos = .{ 0, 0 };
             return;
         }
+        beui.frame.has_events = true;
         const prev_pos = beui.persistent.mouse_pos;
         beui.persistent.mouse_pos = @floatCast(@Vector(2, f64){ xpos, ypos });
         if (prev_pos[0] != 0 or prev_pos[1] != 0) {
@@ -594,6 +610,7 @@ const callbacks = struct {
             std.log.warn("not supported glfw button: {}", .{button});
             return;
         };
+        beui.frame.has_events = true;
         _ = mods;
         handleKeyWithAction(beui, beui_key, action);
         if (button == .left and action == .press) {
@@ -716,6 +733,8 @@ pub fn main() !void {
 
     var timer = try std.time.Timer.start();
 
+    var frame_num: u64 = 0;
+
     while (!window.shouldClose()) {
         tracy.frameMark();
         timer.reset();
@@ -735,6 +754,18 @@ pub fn main() !void {
         defer beui.endFrame();
 
         zglfw.pollEvents();
+        if (frame_num == 0) {
+            beui.frame.has_events = true;
+        }
+
+        if (!beui.frame.has_events and allow_skip_frames) {
+            // skip this frame
+            // eventually we could even ignore frames that have a mouse move event but there is no
+            // beui2 item that asks for the mouse position event
+            std.time.sleep(std.time.ns_per_ms * 4);
+            continue;
+        }
+        std.log.info("frame: {d}", .{frame_num});
 
         if (beui.isKeyHeld(.mouse_middle)) {
             beui.frame.scroll_px += beui.frame.mouse_offset;
@@ -822,5 +853,6 @@ pub fn main() !void {
         zgui.end();
 
         draw(demo, &draw_list, &b2.persistent.layout_cache.glyphs);
+        frame_num += 1;
     }
 }
