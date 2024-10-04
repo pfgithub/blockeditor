@@ -43,6 +43,29 @@ const MouseEventInfo = struct {
     offset: @Vector(2, f32),
     observed_mouse_down: bool = false,
 };
+const StateValue = struct {
+    data: []u8,
+    log2_align: u8,
+    type_id: [*:0]const u8,
+    fn initUndefined(gpa: std.mem.Allocator, comptime T: type) StateValue {
+        const log2_align = comptime std.math.log2_int(u64, @alignOf(T));
+        const result = gpa.vtable.alloc(gpa.ptr, @sizeOf(T), log2_align, @returnAddress()) orelse @panic("oom");
+        return .{
+            .data = result[0..@sizeOf(T)],
+            .log2_align = log2_align,
+            .type_id = @typeName(T),
+        };
+    }
+    fn cast(self: StateValue, comptime T: type) *T {
+        std.debug.assert(self.type_id == @typeName(T));
+        std.debug.assert(self.data.len == @sizeOf(T));
+        std.debug.assert(self.log2_align == comptime std.math.log2_int(u64, @alignOf(T)));
+        return @alignCast(@ptrCast(self.data.ptr));
+    }
+    fn deinit(self: StateValue, gpa: std.mem.Allocator) void {
+        gpa.vtable.free(gpa.ptr, self.data, self.log2_align, @returnAddress());
+    }
+};
 const Beui2Persistent = struct {
     gpa: std.mem.Allocator,
 
@@ -56,6 +79,7 @@ const Beui2Persistent = struct {
     prev_frame_draw_list_states: IdMap(GenericDrawListState),
     this_frame_ids: IdMap(void),
     click_target: ?ID = null,
+    state_storage: IdArrayMap(StateValue),
 
     frame_num: u64 = 0,
 
@@ -96,6 +120,7 @@ pub const Beui2 = struct {
                 .prev_frame_mouse_event_to_offset = .init(gpa),
                 .prev_frame_draw_list_states = .init(gpa),
                 .this_frame_ids = .init(gpa),
+                .state_storage = .init(gpa),
 
                 .verdana_ttf = verdana_ttf,
                 .layout_cache = .init(gpa, font),
@@ -106,6 +131,8 @@ pub const Beui2 = struct {
         };
     }
     pub fn deinit(self: *Beui2) void {
+        for (self.persistent.state_storage.values()) |*v| v.deinit(self.persistent.gpa);
+        self.persistent.state_storage.deinit();
         self.persistent.wm.deinit();
         self.persistent.prev_frame_draw_list_states.deinit();
         self.persistent.layout_cache.deinit();
@@ -190,6 +217,11 @@ pub const Beui2 = struct {
             self.persistent.click_target = null;
         }
 
+        // state: refresh ids & TODO delete unused
+        for (self.persistent.state_storage.keys()) |*k| {
+            k.* = k.refresh();
+        }
+
         for (self.persistent.draw_lists.items) |pdl| if (!pdl.placed) @panic("not all draw lists were placed last frame.");
         self.persistent.draw_lists.clearRetainingCapacity();
         if (self.persistent.id_scopes.items.len != 0) @panic("not all scopes were popped last frame. maybe missing popScope()?");
@@ -263,9 +295,12 @@ pub const Beui2 = struct {
         return .{ 0, 0 };
     }
     pub fn state(self: *Beui2, self_id: ID, comptime StateType: type) StateResult(StateType) {
-        _ = self_id;
-        const cht = self.frame.arena.create(StateType) catch @panic("oom");
-        return .{ .initialized = false, .value = cht };
+        const gpres = self.persistent.state_storage.getOrPut(self_id) catch @panic("oom");
+        if (!gpres.found_existing) {
+            gpres.value_ptr.* = .initUndefined(self.persistent.gpa, StateType);
+            return .{ .initialized = false, .value = gpres.value_ptr.cast(StateType) };
+        }
+        return .{ .initialized = true, .value = gpres.value_ptr.cast(StateType) };
     }
     fn StateResult(comptime StateType: type) type {
         return struct { initialized: bool, value: *StateType };

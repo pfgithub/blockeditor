@@ -765,7 +765,7 @@ pub fn main() !void {
             std.time.sleep(std.time.ns_per_ms * 4);
             continue;
         }
-        std.log.info("frame: {d}", .{frame_num});
+        if (allow_skip_frames) std.log.info("frame: {d}", .{frame_num});
 
         if (beui.isKeyHeld(.mouse_middle)) {
             beui.frame.scroll_px += beui.frame.mouse_offset;

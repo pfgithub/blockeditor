@@ -56,7 +56,7 @@ Tasks:
   to close. on linux, it sends a message to the server?
   - we need to find out how to kill the connection and stop the thread
     that is waiting on read()
-- [ ] text editor: pressing esc closes app. remove this.
+- [x] text editor: pressing esc closes app. remove this.
 - [ ] text editor: pressing esc should remove all but the top multicursor
 - [ ] text editor: fix whatever's wrong with the last line. it's rendering twice and cursor
   doesn't show at the last location.
@@ -74,6 +74,7 @@ Tasks:
 - [ ] update tracy. the new version fixes the performance problem in the flamegraph. unfortunately,
   they moved imgui to cmake, with patches. so maybe we can depend on cmake and make and use
   that in the build script to build tracy.
+- [ ] text editor: fix the last line is buggy
 
 wishlist:
 
