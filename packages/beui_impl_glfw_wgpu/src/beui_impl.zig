@@ -841,6 +841,7 @@ pub fn main() !void {
         zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
 
+        const frame_prepare_ns = timer.read();
         if (zgui.begin("Demo Settings", .{})) {
             zgui.text(
                 "Average : {d:.3} ms/frame ({d:.1} fps)",
@@ -848,7 +849,8 @@ pub fn main() !void {
             );
             zgui.text("draw_list items: {d} / {d}", .{ draw_list.vertices.items.len, draw_list.indices.items.len });
             zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
-            zgui.text("frame prepare time: {d}", .{std.fmt.fmtDuration(timer.read())});
+            zgui.text("frame prepare time: {d}", .{std.fmt.fmtDuration(frame_prepare_ns)});
+            zgui.text("ns per vertex: {d:0.3}", .{@as(f64, @floatFromInt(frame_prepare_ns)) / @as(f64, @floatFromInt(draw_list.vertices.items.len))});
         }
         zgui.end();
 
