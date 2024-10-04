@@ -1,6 +1,8 @@
 # SheenBidi packaged for the zig build system
 
-install:
+For use with zig `0.13.0`
+
+## Add to project
 
 ```
 zig fetch --save=sheen_bidi <TODO>
@@ -11,13 +13,13 @@ build.zig:
 ```
 const sheen_bidi = b.dependency("sheen_bidi", .{.target = target, .optimize = optimize});
 
-// to use with @import("sheen_bidi")
+// to link and use with @import("sheen_bidi")
 exe.root_module.addImport("sheen_bidi", sheen_bidi.module("sheen_bidi"));
 
-// to use with c or something
-exe.root_module.linkLibrary(sheen_bidi.artifact("sheen_bidi_lib"));
+// to link the library only
+exe.root_module.linkLibrary(sheen_bidi.artifact("sheen_bidi"));
 ```
 
-usage:
+## Usage
 
-see example in `src/test.zig`
+See example in `src/example.zig`

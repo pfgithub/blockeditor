@@ -6,7 +6,7 @@
     },
     .dependencies = .{
         .sheen_bidi = .{
-            .url = "git+https://github.com/Tehreer/SheenBidi?ref=master#e667eb3a63ee704194f8d94834d8e12b18db5b21",
+            .url = "https://github.com/Tehreer/SheenBidi/archive/refs/tags/v2.7.tar.gz",
             .hash = "1220f803c083768789d9e2f123d8d349662b8b01c9db621faf006f4763597ed44da2",
         },
     },
