@@ -717,7 +717,7 @@ pub const RepositionableDrawList = struct {
 
 pub fn textOnly(
     call_info: StandardCallInfo,
-    text: []const u8,
+    text_v: []const u8,
     color: Beui.Color,
 ) StandardChild {
     const ui = call_info.ui(@src());
@@ -726,7 +726,7 @@ pub fn textOnly(
     const draw = b2.draw();
 
     var char_pos: @Vector(2, f32) = .{ 0, 0 };
-    for (text) |char| {
+    for (text_v) |char| {
         draw.addChar(char, char_pos, color);
         char_pos += .{ 6, 0 };
     }
@@ -736,6 +736,16 @@ pub fn textOnly(
         .rdl = draw,
     };
 }
+
+// const TextLine = struct {
+//     line: []const u8,
+// };
+
+// pub fn textLine(call_info: StandardCallInfo, line: TextLine) StandardChild {
+//     const ui = call_info.ui(@src());
+
+//     // TODO
+// }
 
 const ListIndex = struct {
     comptime {

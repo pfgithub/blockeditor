@@ -7,7 +7,27 @@ const tracy = @import("anywhere").tracy;
 
 const LayoutCache = @This();
 
-// will also hold glyph cache and glyph images
+const RenderedLineKey = struct {
+    text: []const u8,
+    max_width_times_16: u64,
+};
+const RenderedLineContext = struct {
+    pub fn hash(self: @This(), s: RenderedLineKey) u32 {
+        _ = self;
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(s.text);
+        hasher.update(std.mem.asBytes(&s.max_width_times_16));
+
+        return @as(u32, @truncate(hasher.final()));
+    }
+    pub fn eql(self: @This(), a: RenderedLineKey, b: RenderedLineKey, b_index: usize) bool {
+        _ = self;
+        _ = b_index;
+        return std.mem.eql(u8, a.text, b.text) and a.max_width_times_16 == b.max_width_times_16;
+    }
+};
+
+rendered_line_cache: std.ArrayHashMap(RenderedLineKey, TextLine, RenderedLineContext, true),
 layout_cache: std.StringArrayHashMap(LayoutInfo),
 font: Font,
 gpa: std.mem.Allocator,
@@ -26,6 +46,9 @@ pub fn init(gpa: std.mem.Allocator, font: Font) LayoutCache {
     };
 }
 pub fn deinit(self: *LayoutCache) void {
+    for (self.rendered_line_cache.keys()) |v| self.gpa.free(v);
+    for (self.rendered_line_cache.values()) |v| v.deinit(self.gpa);
+    self.rendered_line_cache.deinit();
     for (self.layout_cache.keys()) |k| self.gpa.free(k);
     for (self.layout_cache.values()) |v| self.gpa.free(v.items);
     self.layout_cache.deinit();
@@ -109,6 +132,12 @@ pub fn tick(self: *LayoutCache, beui: *Beui) void {
         self.glyphs.clear();
         self.glyph_cache.clearRetainingCapacity();
         self.glyphs_cache_full = false;
+
+        // rendered_line_cache contains vertices which depend on these uvs
+        for (self.rendered_line_cache.keys()) |v| self.gpa.free(v);
+        for (self.rendered_line_cache.values()) |v| v.deinit(self.gpa);
+        self.rendered_line_cache.clearRetainingCapacity();
+
         // TODO if it's full two frames in a row, give up for a little while
     }
 
@@ -127,6 +156,148 @@ pub fn tick(self: *LayoutCache, beui: *Beui) void {
             i += 1;
         }
     }
+}
+
+const LineCharState = struct {
+    const null_offset: @Vector(2, f32) = .{ std.math.nan(f32), std.math.nan(f32) };
+    char_up_left_offset: @Vector(2, f32),
+    line_height: f32,
+    char_byte_in_string: usize,
+    fn isNull(self: LineCharState) bool {
+        return std.math.isNan(self.char_up_left_offset[0]);
+    }
+};
+const rl = @import("render_list.zig");
+pub const TextLine = struct {
+    image: ?.RenderListImage,
+    vertices: []const rl.RenderListVertex,
+    indices: []const rl.RenderListIndex,
+    cursor_positions: []const LineCharState,
+    line_height: f32,
+    multiline: bool,
+    single_line_width: f32,
+    last_used: i64,
+};
+const Line = struct {
+    text: []const u8,
+    max_width: ?f32,
+};
+fn renderLine(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, line: Line) TextLine {
+    const max_w_times_16: u64 = if (line.max_width) |m| std.math.lossyCast(u64, m * 16.0) else 0;
+    // first, try for an exact match
+    if (self.rendered_line_cache.getPtr(.{ .text = line.text, .max_width_times_16 = max_w_times_16 })) |xm| {
+        xm.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
+        return xm;
+    }
+    // next, try for a match with max_width null and then check the resulting width. if it's less than max width, we can use it
+    if (self.rendered_line_cache.getPtr(.{ .text = line.text, .max_width_times_16 = 0 })) |xm| {
+        if (!xm.multiline and (line.max_width == null or xm.single_line_width <= line.max_width.?)) {
+            xm.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
+            return xm;
+        }
+    }
+    // couldn't find in cache, have to rerender
+    const layout = self.layoutLine(b2, line.text);
+    const render_result = renderLine_nocache(self, layout, line);
+    const text_dupe = self.gpa.dupe(u8, line.text) catch @panic("oom");
+    self.rendered_line_cache.putNoClobber(.{
+        .text = text_dupe,
+        .max_width_times_16 = if (render_result.multiline) max_w_times_16 else 0,
+    }, render_result);
+    return render_result;
+}
+fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLine {
+    // TODO: this function should not reference 'docbyte's, those are a concept unique to TextDocument and are meaningless here.
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
+    // TODO: find three tiers of good break points based on the target width
+
+    var vertices: std.ArrayList(rl.RenderListVertex) = .init(self.gpa);
+    defer vertices.deinit();
+    var indices: std.ArrayList(rl.RenderListIndex) = .init(self.gpa);
+    defer indices.deinit();
+
+    const line_state = self.gpa.alloc(LineCharState, line.text.len) catch @panic("oom");
+    for (line_state) |*ls| ls.* = .{ .char_up_left_offset = LineCharState.null_offset, .height = 0, .char_position = .end };
+
+    var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
+    var length_with_no_selection_render: f32 = 0.0;
+    for (layout.items, 0..) |item, i| {
+        const tctx_ = tracy.traceNamed(@src(), "handle char");
+        defer tctx_.end();
+
+        const item_docbyte = item.docbyte_offset_from_layout_line_start;
+        const next_glyph_docbyte: u64 = if (i + 1 >= layout.items.len) item_docbyte + 1 else item_docbyte + layout.items[i + 1].docbyte_offset_from_layout_line_start;
+        const len = next_glyph_docbyte - item_docbyte;
+        if (next_glyph_docbyte == item_docbyte) {
+            length_with_no_selection_render += item.advance[0];
+        } else {
+            length_with_no_selection_render = 0;
+        }
+        const item_offset = @round(item.offset);
+
+        const glyph_info = self.renderGlyph(item.glyph_id, layout.height);
+        if (glyph_info.region) |region| {
+            const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
+            const glyph_offset: @Vector(2, f32) = glyph_info.offset;
+
+            // we should put this logic somewhere shared so we don't have to duplicate it here
+            const ul = cursor_pos + item_offset + glyph_offset;
+            const ur = ul + @Vector(2, f32){ glyph_size[0], 0 };
+            const bl = ul + @Vector(2, f32){ 0, glyph_size[1] };
+            const br = ul + glyph_size;
+
+            const uv = region.calculateUV(self.glyphs.size);
+            const uv_ul: @Vector(2, f32) = .{ uv.x, uv.y };
+            const uv_ur: @Vector(2, f32) = .{ uv.x + uv.width, uv.y };
+            const uv_bl: @Vector(2, f32) = .{ uv.x, uv.y + uv.height };
+            const uv_br: @Vector(2, f32) = .{ uv.x + uv.width, uv.y + uv.height };
+
+            const tint: Beui.Color = .fromHexRgb(0xFFFFFF);
+
+            const vstart = vertices.items.len;
+            vertices.appendSlice(&.{
+                .{ .pos = ul, .uv = uv_ul, .tint = tint.value },
+                .{ .pos = ur, .uv = uv_ur, .tint = tint.value },
+                .{ .pos = bl, .uv = uv_bl, .tint = tint.value },
+                .{ .pos = br, .uv = uv_br, .tint = tint.value },
+            }) catch @panic("oom");
+            indices.appendSlice(&.{
+                vstart + 0, vstart + 1, vstart + 3,
+                vstart + 0, vstart + 3, vstart + 2,
+            }) catch @panic("oom");
+        }
+
+        const total_width: f32 = length_with_no_selection_render + item.advance[0];
+        // "…" is composed of "\xE2\x80\xA6" - this means it has three valid cursor positions (when moving with .byte). Include them all.
+        for (0..@intCast(len)) |docbyte_offset| {
+            const docbyte = item_docbyte + docbyte_offset;
+
+            const portion = @floor(@as(f32, @floatFromInt(docbyte_offset)) / @as(f32, @floatFromInt(len)) * total_width);
+
+            line_state[docbyte] = .{
+                .char_up_left_offset = @floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion + 1, 0 }),
+                .line_height = layout.height,
+                .char_byte_in_string = docbyte,
+            };
+        }
+
+        cursor_pos += item.advance;
+        cursor_pos = @floor(cursor_pos);
+    }
+
+    const res_height = layout.height + cursor_pos[1];
+
+    return .{
+        .image = .editor_view_glyphs,
+        .vertices = vertices.toOwnedSlice(),
+        .indices = indices.toOwnedSlice(),
+        .cursor_positions = line_state,
+        .line_height = res_height,
+        .multiline = cursor_pos[1] != 0.0,
+        .single_line_width = cursor_pos[0],
+    };
 }
 
 /// result pointer is valid until next layoutLine() call

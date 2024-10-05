@@ -493,6 +493,8 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
 
         if (replace_invisible_glyph_id) |invis_glyph| {
             // TODO: also show invisibles for trailing whitespace
+            // ^ we can precalculate the number of bytes of trailing whitespace and count a glyph
+            //    to show as invisible if its byte is within the trailing whitespace bytes
             if (start_docbyte_selected) {
                 const tint = DefaultTheme.synHlColor(.invisible);
 
