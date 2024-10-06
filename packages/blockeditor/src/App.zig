@@ -190,6 +190,9 @@ fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) B2.Standard
     return B2.virtualScroller(ui.sub(@src()), &self.tree, FsTree2.Index, .from(self, render__tree__child));
 }
 fn render__tree__child(self: *App, call_info: B2.StandardCallInfo, index: FsTree2.Index) B2.StandardChild {
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
     const ui = call_info.ui(@src());
 
     const tree_node = index.current_node orelse unreachable;
@@ -290,6 +293,8 @@ const testing_vtable: Beui.FrameCfgVtable = .{
 const FsTree2 = struct {
     // if we could embed virutalized scrollers inside other virtualized scrollers then
     // we wouldn't have to keep nodes around forever
+    // TODO: if you open a dir and open some dirs within it, then close the outer dir and reopen it,
+    // the inner dirs should stay open. might require a bit of a rethink?
     const Node = struct {
         basename_owned: []u8,
         child_index: usize,
@@ -464,6 +469,7 @@ const FsTree2 = struct {
         std.debug.assert(!value.is_deleted);
         if (self.deleted_nodes.items.len > 0) {
             const res = self.deleted_nodes.pop();
+            res.deinit(self.all_nodes.allocator);
             res.* = value;
             return res;
         }

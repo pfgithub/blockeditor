@@ -19,7 +19,9 @@ Requires zig `0.14.0-dev.1694+3b465ebec` with zls commit `db05a1ce337fa53927e063
 # test
 zig build test
 # run blockeditor
-zig build run
+zig build run --prominent-compile-errors
+# run with tracy
+zig build run -Dtracy -Doptimize=ReleaseSafe --prominent-compile-errors
 ```
 
 # Debugging

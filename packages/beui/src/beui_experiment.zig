@@ -742,6 +742,9 @@ const TextLine = struct {
 };
 
 pub fn textLine(call_info: StandardCallInfo, line: TextLine) StandardChild {
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
     const ui = call_info.ui(@src());
     const b2 = ui.id.b2;
     const lc = &b2.persistent.layout_cache;
@@ -872,6 +875,9 @@ fn defaultTextButton_2(msg: *const []const u8, caller_id: StandardCallInfo, _: v
 }
 
 pub fn button(call_info: StandardCallInfo, itkn_in: ?Button_Itkn, child_component: Component(StandardCallInfo, Button_Itkn, StandardChild)) StandardChild {
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
     const ui = call_info.ui(@src());
     const itkn = itkn_in orelse Button_Itkn.init(ui.id.sub(@src()));
     const child = child_component.call(ui.sub(@src()), itkn);
