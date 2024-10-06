@@ -37,6 +37,7 @@ glyphs_cache_full: bool,
 
 pub fn init(gpa: std.mem.Allocator, font: Font) LayoutCache {
     return .{
+        .rendered_line_cache = .init(gpa),
         .layout_cache = .init(gpa),
         .font = font,
         .gpa = gpa,
@@ -46,8 +47,8 @@ pub fn init(gpa: std.mem.Allocator, font: Font) LayoutCache {
     };
 }
 pub fn deinit(self: *LayoutCache) void {
-    for (self.rendered_line_cache.keys()) |v| self.gpa.free(v);
-    for (self.rendered_line_cache.values()) |v| v.deinit(self.gpa);
+    for (self.rendered_line_cache.keys()) |v| self.gpa.free(v.text);
+    for (self.rendered_line_cache.values()) |*v| v.deinit(self.gpa);
     self.rendered_line_cache.deinit();
     for (self.layout_cache.keys()) |k| self.gpa.free(k);
     for (self.layout_cache.values()) |v| self.gpa.free(v.items);
@@ -134,8 +135,8 @@ pub fn tick(self: *LayoutCache, beui: *Beui) void {
         self.glyphs_cache_full = false;
 
         // rendered_line_cache contains vertices which depend on these uvs
-        for (self.rendered_line_cache.keys()) |v| self.gpa.free(v);
-        for (self.rendered_line_cache.values()) |v| v.deinit(self.gpa);
+        for (self.rendered_line_cache.keys()) |v| self.gpa.free(v.text);
+        for (self.rendered_line_cache.values()) |*v| v.deinit(self.gpa);
         self.rendered_line_cache.clearRetainingCapacity();
 
         // TODO if it's full two frames in a row, give up for a little while
@@ -169,7 +170,7 @@ const LineCharState = struct {
 };
 const rl = @import("render_list.zig");
 pub const TextLine = struct {
-    image: ?.RenderListImage,
+    image: ?rl.RenderListImage,
     vertices: []const rl.RenderListVertex,
     indices: []const rl.RenderListIndex,
     cursor_positions: []const LineCharState,
@@ -177,6 +178,11 @@ pub const TextLine = struct {
     multiline: bool,
     single_line_width: f32,
     last_used: i64,
+    fn deinit(self: *TextLine, alloc: std.mem.Allocator) void {
+        alloc.free(self.vertices);
+        alloc.free(self.indices);
+        alloc.free(self.cursor_positions);
+    }
 };
 const Line = struct {
     text: []const u8,
@@ -296,7 +302,7 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
         .cursor_positions = line_state,
         .line_height = res_height,
         .multiline = cursor_pos[1] != 0.0,
-        .single_line_width = cursor_pos[0],
+        .single_line_width = @min(cursor_pos[0], line.max_width orelse cursor_pos[0]),
     };
 }
 
