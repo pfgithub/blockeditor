@@ -853,6 +853,9 @@ pub const Button_Itkn = struct {
     pub fn active(self: Button_Itkn) bool {
         return self.id.b2.mouseCaptureResults(self.id).mouse_left_held;
     }
+    pub fn clicked(self: Button_Itkn) bool {
+        return self.id.b2.mouseCaptureResults(self.id).mouse_left_pressed_down_this_frame;
+    }
 };
 fn defaultTextButton(call_info: StandardCallInfo, msg: []const u8, itkn_in: ?Button_Itkn) StandardChild {
     const ui = call_info.ui(@src());
@@ -868,7 +871,7 @@ fn defaultTextButton_2(msg: *const []const u8, caller_id: StandardCallInfo, _: v
     return textOnly(ui.sub(@src()), msg.*, .fromHexRgb(0xFFFF00));
 }
 
-fn button(call_info: StandardCallInfo, itkn_in: ?Button_Itkn, child_component: Component(StandardCallInfo, Button_Itkn, StandardChild)) StandardChild {
+pub fn button(call_info: StandardCallInfo, itkn_in: ?Button_Itkn, child_component: Component(StandardCallInfo, Button_Itkn, StandardChild)) StandardChild {
     const ui = call_info.ui(@src());
     const itkn = itkn_in orelse Button_Itkn.init(ui.id.sub(@src()));
     const child = child_component.call(ui.sub(@src()), itkn);
