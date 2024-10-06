@@ -427,6 +427,9 @@ pub const ID = struct {
     }
 
     fn _addInternal(self: ID, items: []const IDSegment) ID {
+        const tctx = tracy.trace(@src());
+        defer tctx.end();
+
         self.assertValid();
         const self_cp = self.b2.frame.arena.alloc(IDSegment, self.str.len + items.len) catch @panic("oom");
         @memcpy(self_cp[0..self.str.len], self.str);
