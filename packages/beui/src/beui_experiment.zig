@@ -737,15 +737,24 @@ pub fn textOnly(
     };
 }
 
-// const TextLine = struct {
-//     line: []const u8,
-// };
+const TextLine = struct {
+    text: []const u8,
+};
 
-// pub fn textLine(call_info: StandardCallInfo, line: TextLine) StandardChild {
-//     const ui = call_info.ui(@src());
+pub fn textLine(call_info: StandardCallInfo, line: TextLine) StandardChild {
+    const ui = call_info.ui(@src());
+    const b2 = ui.id.b2;
+    const lc = &b2.persistent.layout_cache;
 
-//     // TODO
-// }
+    const result = lc.renderLine(b2, .{ .text = line.text, .max_width = call_info.constraints.available_size.w });
+    const resdraw = b2.draw();
+    resdraw.addVertices(result.image, result.vertices, result.indices);
+
+    return .{
+        .size = .{ result.single_line_width, result.height },
+        .rdl = resdraw,
+    };
+}
 
 const ListIndex = struct {
     comptime {

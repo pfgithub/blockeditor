@@ -174,7 +174,7 @@ pub const TextLine = struct {
     vertices: []const rl.RenderListVertex,
     indices: []const rl.RenderListIndex,
     cursor_positions: []const LineCharState,
-    line_height: f32,
+    height: f32,
     multiline: bool,
     single_line_width: f32,
     last_used: i64,
@@ -184,32 +184,33 @@ pub const TextLine = struct {
         alloc.free(self.cursor_positions);
     }
 };
-const Line = struct {
+pub const Line = struct {
     text: []const u8,
     max_width: ?f32,
 };
-fn renderLine(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, line: Line) TextLine {
+pub fn renderLine(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, line: Line) TextLine {
     const max_w_times_16: u64 = if (line.max_width) |m| std.math.lossyCast(u64, m * 16.0) else 0;
     // first, try for an exact match
     if (self.rendered_line_cache.getPtr(.{ .text = line.text, .max_width_times_16 = max_w_times_16 })) |xm| {
         xm.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
-        return xm;
+        return xm.*;
     }
     // next, try for a match with max_width null and then check the resulting width. if it's less than max width, we can use it
     if (self.rendered_line_cache.getPtr(.{ .text = line.text, .max_width_times_16 = 0 })) |xm| {
         if (!xm.multiline and (line.max_width == null or xm.single_line_width <= line.max_width.?)) {
             xm.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
-            return xm;
+            return xm.*;
         }
     }
     // couldn't find in cache, have to rerender
-    const layout = self.layoutLine(b2, line.text);
-    const render_result = renderLine_nocache(self, layout, line);
+    const layout = self.layoutLine(b2.persistent.beui1, line.text);
+    var render_result = renderLine_nocache(self, layout, line);
+    render_result.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
     const text_dupe = self.gpa.dupe(u8, line.text) catch @panic("oom");
     self.rendered_line_cache.putNoClobber(.{
         .text = text_dupe,
         .max_width_times_16 = if (render_result.multiline) max_w_times_16 else 0,
-    }, render_result);
+    }, render_result) catch @panic("oom");
     return render_result;
 }
 fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLine {
@@ -225,7 +226,7 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
     defer indices.deinit();
 
     const line_state = self.gpa.alloc(LineCharState, line.text.len) catch @panic("oom");
-    for (line_state) |*ls| ls.* = .{ .char_up_left_offset = LineCharState.null_offset, .height = 0, .char_position = .end };
+    for (line_state) |*ls| ls.* = .{ .char_up_left_offset = LineCharState.null_offset, .line_height = 0, .char_byte_in_string = 0 };
 
     var cursor_pos: @Vector(2, f32) = .{ 0, 0 };
     var length_with_no_selection_render: f32 = 0.0;
@@ -234,7 +235,7 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
         defer tctx_.end();
 
         const item_docbyte = item.docbyte_offset_from_layout_line_start;
-        const next_glyph_docbyte: u64 = if (i + 1 >= layout.items.len) item_docbyte + 1 else item_docbyte + layout.items[i + 1].docbyte_offset_from_layout_line_start;
+        const next_glyph_docbyte: u64 = if (i + 1 >= layout.items.len) item_docbyte + 1 else layout.items[i + 1].docbyte_offset_from_layout_line_start;
         const len = next_glyph_docbyte - item_docbyte;
         if (next_glyph_docbyte == item_docbyte) {
             length_with_no_selection_render += item.advance[0];
@@ -269,10 +270,16 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
                 .{ .pos = bl, .uv = uv_bl, .tint = tint.value },
                 .{ .pos = br, .uv = uv_br, .tint = tint.value },
             }) catch @panic("oom");
-            indices.appendSlice(&.{
-                vstart + 0, vstart + 1, vstart + 3,
-                vstart + 0, vstart + 3, vstart + 2,
-            }) catch @panic("oom");
+            if (vertices.items.len > std.math.maxInt(u16)) {
+                // there's lots of vertices. we need to report a frame warning somehow
+                // b2.warn("lots of vertices")
+                // anywhere_mod.beui.warn("lots of vertices")
+            } else {
+                indices.appendSlice(&.{
+                    @intCast(vstart + 0), @intCast(vstart + 1), @intCast(vstart + 3),
+                    @intCast(vstart + 0), @intCast(vstart + 3), @intCast(vstart + 2),
+                }) catch @panic("oom");
+            }
         }
 
         const total_width: f32 = length_with_no_selection_render + item.advance[0];
@@ -295,14 +302,17 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
 
     const res_height = layout.height + cursor_pos[1];
 
+    const is_multiline = cursor_pos[1] != 0.0;
+
     return .{
         .image = .editor_view_glyphs,
-        .vertices = vertices.toOwnedSlice(),
-        .indices = indices.toOwnedSlice(),
+        .vertices = vertices.toOwnedSlice() catch @panic("oom"),
+        .indices = indices.toOwnedSlice() catch @panic("oom"),
         .cursor_positions = line_state,
-        .line_height = res_height,
-        .multiline = cursor_pos[1] != 0.0,
-        .single_line_width = @min(cursor_pos[0], line.max_width orelse cursor_pos[0]),
+        .height = res_height,
+        .multiline = is_multiline,
+        .single_line_width = if (is_multiline) line.max_width orelse 0.0 else @min(cursor_pos[0], line.max_width orelse cursor_pos[0]),
+        .last_used = 0,
     };
 }
 

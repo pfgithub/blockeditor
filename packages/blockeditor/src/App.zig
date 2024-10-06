@@ -201,7 +201,7 @@ fn render__tree__child(self: *App, call_info: B2.StandardCallInfo, index: Render
     const offset_x: f32 = @as(f32, @floatFromInt(tree_node.indent_level)) * 6;
 
     const draw = ui.id.b2.draw();
-    const res = B2.textOnly(ui.subWithOffset(@src(), .{ offset_x, 0 }), tree_node.basename_owned, .fromHexRgb(0xFFFFFF));
+    const res = B2.textLine(ui.subWithOffset(@src(), .{ offset_x, 0 }), .{ .text = tree_node.basename_owned }); //, .fromHexRgb(0xFFFFFF));
     draw.place(res.rdl, .{ offset_x, 0 });
     return .{ .rdl = draw, .size = res.size + @Vector(2, f32){ offset_x, 0 } };
 }
