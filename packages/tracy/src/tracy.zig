@@ -1,8 +1,10 @@
-// https://github.com/ziglang/zig/blob/master/src/tracy.zig
-
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
+const tracy_cimport = @cImport({
+    @cDefine("TRACY_ENABLE", "true");
+    @cInclude("TracyC.h");
+});
 
 pub const enable_allocation = false;
 pub const enable_callstack = false;
@@ -206,6 +208,10 @@ inline fn frameMarkStart(comptime name: [:0]const u8) void {
 
 inline fn frameMarkEnd(comptime name: [:0]const u8) void {
     ___tracy_emit_frame_mark_end(name.ptr);
+}
+
+inline fn tracyEmitFrameImage(image: *const anyopaque, w: u16, h: u16, offset: u8, flip: c_int) void {
+    tracy_cimport.___tracy_emit_frame_image(image, w, h, offset, flip);
 }
 
 extern fn ___tracy_emit_frame_mark_start(name: [*:0]const u8) void;

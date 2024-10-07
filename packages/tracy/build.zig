@@ -262,6 +262,7 @@ pub fn build(b: *std.Build) !void {
     tracy_exe.addIncludePath(tracy_dep.path("tracy"));
     tracy_exe.addIncludePath(tracy_dep.path(""));
     tracy_exe.addIncludePath(tracy_dep.path("common"));
+    tracy_exe.addIncludePath(tracy_dep.path("public/tracy"));
     tracy_exe.linkLibC();
     tracy_exe.linkLibCpp();
     b.installArtifact(tracy_exe);
