@@ -176,6 +176,12 @@ fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) B2.Sta
     // TODO should be scrollable, vertical and horizontal
     // maybe window can autoscroll when content exceeds its bounds
     rdl.addRect(.{
+        .pos = .{ 20, 20 },
+        .size = .{ 200, 200 },
+        .tint = .fromHexRgb(0xFF0000),
+        .rounding = .{ .corners = .all, .radius = 100.0 },
+    });
+    rdl.addRect(.{
         .pos = .{ 0, 0 },
         .size = .{ 2048, 2048 },
         .uv_pos = .{ 0, 0 },

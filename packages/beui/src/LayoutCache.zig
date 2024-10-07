@@ -265,10 +265,10 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
 
             const vstart = vertices.items.len;
             vertices.appendSlice(&.{
-                .{ .pos = ul, .uv = uv_ul, .tint = tint.value },
-                .{ .pos = ur, .uv = uv_ur, .tint = tint.value },
-                .{ .pos = bl, .uv = uv_bl, .tint = tint.value },
-                .{ .pos = br, .uv = uv_br, .tint = tint.value },
+                .{ .pos = ul, .uv = uv_ul, .tint = tint.value, .circle = .{ 0, 0 } },
+                .{ .pos = ur, .uv = uv_ur, .tint = tint.value, .circle = .{ 0, 0 } },
+                .{ .pos = bl, .uv = uv_bl, .tint = tint.value, .circle = .{ 0, 0 } },
+                .{ .pos = br, .uv = uv_br, .tint = tint.value, .circle = .{ 0, 0 } },
             }) catch @panic("oom");
             if (vertices.items.len > std.math.maxInt(u16)) {
                 // there's lots of vertices. we need to report a frame warning somehow

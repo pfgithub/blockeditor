@@ -45,6 +45,7 @@ const wgsl_common = (
     \\      @builtin(position) position_clip: vec4<f32>,
     \\      @location(0) uv: vec2<f32>,
     \\      @location(1) tint: vec4<f32>,
+    \\      @location(2) circle: vec2<f32>,
     \\  }
     \\  fn unpack_color(color: vec4<u32>) -> vec4<f32> {
     \\      return vec4<f32>(
@@ -61,6 +62,7 @@ const wgsl_common = (
     \\      output.position_clip = vec4(p, 0.0, 1.0);
     \\      output.uv = in.uv;
     \\      output.tint = unpack_color(in.tint);
+    \\      output.circle = in.circle;
     \\      return output;
     \\  }
     \\
@@ -74,9 +76,14 @@ const wgsl_common = (
     \\      in: VertexOut,
     \\  ) -> @location(0) vec4<f32> {
     \\      var color: vec4<f32> = textureSample(image, image_sampler, in.uv);
-    \\      if in.uv.x < 0.0 { return premultiply(in.tint); }
+    \\      var circle = length(in.circle);
+    \\      var tint = in.tint;
+    \\      var stepdist: f32 = fwidth(circle) * 0.5; // fwidth is crazy, it's based on the values of the variable 'circle' in three neighbouring pixels
+    \\      circle = smoothstep(1.0 - stepdist, 1.0 + stepdist, circle); // when both smoothstep args are the same as circle, it outputs 0
+    \\      tint.a *= 1.0 - circle;
+    \\      if in.uv.x < 0.0 { return premultiply(tint); }
     \\      if true { color = vec4<f32>(1.0, 1.0, 1.0, color.r); }
-    \\      color *= in.tint;
+    \\      color *= tint;
     \\      return premultiply(color);
     \\  }
     \\

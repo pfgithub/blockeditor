@@ -23,6 +23,7 @@ pub const RenderListVertex = struct {
     pos: @Vector(2, f32),
     uv: @Vector(2, f32),
     tint: @Vector(4, u8),
+    circle: @Vector(2, f32),
     // TODO: rounding, shadow
 };
 pub const RenderListCommand = struct {
@@ -101,6 +102,7 @@ pub const RenderList = struct {
                 .pos = vtx.pos + offset_pos,
                 .uv = vtx.uv,
                 .tint = vtx.tint,
+                .circle = vtx.circle,
             });
         }
         self.indices.ensureUnusedCapacity(indices.len) catch @panic("oom");

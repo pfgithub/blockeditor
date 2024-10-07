@@ -624,9 +624,56 @@ pub const RepositionableDrawList = struct {
                 } = .round,
                 radius: f32,
             } = .{ .style = .none, .radius = 0 },
+            circle: [4]@Vector(2, f32) = .{ .{ 0, 0 }, .{ 0, 0 }, .{ 0, 0 }, .{ 0, 0 } },
         },
     ) void {
         var opts = opts_in;
+        if (opts.rounding.style == .round) {
+            const maximum_round: f32 = @reduce(.Min, opts.size / @Vector(2, f32){ 2, 2 });
+            const actual_round = @min(maximum_round, opts.rounding.radius);
+            // TODO preserve UVs
+
+            self.addRect(.{
+                .pos = opts.pos,
+                .size = .{ actual_round, actual_round },
+                .circle = .{ .{ 1, 1 }, .{ 1, 0 }, .{ 0, 1 }, .{ 0, 0 } },
+                .tint = opts.tint,
+            });
+            self.addRect(.{
+                .pos = opts.pos + @Vector(2, f32){ actual_round, 0 },
+                .size = .{ opts.size[0] - actual_round * 2, actual_round },
+                .tint = opts.tint,
+            });
+            self.addRect(.{
+                .pos = opts.pos + @Vector(2, f32){ opts.size[0] - actual_round, 0 },
+                .size = .{ actual_round, actual_round },
+                .circle = .{ .{ 1, 0 }, .{ 1, 1 }, .{ 0, 0 }, .{ 0, 1 } },
+                .tint = opts.tint,
+            });
+            self.addRect(.{
+                .pos = opts.pos + @Vector(2, f32){ 0, actual_round },
+                .size = .{ opts.size[0], opts.size[1] - actual_round * 2 },
+                .tint = opts.tint,
+            });
+            self.addRect(.{
+                .pos = opts.pos + @Vector(2, f32){ 0, opts.size[1] - actual_round },
+                .size = .{ actual_round, actual_round },
+                .circle = .{ .{ 1, 0 }, .{ 0, 0 }, .{ 1, 1 }, .{ 0, 1 } },
+                .tint = opts.tint,
+            });
+            self.addRect(.{
+                .pos = opts.pos + @Vector(2, f32){ actual_round, opts.size[1] - actual_round },
+                .size = .{ opts.size[0] - actual_round * 2, actual_round },
+                .tint = opts.tint,
+            });
+            self.addRect(.{
+                .pos = opts.pos + @Vector(2, f32){ opts.size[0] - actual_round, opts.size[1] - actual_round },
+                .size = .{ actual_round, actual_round },
+                .circle = .{ .{ 0, 0 }, .{ 0, 1 }, .{ 1, 0 }, .{ 1, 1 } },
+                .tint = opts.tint,
+            });
+            return;
+        }
         if (opts.image == null) {
             opts.uv_pos = .{ -1.0, -1.0 };
             opts.uv_size = .{ 0, 0 };
@@ -645,10 +692,10 @@ pub const RepositionableDrawList = struct {
         const uv_br = opts.uv_pos + opts.uv_size;
 
         self.addVertices(opts.image, &.{
-            .{ .pos = ul, .uv = uv_ul, .tint = opts.tint.value },
-            .{ .pos = ur, .uv = uv_ur, .tint = opts.tint.value },
-            .{ .pos = bl, .uv = uv_bl, .tint = opts.tint.value },
-            .{ .pos = br, .uv = uv_br, .tint = opts.tint.value },
+            .{ .pos = ul, .uv = uv_ul, .tint = opts.tint.value, .circle = opts.circle[0] },
+            .{ .pos = ur, .uv = uv_ur, .tint = opts.tint.value, .circle = opts.circle[1] },
+            .{ .pos = bl, .uv = uv_bl, .tint = opts.tint.value, .circle = opts.circle[2] },
+            .{ .pos = br, .uv = uv_br, .tint = opts.tint.value, .circle = opts.circle[3] },
         }, &.{
             // have to go clockwise to not get culled
             0, 1, 3,
