@@ -186,6 +186,7 @@ fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) B2.Sta
         .pos = .{ 0, 0 },
         .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? },
         .tint = B2.Theme.colors.window_bg,
+        .rounding = .{ .corners = .all, .radius = 6.0 },
     });
     return .{ .rdl = rdl, .size = .{ 2048, 2048 } };
 }
@@ -199,6 +200,7 @@ fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) B2.Standard
         .pos = .{ 0, 0 },
         .size = chres.size,
         .tint = B2.Theme.colors.window_bg,
+        .rounding = .{ .corners = .all, .radius = 6.0 },
     });
     return .{ .rdl = rdl, .size = chres.size };
 }

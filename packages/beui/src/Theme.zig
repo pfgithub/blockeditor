@@ -59,10 +59,7 @@ fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager,
                     .pos = offset_pos,
                     .size = .{ offset_size[0], titlebar_height },
                     .tint = colors.window_bg,
-                    .rounding = .{
-                        .corners = .all,
-                        .radius = 6.0,
-                    },
+                    .rounding = .{ .corners = .all, .radius = 6.0 },
                 });
                 rdl.addMouseEventCapture(wm.addIkey(window_id.sub(@src()), .{ .resize = .{ .window = root_container, .sides = .all } }), offset_pos, .{ offset_size[0], titlebar_height + border_width }, .{ .capture_click = .arrow });
                 return drawWindowFinal(window_content_id, wm, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width });
