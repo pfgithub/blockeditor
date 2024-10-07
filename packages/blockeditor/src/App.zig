@@ -182,12 +182,25 @@ fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) B2.Sta
         .uv_size = .{ 1, 1 },
         .image = .editor_view_glyphs,
     });
+    rdl.addRect(.{
+        .pos = .{ 0, 0 },
+        .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? },
+        .tint = B2.Theme.colors.window_bg,
+    });
     return .{ .rdl = rdl, .size = .{ 2048, 2048 } };
 }
 fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
     const ui = call_info.ui(@src());
 
-    return B2.virtualScroller(ui.sub(@src()), &self.tree, FsTree2.Index, .from(self, render__tree__child));
+    const rdl = ui.id.b2.draw();
+    const chres = B2.virtualScroller(ui.sub(@src()), &self.tree, FsTree2.Index, .from(self, render__tree__child));
+    rdl.place(chres.rdl, .{ 0, 0 });
+    rdl.addRect(.{
+        .pos = .{ 0, 0 },
+        .size = chres.size,
+        .tint = B2.Theme.colors.window_bg,
+    });
+    return .{ .rdl = rdl, .size = chres.size };
 }
 fn render__tree__child(self: *App, call_info: B2.StandardCallInfo, index: FsTree2.Index) B2.StandardChild {
     const tctx = tracy.trace(@src());

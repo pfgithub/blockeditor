@@ -6,6 +6,10 @@ const B2 = @import("beui_experiment.zig");
 pub const window_padding: f32 = border_width * 2;
 const border_width: f32 = 6.0;
 
+pub const colors = struct {
+    pub const window_bg: Beui.Color = .fromHexRgb(0x2e2e2e);
+};
+
 // so here's the plan:
 // - can't predraw the windows at the start of the frame because that introduces frame delay for opening or closing a window
 // so we will:
@@ -54,7 +58,7 @@ fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager,
                 rdl.addRect(.{
                     .pos = offset_pos,
                     .size = .{ offset_size[0], titlebar_height },
-                    .tint = .fromHexRgb(0x2e2e2e),
+                    .tint = colors.window_bg,
                     .rounding = .{
                         .corners = .all,
                         .radius = 6.0,
