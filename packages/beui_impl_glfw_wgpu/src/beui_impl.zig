@@ -497,6 +497,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
     defer commands.release();
 
     gctx.submit(&.{commands});
+    // TODO mapAsync the resulting drawn frame & show it in tracy
     _ = gctx.present();
 }
 
