@@ -1119,7 +1119,10 @@ const WindowListInfo = struct {
     child_node: WindowTreeNode,
 };
 pub const WindowTreeNodeUnion = union(enum) {
-    tabs: std.ArrayList(WindowTreeNode),
+    tabs: struct {
+        selected_tab: WindowTreeNodeID,
+        items: std.ArrayList(WindowTreeNode),
+    },
     list: struct {
         direction: enum { x, y },
         items: std.ArrayList(WindowListInfo),
@@ -1133,8 +1136,8 @@ pub const WindowTreeNode = struct {
         switch (self.value) {
             .final => {},
             .tabs => |*t| {
-                for (t.items) |*it| it.deinit();
-                t.deinit();
+                for (t.items.items) |*it| it.deinit();
+                t.items.deinit();
             },
             .list => |*l| {
                 for (l.items.items) |*it| it.child_node.deinit();
@@ -1300,7 +1303,8 @@ pub const WindowManager = struct {
     }
 
     // 2. during the frame (fn addWindow)
-    pub fn addWindow(self: *WindowManager, window_id: ID, child: Component(StandardCallInfo, void, StandardChild)) void {
+    pub fn addWindow(self: *WindowManager, window_id: ID, title: []const u8, child: Component(StandardCallInfo, void, StandardChild)) void {
+        _ = title;
         // 2a. get the window from the map
         const gpres = self.windows.getOrPut(window_id) catch @panic("oom");
         if (!gpres.found_existing) {

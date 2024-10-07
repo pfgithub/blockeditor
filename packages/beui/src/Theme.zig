@@ -46,28 +46,37 @@ fn drawWindowFinal(window_content_id: B2.ID, wm: *B2.WindowManager, offset_pos: 
     const win_data = wm.windows.getPtr(window_content_id).?;
     win_data.* = .{ .slot = slot, .position = offset_pos, .size = offset_size };
 }
-fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
+fn drawWindowTabbed(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *const B2.WindowTreeNode, current_tab: B2.WindowTreeNodeID, tabs: []const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
+    // draw titlebar
+
     const rdl = wm.this_frame_rdl.?;
     const window_id = wm.idForWindowTreeNode(@src(), win.id);
+
+    const text_line_res = B2.textLine(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = offset_size[0], .h = null } } }, .{ .text = "Title" });
+    rdl.place(text_line_res.rdl, offset_pos);
+    rdl.addRect(.{
+        .pos = offset_pos,
+        .size = .{ offset_size[0], titlebar_height },
+        .tint = colors.window_bg,
+        .rounding = .{ .corners = .all, .radius = 6.0 },
+    });
+    rdl.addMouseEventCapture(wm.addIkey(window_id.sub(@src()), .{ .resize = .{ .window = root_container, .sides = .all } }), offset_pos, .{ offset_size[0], titlebar_height + border_width }, .{ .capture_click = .arrow });
+    const current_tab_node = for (tabs) |*tab| {
+        if (tab.id == current_tab) break tab;
+    } else @panic("tab not found; TODO?");
+    return drawWindowNode(root_container, wm, current_tab_node, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
+}
+fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
     switch (win.value) {
         .final => |window_content_id| {
             if (cfg.parent_is_tabs) {
                 return drawWindowFinal(window_content_id, wm, offset_pos, offset_size);
             } else {
-                // draw titlebar
-                rdl.addRect(.{
-                    .pos = offset_pos,
-                    .size = .{ offset_size[0], titlebar_height },
-                    .tint = colors.window_bg,
-                    .rounding = .{ .corners = .all, .radius = 6.0 },
-                });
-                rdl.addMouseEventCapture(wm.addIkey(window_id.sub(@src()), .{ .resize = .{ .window = root_container, .sides = .all } }), offset_pos, .{ offset_size[0], titlebar_height + border_width }, .{ .capture_click = .arrow });
-                return drawWindowFinal(window_content_id, wm, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width });
+                return drawWindowTabbed(root_container, wm, win, win.id, win[0..1], offset_pos, offset_size);
             }
         },
         .tabs => |t| {
-            _ = t;
-            @panic("TODO tabs");
+            return drawWindowTabbed(root_container, wm, win, t.selected_tab, t.items.items, offset_pos, offset_size);
         },
         .list => |l| {
             _ = l;

@@ -129,13 +129,13 @@ pub fn render(self: *App, call_id: B2.ID) void {
     // const wm = b2.windowManager();
     // b2.windows.add()
 
-    id.b2.persistent.wm.addWindow(id.sub(@src()), .from(self, render__debugTexture));
+    id.b2.persistent.wm.addWindow(id.sub(@src()), "Debug Texture", .from(self, render__debugTexture));
     const id_loop = id.pushLoop(@src(), usize);
     for (self.tabs.items, 0..) |tab, i| {
         const id_sub = id_loop.pushLoopValue(@src(), i);
-        id.b2.persistent.wm.addWindow(id_sub.sub(@src()), .from(&render__editor__Context{ .self = self, .tab = tab }, render__editor));
+        id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Editor View.zig", .from(&render__editor__Context{ .self = self, .tab = tab }, render__editor));
     }
-    id.b2.persistent.wm.addWindow(id.sub(@src()), .from(self, render__tree));
+    id.b2.persistent.wm.addWindow(id.sub(@src()), "File Tree", .from(self, render__tree));
 }
 const render__editor__Context = struct {
     self: *App,
