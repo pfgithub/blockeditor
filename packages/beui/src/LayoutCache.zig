@@ -157,6 +157,8 @@ pub fn tick(self: *LayoutCache, beui: *Beui) void {
             i += 1;
         }
     }
+
+    // TODO clear rendered line cache too
 }
 
 const LineCharState = struct {
@@ -196,7 +198,9 @@ pub fn renderLine(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, line: Lin
         return xm.*;
     }
     // next, try for a match with max_width null and then check the resulting width. if it's less than max width, we can use it
+    var exists_max_width_0 = false;
     if (self.rendered_line_cache.getPtr(.{ .text = line.text, .max_width_times_16 = 0 })) |xm| {
+        exists_max_width_0 = true;
         if (!xm.multiline and (line.max_width == null or xm.single_line_width <= line.max_width.?)) {
             xm.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
             return xm.*;
@@ -206,6 +210,11 @@ pub fn renderLine(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, line: Lin
     const layout = self.layoutLine(b2.persistent.beui1, line.text);
     var render_result = renderLine_nocache(self, layout, line);
     render_result.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
+    if (exists_max_width_0 and !render_result.multiline) {
+        // oops! we aren't wrapping yet.
+        render_result.deinit(self.gpa);
+        return self.rendered_line_cache.getPtr(.{ .text = line.text, .max_width_times_16 = 0 }).?.*;
+    }
     const text_dupe = self.gpa.dupe(u8, line.text) catch @panic("oom");
     self.rendered_line_cache.putNoClobber(.{
         .text = text_dupe,
