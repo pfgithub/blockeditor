@@ -106,6 +106,9 @@ pub const tracy = struct {
         if (tracy_mod) |t| return .{ .value = t.namedFrame(name) };
         return .{ .value = {} };
     }
+    pub inline fn emitFrameImage(image: *const anyopaque, w: u16, h: u16, offset: u8, flip: c_int) void {
+        if (tracy_mod) |t| t.emitFrameImage(image, w, h, offset, flip);
+    }
 
     pub fn Frame(comptime name: [:0]const u8) type {
         return struct {

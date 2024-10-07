@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
-const tracy_cimport = @cImport({
+const c = @cImport({
     @cDefine("TRACY_ENABLE", "true");
     @cInclude("TracyC.h");
 });
@@ -12,36 +12,33 @@ pub const enable_callstack = false;
 // TODO: make this configurable
 const callstack_depth = 10;
 
-const ___tracy_c_zone_context = extern struct {
-    id: u32,
-    active: c_int,
+pub const Ctx = extern struct {
+    value: c.struct____tracy_c_zone_context,
 
-    pub inline fn end(self: @This()) void {
-        ___tracy_emit_zone_end(self);
+    pub inline fn end(self: Ctx) void {
+        c.___tracy_emit_zone_end(self.value);
     }
 
-    pub inline fn addText(self: @This(), text: []const u8) void {
-        ___tracy_emit_zone_text(self, text.ptr, text.len);
+    pub inline fn addText(self: Ctx, text: []const u8) void {
+        c.___tracy_emit_zone_text(self.value, text.ptr, text.len);
     }
 
-    pub inline fn setName(self: @This(), name: []const u8) void {
-        ___tracy_emit_zone_name(self, name.ptr, name.len);
+    pub inline fn setName(self: Ctx, name: []const u8) void {
+        c.___tracy_emit_zone_name(self.value, name.ptr, name.len);
     }
 
-    pub inline fn setColor(self: @This(), color: u32) void {
-        ___tracy_emit_zone_color(self, color);
+    pub inline fn setColor(self: Ctx, color: u32) void {
+        c.___tracy_emit_zone_color(self.value, color);
     }
 
-    pub inline fn setValue(self: @This(), value: u64) void {
-        ___tracy_emit_zone_value(self, value);
+    pub inline fn setValue(self: Ctx, value: u64) void {
+        c.___tracy_emit_zone_value(self.value, value);
     }
 };
 
-pub const Ctx = ___tracy_c_zone_context;
-
 pub inline fn trace(comptime src: std.builtin.SourceLocation) Ctx {
     const global = struct {
-        const loc: ___tracy_source_location_data = .{
+        const loc: c.struct____tracy_source_location_data = .{
             .name = null,
             .function = src.fn_name.ptr,
             .file = src.file.ptr,
@@ -51,15 +48,15 @@ pub inline fn trace(comptime src: std.builtin.SourceLocation) Ctx {
     };
 
     if (enable_callstack) {
-        return ___tracy_emit_zone_begin_callstack(&global.loc, callstack_depth, 1);
+        return .{ .value = c.___tracy_emit_zone_begin_callstack(&global.loc, callstack_depth, 1) };
     } else {
-        return ___tracy_emit_zone_begin(&global.loc, 1);
+        return .{ .value = c.___tracy_emit_zone_begin(&global.loc, 1) };
     }
 }
 
 pub inline fn traceNamed(comptime src: std.builtin.SourceLocation, comptime name: [:0]const u8) Ctx {
     const global = struct {
-        const loc: ___tracy_source_location_data = .{
+        const loc: c.struct____tracy_source_location_data = .{
             .name = name.ptr,
             .function = src.fn_name.ptr,
             .file = src.file.ptr,
@@ -69,9 +66,9 @@ pub inline fn traceNamed(comptime src: std.builtin.SourceLocation, comptime name
     };
 
     if (enable_callstack) {
-        return ___tracy_emit_zone_begin_callstack(&global.loc, callstack_depth, 1);
+        return .{ .value = c.___tracy_emit_zone_begin_callstack(&global.loc, callstack_depth, 1) };
     } else {
-        return ___tracy_emit_zone_begin(&global.loc, 1);
+        return .{ .value = c.___tracy_emit_zone_begin(&global.loc, 1) };
     }
 }
 
@@ -165,33 +162,37 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
 
 // This function only accepts comptime-known strings, see `messageCopy` for runtime strings
 pub inline fn message(comptime msg: [:0]const u8) void {
-    ___tracy_emit_messageL(msg.ptr, if (enable_callstack) callstack_depth else 0);
+    c.___tracy_emit_messageL(msg.ptr, if (enable_callstack) callstack_depth else 0);
 }
 
 // This function only accepts comptime-known strings, see `messageColorCopy` for runtime strings
 pub inline fn messageColor(comptime msg: [:0]const u8, color: u32) void {
-    ___tracy_emit_messageLC(msg.ptr, color, if (enable_callstack) callstack_depth else 0);
+    c.___tracy_emit_messageLC(msg.ptr, color, if (enable_callstack) callstack_depth else 0);
 }
 
 pub inline fn messageCopy(msg: []const u8) void {
-    ___tracy_emit_message(msg.ptr, msg.len, if (enable_callstack) callstack_depth else 0);
+    c.___tracy_emit_message(msg.ptr, msg.len, if (enable_callstack) callstack_depth else 0);
 }
 
 pub inline fn messageColorCopy(msg: []const u8, color: u32) void {
-    ___tracy_emit_messageC(msg.ptr, msg.len, color, if (enable_callstack) callstack_depth else 0);
+    c.___tracy_emit_messageC(msg.ptr, msg.len, color, if (enable_callstack) callstack_depth else 0);
 }
 
 pub inline fn frameMark() void {
-    ___tracy_emit_frame_mark(null);
+    c.___tracy_emit_frame_mark(null);
 }
 
 pub inline fn frameMarkNamed(comptime name: [:0]const u8) void {
-    ___tracy_emit_frame_mark(name.ptr);
+    c.___tracy_emit_frame_mark(name.ptr);
 }
 
 pub inline fn namedFrame(comptime name: [:0]const u8) Frame(name) {
     frameMarkStart(name);
     return .{};
+}
+
+pub inline fn emitFrameImage(image: *const anyopaque, w: u16, h: u16, offset: u8, flip: c_int) void {
+    c.___tracy_emit_frame_image(image, w, h, offset, flip);
 }
 
 pub fn Frame(comptime name: [:0]const u8) type {
@@ -203,84 +204,41 @@ pub fn Frame(comptime name: [:0]const u8) type {
 }
 
 inline fn frameMarkStart(comptime name: [:0]const u8) void {
-    ___tracy_emit_frame_mark_start(name.ptr);
+    c.___tracy_emit_frame_mark_start(name.ptr);
 }
 
 inline fn frameMarkEnd(comptime name: [:0]const u8) void {
-    ___tracy_emit_frame_mark_end(name.ptr);
+    c.___tracy_emit_frame_mark_end(name.ptr);
 }
-
-inline fn tracyEmitFrameImage(image: *const anyopaque, w: u16, h: u16, offset: u8, flip: c_int) void {
-    tracy_cimport.___tracy_emit_frame_image(image, w, h, offset, flip);
-}
-
-extern fn ___tracy_emit_frame_mark_start(name: [*:0]const u8) void;
-extern fn ___tracy_emit_frame_mark_end(name: [*:0]const u8) void;
 
 inline fn alloc(ptr: [*]u8, len: usize) void {
     if (enable_callstack) {
-        ___tracy_emit_memory_alloc_callstack(ptr, len, callstack_depth, 0);
+        c.___tracy_emit_memory_alloc_callstack(ptr, len, callstack_depth, 0);
     } else {
-        ___tracy_emit_memory_alloc(ptr, len, 0);
+        c.___tracy_emit_memory_alloc(ptr, len, 0);
     }
 }
 
 inline fn allocNamed(ptr: [*]u8, len: usize, comptime name: [:0]const u8) void {
     if (enable_callstack) {
-        ___tracy_emit_memory_alloc_callstack_named(ptr, len, callstack_depth, 0, name.ptr);
+        c.___tracy_emit_memory_alloc_callstack_named(ptr, len, callstack_depth, 0, name.ptr);
     } else {
-        ___tracy_emit_memory_alloc_named(ptr, len, 0, name.ptr);
+        c.___tracy_emit_memory_alloc_named(ptr, len, 0, name.ptr);
     }
 }
 
 inline fn free(ptr: [*]u8) void {
     if (enable_callstack) {
-        ___tracy_emit_memory_free_callstack(ptr, callstack_depth, 0);
+        c.___tracy_emit_memory_free_callstack(ptr, callstack_depth, 0);
     } else {
-        ___tracy_emit_memory_free(ptr, 0);
+        c.___tracy_emit_memory_free(ptr, 0);
     }
 }
 
 inline fn freeNamed(ptr: [*]u8, comptime name: [:0]const u8) void {
     if (enable_callstack) {
-        ___tracy_emit_memory_free_callstack_named(ptr, callstack_depth, 0, name.ptr);
+        c.___tracy_emit_memory_free_callstack_named(ptr, callstack_depth, 0, name.ptr);
     } else {
-        ___tracy_emit_memory_free_named(ptr, 0, name.ptr);
+        c.___tracy_emit_memory_free_named(ptr, 0, name.ptr);
     }
 }
-
-extern fn ___tracy_emit_zone_begin(
-    srcloc: *const ___tracy_source_location_data,
-    active: c_int,
-) ___tracy_c_zone_context;
-extern fn ___tracy_emit_zone_begin_callstack(
-    srcloc: *const ___tracy_source_location_data,
-    depth: c_int,
-    active: c_int,
-) ___tracy_c_zone_context;
-extern fn ___tracy_emit_zone_text(ctx: ___tracy_c_zone_context, txt: [*]const u8, size: usize) void;
-extern fn ___tracy_emit_zone_name(ctx: ___tracy_c_zone_context, txt: [*]const u8, size: usize) void;
-extern fn ___tracy_emit_zone_color(ctx: ___tracy_c_zone_context, color: u32) void;
-extern fn ___tracy_emit_zone_value(ctx: ___tracy_c_zone_context, value: u64) void;
-extern fn ___tracy_emit_zone_end(ctx: ___tracy_c_zone_context) void;
-extern fn ___tracy_emit_memory_alloc(ptr: *const anyopaque, size: usize, secure: c_int) void;
-extern fn ___tracy_emit_memory_alloc_callstack(ptr: *const anyopaque, size: usize, depth: c_int, secure: c_int) void;
-extern fn ___tracy_emit_memory_free(ptr: *const anyopaque, secure: c_int) void;
-extern fn ___tracy_emit_memory_free_callstack(ptr: *const anyopaque, depth: c_int, secure: c_int) void;
-extern fn ___tracy_emit_memory_alloc_named(ptr: *const anyopaque, size: usize, secure: c_int, name: [*:0]const u8) void;
-extern fn ___tracy_emit_memory_alloc_callstack_named(ptr: *const anyopaque, size: usize, depth: c_int, secure: c_int, name: [*:0]const u8) void;
-extern fn ___tracy_emit_memory_free_named(ptr: *const anyopaque, secure: c_int, name: [*:0]const u8) void;
-extern fn ___tracy_emit_memory_free_callstack_named(ptr: *const anyopaque, depth: c_int, secure: c_int, name: [*:0]const u8) void;
-extern fn ___tracy_emit_message(txt: [*]const u8, size: usize, callstack: c_int) void;
-extern fn ___tracy_emit_messageL(txt: [*:0]const u8, callstack: c_int) void;
-extern fn ___tracy_emit_messageC(txt: [*]const u8, size: usize, color: u32, callstack: c_int) void;
-extern fn ___tracy_emit_messageLC(txt: [*:0]const u8, color: u32, callstack: c_int) void;
-extern fn ___tracy_emit_frame_mark(name: ?[*:0]const u8) void;
-
-const ___tracy_source_location_data = extern struct {
-    name: ?[*:0]const u8,
-    function: [*:0]const u8,
-    file: [*:0]const u8,
-    line: u32,
-    color: u32,
-};
