@@ -18,7 +18,6 @@ const zgpu = @import("zgpu");
 const wgpu = zgpu.wgpu;
 const zgui = @import("zgui");
 const zm = @import("zmath");
-const zstbi = @import("zstbi");
 
 /// TODO: allow skipping frames. to do this we need to:
 /// - disable zgui, it dosen't like it
@@ -208,9 +207,6 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         zgpu.samplerEntry(2, .{ .fragment = true }, .filtering),
     });
     errdefer gctx.releaseResource(bind_group_layout);
-
-    zstbi.init(arena);
-    defer zstbi.deinit();
 
     const image = default_image;
     const imgw = 256;

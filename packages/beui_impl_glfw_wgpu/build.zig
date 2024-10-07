@@ -70,13 +70,6 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
             .target = target,
         });
         exe.root_module.addImport("zmath", zmath.module("root"));
-
-        // we don't need this, we'll use wuffs for images
-        const zstbi = zig_gamedev_dep.builder.dependency("zstbi", .{
-            .target = target,
-        });
-        exe.root_module.addImport("zstbi", zstbi.module("root"));
-        exe.linkLibrary(zstbi.artifact("zstbi"));
     }
 
     return exe.getEmittedBin();
