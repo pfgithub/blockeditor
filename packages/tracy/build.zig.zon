@@ -4,8 +4,26 @@
     .paths = .{""},
     .dependencies = .{
         .tracy = .{
-            .url = "https://github.com/wolfpld/tracy/archive/8b9da2efba6937b66085a52f7281c59293ffe985.tar.gz",
-            .hash = "122008f368247daaf70b0c7280d3748982aa74baac4b498ab71008f740949bbd1921",
+            .url = "https://github.com/wolfpld/tracy/archive/90c072b66cd954585ce4dd82276dc7a323d9433c.tar.gz",
+            .hash = "122003c6cd50281b871c14834b589e29113f50012b50028842b9bbc473a4ce9af4a6",
+        },
+        .imgui = .{
+            // version specified here: https://github.com/wolfpld/tracy/blob/90c072b66cd954585ce4dd82276dc7a323d9433c/cmake/vendor.cmake#L171
+            .url = "https://github.com/ocornut/imgui/archive/refs/tags/v1.91.3-docking.tar.gz",
+            .hash = "122097eefc8aaa3c1c8e20c3fbeb0e965f988c28090438a57cc751a97578ef450003",
+        },
+        .ppqsort = .{
+            // version specified here: https://github.com/wolfpld/tracy/blob/90c072b66cd954585ce4dd82276dc7a323d9433c/cmake/vendor.cmake#L252
+            .url = "https://github.com/GabTux/PPQSort/archive/refs/tags/v1.0.3.tar.gz",
+            .hash = "1220a3bd5ff27f5b167164232da0b7a0af6000c18977a29887d786675347f5f1a159",
+        },
+        .capstone = .{
+            .url = "https://github.com/pfgithub/capstone/archive/fc2ea63f685754fbb01f03e07ba9612f9216b806.tar.gz",
+            .hash = "1220c20e04c370ea08cc22138f4a5014fc67a02b61bbcc9ed78762e3ca043b94b888",
+        },
+        .freetype = .{
+            .url = "https://github.com/hexops/freetype/archive/15176bb045dcef2af742d66c806ddc974c38f258.tar.gz",
+            .hash = "12200af3f1a4033f44eb28fef742326b3cbfd27cfe199af07a82383ea175241a4eb0",
         },
         .glfw = .{
             .url = "https://pkg.machengine.org/glfw/e6f377baed70a7bef9fa08d808f40b64c5136bf6.tar.gz",

@@ -11,6 +11,16 @@ pub fn build(b: *std.Build) !void {
     const zstd_dep = b.dependency("zstd", .{ .target = target, .optimize = optimize });
 
     const tracy_dep = b.dependency("tracy", .{});
+    const imgui_dep = b.dependency("imgui", .{});
+    const ppqsort_dep = b.dependency("ppqsort", .{});
+    const capstone_dep = b.dependency("capstone", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const freetype_dep = b.dependency("freetype", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     const tracy_lib = b.addStaticLibrary(.{
         .name = "tracy_lib",
@@ -81,17 +91,37 @@ pub fn build(b: *std.Build) !void {
             "-fno-sanitize=undefined",
         },
     });
+
+    tracy_exe.linkLibrary(capstone_dep.artifact("capstone"));
+    // hack, because allyourcodebase/capstone exports the header as 'capstone/capstone.h' rather than 'capstone.h'
+    tracy_exe.addIncludePath(capstone_dep.artifact("capstone").getEmittedIncludeTree().path(b, "capstone"));
+
+    tracy_exe.linkLibrary(freetype_dep.artifact("freetype"));
+
+    tracy_exe.addIncludePath(ppqsort_dep.path("include"));
+    tracy_exe.addCSourceFiles(.{
+        .root = imgui_dep.path("."),
+        .files = &[_][]const u8{
+            // https://github.com/wolfpld/tracy/blob/90c072b66cd954585ce4dd82276dc7a323d9433c/cmake/vendor.cmake#L179-L185
+            // note that tracy applies patches to imgui but we don't
+            "imgui_widgets.cpp",
+            "imgui_draw.cpp",
+            "imgui_demo.cpp",
+            "imgui.cpp",
+            "imgui_tables.cpp",
+            "misc/freetype/imgui_freetype.cpp",
+            "backends/imgui_impl_opengl3.cpp",
+            "backends/imgui_impl_glfw.cpp",
+        },
+    });
+    tracy_exe.addIncludePath(b.path("src/patched"));
+    tracy_exe.addIncludePath(b.path("src/patched/backends"));
+    tracy_exe.addIncludePath(imgui_dep.path("."));
     tracy_exe.addCSourceFiles(.{
         .root = tracy_dep.path("."),
         .files = &[_][]const u8{
             // ls profiler/***.{cpp} server/***.{cpp} public/***.{cpp} imgui/***.{cpp}
 
-            "imgui/imgui.cpp",
-            "imgui/imgui_demo.cpp",
-            "imgui/imgui_draw.cpp",
-            "imgui/imgui_tables.cpp",
-            "imgui/imgui_widgets.cpp",
-            // "imgui/misc/freetype/imgui_freetype.cpp",
             // "profiler/src/BackendEmscripten.cpp",
             "profiler/src/BackendGlfw.cpp",
             // "profiler/src/BackendWayland.cpp",
@@ -100,8 +130,6 @@ pub fn build(b: *std.Build) !void {
             "profiler/src/Fonts.cpp",
             "profiler/src/HttpRequest.cpp",
             "profiler/src/ImGuiContext.cpp",
-            "profiler/src/imgui/imgui_impl_glfw.cpp",
-            "profiler/src/imgui/imgui_impl_opengl3.cpp",
             "profiler/src/IsElevated.cpp",
             "profiler/src/main.cpp",
             "profiler/src/profiler/TracyAchievementData.cpp",
@@ -202,7 +230,6 @@ pub fn build(b: *std.Build) !void {
     tracy_exe.linkLibrary(zstd_dep.artifact("zstd"));
     switch (target.result.os.tag) {
         .macos => {
-            tracy_exe.linkSystemLibrary("capstone");
             tracy_exe.addCSourceFiles(.{
                 .root = tracy_dep.path("."),
                 .files = &[_][]const u8{
@@ -223,7 +250,6 @@ pub fn build(b: *std.Build) !void {
             tracy_exe.linkFramework("UniformTypeIdentifiers");
         },
         .linux => {
-            tracy_exe.linkSystemLibrary("capstone");
             tracy_exe.linkSystemLibrary("dbus-1");
             tracy_exe.addCSourceFiles(.{
                 .root = tracy_dep.path("."),
@@ -235,7 +261,6 @@ pub fn build(b: *std.Build) !void {
             });
         },
         .windows => {
-            tracy_exe.linkSystemLibrary("capstone");
             tracy_exe.addCSourceFiles(.{
                 .root = tracy_dep.path("."),
                 .files = &[_][]const u8{
@@ -244,12 +269,6 @@ pub fn build(b: *std.Build) !void {
                 },
                 .flags = profiler_flags,
             });
-
-            // need to:
-            // - compile capstone ourself
-            // - compile zstd ourself
-            const fail_step = b.addFail("TODO support compiling tracy profiler for windows");
-            tracy_exe.step.dependOn(&fail_step.step);
         },
         else => {
             const fail_step = b.addFail("TODO support compiling tracy profiler for target");

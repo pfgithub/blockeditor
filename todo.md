@@ -71,7 +71,7 @@ Tasks:
 - [ ] beui_impl_android: support tracy with -Dtracy (& in cmake it needs to be a release build and
   DOptimize=ReleaseSafe) (maybe: automatically launch tracy on the native platform when the build
   is complete?)
-- [ ] update tracy. the new version fixes the performance problem in the flamegraph. unfortunately,
+- [x] update tracy. the new version fixes the performance problem in the flamegraph. unfortunately,
   they moved imgui to cmake, with patches. so maybe we can depend on cmake and make and use
   that in the build script to build tracy.
 - [ ] text editor: fix the last line is buggy
