@@ -1,6 +1,7 @@
 const default_image = Beui.default_image; // 97x161, 255 = white / 0 = black
 const draw_lists = Beui.draw_lists;
 const Beui = @import("beui").Beui;
+const B2 = Beui.beui_experiment;
 const anywhere = @import("anywhere");
 const tracy = anywhere.tracy;
 const build_options = @import("build_options");
@@ -549,7 +550,8 @@ const callbacks = struct {
     }
 
     fn keyCallback(window: *zglfw.Window, key: zglfw.Key, scancode: i32, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
-        const beui = window.getUserPointer(Beui).?;
+        const b2 = window.getUserPointer(B2.Beui2).?;
+        const beui = b2.persistent.beui1;
 
         if (action != .release) {
             if (beui.frame.frame_cfg == null) return;
@@ -563,7 +565,8 @@ const callbacks = struct {
         handleKeyWithAction(beui, beui_key, action);
     }
     fn charCallback(window: *zglfw.Window, codepoint: u32) callconv(.C) void {
-        const beui = window.getUserPointer(Beui).?;
+        const b2 = window.getUserPointer(B2.Beui2).?;
+        const beui = b2.persistent.beui1;
         const codepoint_u21 = std.math.cast(u21, codepoint) orelse {
             std.log.warn("charCallback codepoint out of range: {d}", .{codepoint});
             return;
@@ -574,13 +577,15 @@ const callbacks = struct {
     }
 
     fn scrollCallback(window: *zglfw.Window, xoffset: f64, yoffset: f64) callconv(.C) void {
-        const beui = window.getUserPointer(Beui).?;
+        const b2 = window.getUserPointer(B2.Beui2).?;
+        const beui = b2.persistent.beui1;
         if (!beui.frame.frame_cfg.?.can_capture_mouse) return;
         beui.frame.has_events = true;
         beui.frame.scroll_px += @floatCast(@Vector(2, f64){ xoffset, yoffset } * @Vector(2, f64){ 48, 48 });
     }
     fn cursorPosCallback(window: *zglfw.Window, xpos: f64, ypos: f64) callconv(.C) void {
-        const beui = window.getUserPointer(Beui).?;
+        const b2 = window.getUserPointer(B2.Beui2).?;
+        const beui = b2.persistent.beui1;
         if (!beui.frame.frame_cfg.?.can_capture_mouse) {
             // TODO: mouse_pos = null
             // TODO: if can_capture_mouse becomes false but no new cursorPosCallback is
@@ -604,7 +609,8 @@ const callbacks = struct {
         }
     }
     fn mouseButtonCallback(window: *zglfw.Window, button: zglfw.MouseButton, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
-        const beui = window.getUserPointer(Beui).?;
+        const b2 = window.getUserPointer(B2.Beui2).?;
+        const beui = b2.persistent.beui1;
 
         if (action != .release) {
             if (!beui.frame.frame_cfg.?.can_capture_mouse) return;
@@ -672,11 +678,12 @@ pub fn main() !void {
     window.setSizeLimits(-1, -1, -1, -1);
 
     var beui: Beui = .{};
-    window.setUserPointer(@ptrCast(@alignCast(&beui)));
 
     var b2: Beui.beui_experiment.Beui2 = undefined;
     b2.init(&beui, gpa);
     defer b2.deinit();
+
+    window.setUserPointer(@ptrCast(@alignCast(&b2)));
 
     _ = window.setPosCallback(null);
     _ = window.setKeyCallback(&callbacks.keyCallback);

@@ -218,35 +218,47 @@ fn render__tree__child(self: *App, call_info: B2.StandardCallInfo, index: FsTree
 
     const tree_node = index.current_node orelse unreachable;
 
-    const itkn = B2.Button_Itkn.init(ui.id.sub(@src()));
-    if (itkn.clicked()) {
-        // TODO this should be in a between-frame callback
-        if (tree_node.node_type == .file) {
-            // what's the reason to require double click again? so you can select a file without opening it in order to rename it
-            // or something like that?
-            // if (ui.id.b2.persistent.beui1.leftMouseClickedCount() == 2) {
-            var file_path = std.ArrayList(u8).init(ui.id.b2.frame.arena);
-            self.tree.getPath(tree_node, &file_path);
-            if (std.fs.cwd().readFileAlloc(ui.id.b2.frame.arena, file_path.items, std.math.maxInt(usize))) |file_cont| {
-                self.addTab(file_cont);
-            } else |e| {
-                std.log.err("Failed to open file: {s}", .{@errorName(e)});
-            }
+    const tree_data = ui.id.b2.frame.arena.create(render__tree__child_onClick_data) catch @panic("oom");
+    tree_data.* = .{ .self = self, .tree_node = tree_node };
+    const ehdl: B2.ButtonEhdl = .{
+        .onClick = .from(tree_data, render__tree__child_onClick),
+    };
+    return B2.button(ui.sub(@src()), ehdl, .from(&TreeChild{ .self = self, .node = tree_node }, render__tree__child__child));
+}
+const render__tree__child_onClick_data = struct {
+    self: *App,
+    tree_node: *FsTree2.Node,
+};
+fn render__tree__child_onClick(data: *render__tree__child_onClick_data, b2: *B2.Beui2, _: void) void {
+    const self = data.self;
+    const tree_node = data.tree_node;
+    // if App was deinitialized at the end of this frame, self & tree_node won't exist.
+    // luckily that (probably? what if we run two apps?) won't happen with App, but this
+    // issue needs to be solved. like somehow in deinit fns we also need to have a list
+    // of callbacks to deactivate.
+    if (tree_node.node_type == .file) {
+        // what's the reason to require double click again? so you can select a file without opening it in order to rename it
+        // or something like that?
+        // if (ui.id.b2.persistent.beui1.leftMouseClickedCount() == 2) {
+        var file_path = std.ArrayList(u8).init(b2.frame.arena);
+        self.tree.getPath(tree_node, &file_path);
+        if (std.fs.cwd().readFileAlloc(b2.frame.arena, file_path.items, std.math.maxInt(usize))) |file_cont| {
+            self.addTab(file_cont);
+        } else |e| {
+            std.log.err("Failed to open file: {s}", .{@errorName(e)});
+        }
+    } else {
+        if (tree_node.children_owned == null) {
+            self.tree.expand(tree_node) catch |e| {
+                std.log.err("Failed to open directory: {s}", .{@errorName(e)});
+            };
         } else {
-            if (tree_node.children_owned == null) {
-                self.tree.expand(tree_node) catch |e| {
-                    std.log.err("Failed to open directory: {s}", .{@errorName(e)});
-                };
-            } else {
-                self.tree.contract(tree_node);
-            }
+            self.tree.contract(tree_node);
         }
     }
-    return B2.button(ui.sub(@src()), itkn, .from(&TreeChild{ .self = self, .node = tree_node }, render__tree__child__child));
 }
 const TreeChild = struct { self: *App, node: *FsTree2.Node };
-fn render__tree__child__child(tc: *const TreeChild, call_info: B2.StandardCallInfo, itkn: B2.Button_Itkn) B2.StandardChild {
-    _ = itkn;
+fn render__tree__child__child(tc: *const TreeChild, call_info: B2.StandardCallInfo, state: B2.ButtonState) B2.StandardChild {
     const self = tc.self;
     const tree_node = tc.node;
     const ui = call_info.ui(@src());
@@ -258,6 +270,9 @@ fn render__tree__child__child(tc: *const TreeChild, call_info: B2.StandardCallIn
     const draw = ui.id.b2.draw();
     const res = B2.textLine(ui.subWithOffset(@src(), .{ offset_x, 0 }), .{ .text = tree_node.basename_owned }); //, .fromHexRgb(0xFFFFFF));
     draw.place(res.rdl, .{ .offset = .{ offset_x, 0 } });
+    if (state.active) {
+        draw.addRect(.{ .pos = .{ 0, 0 }, .size = .{ call_info.constraints.available_size.w.?, res.size[1] }, .tint = .fromHexRgb(0x747474) });
+    }
     return .{ .rdl = draw, .size = .{ call_info.constraints.available_size.w.?, res.size[1] } };
 }
 

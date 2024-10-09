@@ -75,6 +75,7 @@ const Beui2Persistent = struct {
     id_scopes: std.ArrayList(IDSegment),
     draw_lists: std.ArrayList(*RepositionableDrawList),
     last_frame_mouse_events: std.ArrayList(MouseEventEntry),
+    last_frame_mouse2_events: std.ArrayList(RepositionableDrawList.Mouse2),
     prev_frame_mouse_event_to_offset: IdMap(MouseEventInfo),
     prev_frame_draw_list_states: IdMap(GenericDrawListState),
     this_frame_ids: IdMap(void),
@@ -117,6 +118,7 @@ pub const Beui2 = struct {
                 .id_scopes = .init(gpa),
                 .draw_lists = .init(gpa),
                 .last_frame_mouse_events = .init(gpa),
+                .last_frame_mouse2_events = .init(gpa),
                 .prev_frame_mouse_event_to_offset = .init(gpa),
                 .prev_frame_draw_list_states = .init(gpa),
                 .this_frame_ids = .init(gpa),
@@ -139,11 +141,16 @@ pub const Beui2 = struct {
         if (self.persistent.verdana_ttf) |v| self.persistent.gpa.free(v);
         self.persistent.this_frame_ids.deinit();
         self.persistent.prev_frame_mouse_event_to_offset.deinit();
+        self.persistent.last_frame_mouse2_events.deinit();
         self.persistent.last_frame_mouse_events.deinit();
         for (&self.persistent.arenas) |*a| a.deinit();
         self.persistent.id_scopes.deinit();
         self.persistent.draw_lists.deinit();
     }
+
+    // TODO: add fns for handling events here:
+    // ie onMouseClick()
+    // it will look through last_frame_mouse2_events
 
     pub fn newFrame(self: *Beui2, frame_cfg: Beui2FrameCfg) ID {
         const beui = self.persistent.beui1;
@@ -254,6 +261,7 @@ pub const Beui2 = struct {
         result.finalize(.{
             .out_list = renderlist,
             .out_events = &self.persistent.last_frame_mouse_events,
+            .out_mouse_events = &self.persistent.last_frame_mouse2_events,
             .out_rdl_states = &self.persistent.prev_frame_draw_list_states,
         }, .{});
     }
@@ -531,6 +539,12 @@ pub const RepositionableDrawList = struct {
         frame: u64,
         for_draw_list: *RepositionableDrawList,
     };
+    const Mouse2 = struct {
+        pos: @Vector(2, f32),
+        size: @Vector(2, f32),
+        id: ID,
+        cfg: MouseEventCapture2Config,
+    };
     const RepositionableDrawChild = union(enum) {
         geometry: struct {
             vertices: []const render_list.RenderListVertex,
@@ -543,6 +557,7 @@ pub const RepositionableDrawList = struct {
             id: ID,
             cfg: MouseEventCaptureConfig,
         },
+        mouse2: Mouse2,
         embed: struct {
             child: ?*RepositionableDrawList,
             cfg: PlaceCfg,
@@ -560,6 +575,7 @@ pub const RepositionableDrawList = struct {
     pub const PlaceCfg = struct {
         offset: @Vector(2, f32) = .{ 0, 0 },
         // ie: disable_mouse_events to disable mouse events for the whole tree
+        // ie: transformation matrix to apply to the rendered image but not event handlers for nice animations
         pub fn add(a: PlaceCfg, b: PlaceCfg) PlaceCfg {
             return .{ .offset = a.offset + b.offset };
         }
@@ -729,10 +745,17 @@ pub const RepositionableDrawList = struct {
     pub fn addMouseEventCapture(self: *RepositionableDrawList, id: ID, pos: @Vector(2, f32), size: @Vector(2, f32), cfg: MouseEventCaptureConfig) void {
         self.content.append(.{ .mouse = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
     }
+    pub const MouseEventCapture2Config = struct {
+        onMouseEvent: BetweenFrameCallback(*Beui2, MouseEvent, Beui.Cursor),
+    };
+    fn addMouseEventCapture2(self: *RepositionableDrawList, id: ID, pos: @Vector(2, f32), size: @Vector(2, f32), cfg: MouseEventCapture2Config) void {
+        self.content.append(.{ .mouse2 = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
+    }
 
     const FinalizeCfg = struct {
         out_list: ?*render_list.RenderList,
         out_events: ?*std.ArrayList(MouseEventEntry),
+        out_mouse_events: ?*std.ArrayList(Mouse2),
         out_rdl_states: ?*IdMap(GenericDrawListState),
     };
     fn finalize(self: *RepositionableDrawList, res: FinalizeCfg, cfg: PlaceCfg) void {
@@ -743,6 +766,14 @@ pub const RepositionableDrawList = struct {
                 },
                 .mouse => |mev| {
                     if (res.out_events) |v| v.append(.{
+                        .id = mev.id,
+                        .pos = mev.pos + cfg.offset,
+                        .size = mev.size,
+                        .cfg = mev.cfg,
+                    }) catch @panic("oom");
+                },
+                .mouse2 => |mev| {
+                    if (res.out_mouse_events) |v| v.append(.{
                         .id = mev.id,
                         .pos = mev.pos + cfg.offset,
                         .size = mev.size,
@@ -885,6 +916,7 @@ pub const StandardUI = struct {
         return .{ .caller_id = self.id.sub(src), .constraints = res_constraints };
     }
 };
+pub const BetweenFrameCallback = Component;
 pub fn Component(comptime Arg1: type, comptime Arg2: type, comptime Ret: type) type {
     return struct {
         ctx: *anyopaque,
@@ -904,26 +936,13 @@ pub fn Component(comptime Arg1: type, comptime Arg2: type, comptime Ret: type) t
         }
     };
 }
-pub const Button_Itkn = struct {
-    id: ID,
-    pub fn init(caller_id: ID) Button_Itkn {
-        return .{ .id = caller_id.sub(@src()) };
-    }
-
-    pub fn active(self: Button_Itkn) bool {
-        return self.id.b2.mouseCaptureResults(self.id).mouse_left_held;
-    }
-    pub fn clicked(self: Button_Itkn) bool {
-        return self.id.b2.mouseCaptureResults(self.id).mouse_left_pressed_down_this_frame;
-    }
-};
-fn defaultTextButton(call_info: StandardCallInfo, msg: []const u8, itkn_in: ?Button_Itkn) StandardChild {
+fn defaultTextButton(call_info: StandardCallInfo, msg: []const u8, ehdl: ButtonEhdl) StandardChild {
     const ui = call_info.ui(@src());
-    return button(ui.sub(@src()), itkn_in, .from(&msg, defaultTextButton_1));
+    return button(ui.sub(@src()), ehdl, .from(&msg, defaultTextButton_1));
 }
-fn defaultTextButton_1(msg: *const []const u8, caller_id: StandardCallInfo, itkn: Button_Itkn) StandardChild {
+fn defaultTextButton_1(msg: *const []const u8, caller_id: StandardCallInfo, evres: ButtonState) StandardChild {
     const ui = caller_id.ui(@src());
-    const color: Beui.Color = if (itkn.active()) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099);
+    const color: Beui.Color = if (evres.active) .fromHexRgb(0x0000FF) else .fromHexRgb(0x000099);
     return setBackground(ui.sub(@src()), color, .from(msg, defaultTextButton_2));
 }
 fn defaultTextButton_2(msg: *const []const u8, caller_id: StandardCallInfo, _: void) StandardChild {
@@ -931,18 +950,53 @@ fn defaultTextButton_2(msg: *const []const u8, caller_id: StandardCallInfo, _: v
     return textOnly(ui.sub(@src()), msg.*, .fromHexRgb(0xFFFF00));
 }
 
-pub fn button(call_info: StandardCallInfo, itkn_in: ?Button_Itkn, child_component: Component(StandardCallInfo, Button_Itkn, StandardChild)) StandardChild {
+pub const ButtonEhdl = struct {
+    onClick: BetweenFrameCallback(*Beui2, void, void),
+};
+pub const ButtonState = struct {
+    active: bool,
+    ehdl: ButtonEhdl,
+};
+pub fn button(call_info: StandardCallInfo, ehdl: ButtonEhdl, child_component: Component(StandardCallInfo, ButtonState, StandardChild)) StandardChild {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
     const ui = call_info.ui(@src());
-    const itkn = itkn_in orelse Button_Itkn.init(ui.id.sub(@src()));
-    const child = child_component.call(ui.sub(@src()), itkn);
+
     const draw = ui.id.b2.draw();
+
+    const draw_list_state_id = ui.id.sub(@src());
+    const prev_state = ui.id.b2.getPrevFrameDrawListState(draw_list_state_id);
+    const next_state = ui.id.b2.frame.arena.create(ButtonState) catch @panic("oom");
+    next_state.* = .{
+        .active = if (prev_state) |p| p.cast(ButtonState).active else false,
+        .ehdl = ehdl,
+    };
+    draw.addUserState(draw_list_state_id, ButtonState, next_state);
+
+    const child = child_component.call(ui.sub(@src()), next_state.*);
     draw.place(child.rdl, .{});
-    draw.addMouseEventCapture(itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = .arrow });
+    draw.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, child.size, .{
+        .onMouseEvent = .from(next_state, button__onMouseEvent),
+    });
     return .{ .size = child.size, .rdl = draw };
 }
+const MouseEvent = struct {
+    capture_pos: @Vector(2, f32),
+    capture_size: @Vector(2, f32),
+    pos: @Vector(2, f32),
+    action: enum { down, up, move_wihle_down, move_while_up },
+};
+fn button__onMouseEvent(st: *ButtonState, b2: *Beui2, ev: MouseEvent) Beui.Cursor {
+    if (ev.action == .move_while_up) return .arrow;
+    st.active = pointInRect(ev.pos, ev.capture_pos, ev.capture_size);
+    if (ev.action == .up) {
+        if (st.active) st.ehdl.onClick.call(b2, {});
+        st.active = false;
+    }
+    return .arrow;
+}
+
 fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
     const ui = call_info.ui(@src());
     const child = child_component.call(ui.sub(@src()), {});
