@@ -390,7 +390,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     }
 
     // background
-    rdl.place(res.rdl, .{ 0, 0 });
+    rdl.place(res.rdl, .{});
     rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg, .rounding = .{ .corners = .all, .radius = 6.0 } });
     rdl.addMouseEventCapture(click_id, .{ 0, 0 }, content_region_size, .{ .capture_click = .text_input });
     rdl.addUserState(user_state_id, std.ArrayList(B2.ID), posted_state_ids_al);
@@ -436,8 +436,8 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
     const text_bg_rdl = ui.id.b2.draw();
     const text_rdl = ui.id.b2.draw();
     const text_cursor_rdl = ui.id.b2.draw();
-    text_bg_rdl.place(text_cursor_rdl, .{ 0, 0 });
-    text_bg_rdl.place(text_rdl, .{ 0, 0 });
+    text_bg_rdl.place(text_cursor_rdl, .{});
+    text_bg_rdl.place(text_rdl, .{});
 
     const line_to_render = index.thisLine(self);
 

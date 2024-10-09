@@ -255,7 +255,7 @@ pub const Beui2 = struct {
             .out_list = renderlist,
             .out_events = &self.persistent.last_frame_mouse_events,
             .out_rdl_states = &self.persistent.prev_frame_draw_list_states,
-        }, .{ 0, 0 });
+        }, .{});
     }
 
     pub fn draw(self: *Beui2) *RepositionableDrawList {
@@ -545,7 +545,7 @@ pub const RepositionableDrawList = struct {
         },
         embed: struct {
             child: ?*RepositionableDrawList,
-            offset: @Vector(2, f32),
+            cfg: PlaceCfg,
         },
         user_state: struct {
             id: ID,
@@ -557,19 +557,26 @@ pub const RepositionableDrawList = struct {
     b2: *Beui2,
     content: std.ArrayList(RepositionableDrawChild),
     placed: bool = false,
-    pub fn place(self: *RepositionableDrawList, child: *RepositionableDrawList, offset_pos: @Vector(2, f32)) void {
+    pub const PlaceCfg = struct {
+        offset: @Vector(2, f32) = .{ 0, 0 },
+        // ie: disable_mouse_events to disable mouse events for the whole tree
+        pub fn add(a: PlaceCfg, b: PlaceCfg) PlaceCfg {
+            return .{ .offset = a.offset + b.offset };
+        }
+    };
+    pub fn place(self: *RepositionableDrawList, child: *RepositionableDrawList, cfg: PlaceCfg) void {
         std.debug.assert(!child.placed);
-        self.content.append(.{ .embed = .{ .child = child, .offset = offset_pos } }) catch @panic("oom");
+        self.content.append(.{ .embed = .{ .child = child, .cfg = cfg } }) catch @panic("oom");
         child.placed = true;
     }
     pub fn reserve(self: *RepositionableDrawList) Reservation {
-        self.content.append(.{ .embed = .{ .child = null, .offset = .{ 0, 0 } } }) catch @panic("oom");
+        self.content.append(.{ .embed = .{ .child = null, .cfg = .{} } }) catch @panic("oom");
         return .{ .frame = self.b2.persistent.frame_num, .index = self.content.items.len - 1, .for_draw_list = self };
     }
-    pub fn fill(self: *RepositionableDrawList, slot: Reservation, child: *RepositionableDrawList, offset: @Vector(2, f32)) void {
+    pub fn fill(self: *RepositionableDrawList, slot: Reservation, child: *RepositionableDrawList, cfg: PlaceCfg) void {
         std.debug.assert(self.b2.persistent.frame_num == slot.frame);
         std.debug.assert(self == slot.for_draw_list);
-        self.content.items[slot.index].embed = .{ .child = child, .offset = offset };
+        self.content.items[slot.index].embed = .{ .child = child, .cfg = cfg };
         child.placed = true;
     }
     pub fn addUserState(self: *RepositionableDrawList, id: ID, comptime StateT: type, state: *const StateT) void {
@@ -728,27 +735,27 @@ pub const RepositionableDrawList = struct {
         out_events: ?*std.ArrayList(MouseEventEntry),
         out_rdl_states: ?*IdMap(GenericDrawListState),
     };
-    fn finalize(self: *RepositionableDrawList, cfg: FinalizeCfg, offset_pos: @Vector(2, f32)) void {
+    fn finalize(self: *RepositionableDrawList, res: FinalizeCfg, cfg: PlaceCfg) void {
         for (self.content.items) |item| {
             switch (item) {
                 .geometry => |geo| {
-                    if (cfg.out_list) |v| v.addVertices(geo.image, geo.vertices, geo.indices, offset_pos);
+                    if (res.out_list) |v| v.addVertices(geo.image, geo.vertices, geo.indices, cfg.offset);
                 },
                 .mouse => |mev| {
-                    if (cfg.out_events) |v| v.append(.{
+                    if (res.out_events) |v| v.append(.{
                         .id = mev.id,
-                        .pos = mev.pos + offset_pos,
+                        .pos = mev.pos + cfg.offset,
                         .size = mev.size,
                         .cfg = mev.cfg,
                     }) catch @panic("oom");
                 },
                 .embed => |eev| {
-                    if (eev.child) |c| c.finalize(cfg, offset_pos + eev.offset);
+                    if (eev.child) |c| c.finalize(res, cfg.add(eev.cfg));
                 },
                 .user_state => |usv| {
-                    if (cfg.out_rdl_states) |v| {
+                    if (res.out_rdl_states) |v| {
                         v.putNoClobber(usv.id, .{
-                            .offset_from_screen_ul = offset_pos,
+                            .offset_from_screen_ul = cfg.offset,
                             .state = usv.data,
                             .type_id = usv.type_id,
                         }) catch @panic("oom");
@@ -932,7 +939,7 @@ pub fn button(call_info: StandardCallInfo, itkn_in: ?Button_Itkn, child_componen
     const itkn = itkn_in orelse Button_Itkn.init(ui.id.sub(@src()));
     const child = child_component.call(ui.sub(@src()), itkn);
     const draw = ui.id.b2.draw();
-    draw.place(child.rdl, .{ 0, 0 });
+    draw.place(child.rdl, .{});
     draw.addMouseEventCapture(itkn.id, .{ 0, 0 }, child.size, .{ .capture_click = .arrow });
     return .{ .size = child.size, .rdl = draw };
 }
@@ -941,7 +948,7 @@ fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component
     const child = child_component.call(ui.sub(@src()), {});
 
     const draw = ui.id.b2.draw();
-    draw.place(child.rdl, .{ 0, 0 });
+    draw.place(child.rdl, .{});
     draw.addRect(.{ .pos = .{ 0, 0 }, .size = child.size, .tint = color });
     return .{ .size = child.size, .rdl = draw };
 }
@@ -1011,7 +1018,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
             backwards_cursor -= child.size[1];
             scroll_state.anchor = indexToBytes(backwards_index);
             scroll_state.offset -= child.size[1];
-            rdl.place(child.rdl, .{ 0, backwards_cursor });
+            rdl.place(child.rdl, .{ .offset = .{ 0, backwards_cursor } });
         }
     }
     while (idx != null) {
@@ -1025,7 +1032,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
             scroll_state.anchor = indexToBytes(idx.?.next(context) orelse break :blk);
             scroll_state.offset += child.size[1];
         }
-        rdl.place(child.rdl, .{ 0, cursor });
+        rdl.place(child.rdl, .{ .offset = .{ 0, cursor } });
         cursor += child.size[1];
 
         idx = idx.?.next(context);
@@ -1052,11 +1059,11 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
 
             capture_sticky_offset += child.size[1];
             // TODO: place click observer
-            capture_sticky_click_rdl.place(child.rdl, .{ 0, -capture_sticky_offset });
+            capture_sticky_click_rdl.place(child.rdl, .{ .offset = .{ 0, -capture_sticky_offset } });
         }
     }
 
-    rdl.fill(capture_sticky_reservation, capture_sticky_click_rdl, .{ 0, capture_sticky_offset });
+    rdl.fill(capture_sticky_reservation, capture_sticky_click_rdl, .{ .offset = .{ 0, capture_sticky_offset } });
 
     rdl.addMouseEventCapture(
         scroll_ev_capture_id,
@@ -1343,7 +1350,7 @@ pub const WindowManager = struct {
             .constraints = .{ .available_size = .{ .w = size[0], .h = size[1] } },
         }, {});
         // child.call() invalidates gpres
-        self.this_frame_rdl.?.fill(slot, child_res.rdl, pos);
+        self.this_frame_rdl.?.fill(slot, child_res.rdl, .{ .offset = pos });
     }
     fn dragWindow(self: *WindowManager, window_id: FloatingContainerID, offset: @Vector(2, f32), anchors: Sides) void {
         if (@reduce(.And, offset == @Vector(2, f32){ 0, 0 })) return;

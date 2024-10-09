@@ -53,7 +53,7 @@ fn drawWindowTabbed(root_container: B2.FloatingContainerID, wm: *B2.WindowManage
     const window_id = wm.idForWindowTreeNode(@src(), win.id);
 
     const text_line_res = B2.textLine(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = offset_size[0], .h = null } } }, .{ .text = "Title" });
-    rdl.place(text_line_res.rdl, offset_pos);
+    rdl.place(text_line_res.rdl, .{ .offset = offset_pos });
     rdl.addRect(.{
         .pos = offset_pos,
         .size = .{ offset_size[0], titlebar_height },

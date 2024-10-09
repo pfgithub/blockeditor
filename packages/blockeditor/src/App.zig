@@ -201,7 +201,7 @@ fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) B2.Standard
 
     const rdl = ui.id.b2.draw();
     const chres = B2.virtualScroller(ui.sub(@src()), &self.tree, FsTree2.Index, .from(self, render__tree__child));
-    rdl.place(chres.rdl, .{ 0, 0 });
+    rdl.place(chres.rdl, .{});
     rdl.addRect(.{
         .pos = .{ 0, 0 },
         .size = chres.size,
@@ -257,7 +257,7 @@ fn render__tree__child__child(tc: *const TreeChild, call_info: B2.StandardCallIn
 
     const draw = ui.id.b2.draw();
     const res = B2.textLine(ui.subWithOffset(@src(), .{ offset_x, 0 }), .{ .text = tree_node.basename_owned }); //, .fromHexRgb(0xFFFFFF));
-    draw.place(res.rdl, .{ offset_x, 0 });
+    draw.place(res.rdl, .{ .offset = .{ offset_x, 0 } });
     return .{ .rdl = draw, .size = .{ call_info.constraints.available_size.w.?, res.size[1] } };
 }
 
