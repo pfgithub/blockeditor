@@ -28,6 +28,10 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    if (optimize == .Debug and target.result.cpu.arch == .x86_64 and target.result.os.tag == .linux) {
+        block_test.use_llvm = false;
+        block_test.use_lld = false;
+    }
     block_test.root_module.addImport("anywhere", anywhere_mod);
     block_test.root_module.addImport("build_options", build_options_mod);
 
@@ -44,6 +48,10 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    if (optimize == .Debug and target.result.cpu.arch == .x86_64 and target.result.os.tag == .linux) {
+        benchmark_exe.use_llvm = false;
+        benchmark_exe.use_lld = false;
+    }
     b.installArtifact(benchmark_exe);
     benchmark_exe.root_module.addImport("anywhere", anywhere_mod);
     benchmark_exe.root_module.addImport("build_options", build_options_mod);
