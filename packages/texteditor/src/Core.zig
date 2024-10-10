@@ -6,6 +6,7 @@ const seg_dep = @import("grapheme_cursor");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const util = blocks_mod.util;
+const diffz = @import("diffz");
 pub const Highlighter = @import("Highlighter.zig");
 pub const highlighters_zig = @import("highlighters/zig.zig");
 pub const highlighters_markdown = @import("highlighters/markdown.zig");
@@ -669,6 +670,40 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
         .drag => |drag_op| {
             self.onDrag(drag_op.pos);
         },
+        .replace_whole_file => |rphf_op| {
+            const token = self.addUndoToken(.always_split);
+
+            const current_text_tmp = self.gpa.alloc(u8, block.length()) catch @panic("oom");
+            defer self.gpa.free(current_text_tmp);
+            block.readSlice(block.positionFromDocbyte(0), current_text_tmp);
+
+            var diffs = diffz.diff(.default, self.gpa, current_text_tmp, rphf_op.new_text, true) catch |e| switch (e) {
+                error.OutOfMemory => @panic("oom"),
+            };
+            defer diffz.deinitDiffList(self.gpa, &diffs);
+
+            var cursor: usize = 0;
+            for (diffs.items) |item| {
+                switch (item.operation) {
+                    .equal => cursor += item.text.len,
+                    .insert => {
+                        self.replaceRange(token, .{
+                            .delete_len = 0,
+                            .insert_text = item.text,
+                            .position = block.positionFromDocbyte(cursor),
+                        });
+                        cursor += item.text.len;
+                    },
+                    .delete => {
+                        self.replaceRange(token, .{
+                            .delete_len = item.text.len,
+                            .insert_text = "",
+                            .position = block.positionFromDocbyte(cursor),
+                        });
+                    },
+                }
+            }
+        },
     }
 }
 pub const CopyMode = enum { copy, cut };
@@ -1157,6 +1192,10 @@ pub const EditorCommand = union(enum) {
     },
     drag: struct {
         pos: Position,
+    },
+    replace_whole_file: struct {
+        // if the file is reloaded on disk and it's different, use replace_whole_file
+        new_text: []const u8,
     },
 };
 
@@ -2026,6 +2065,18 @@ test Core {
     try tester.expectContent("abcd|");
     tester.executeCommand(.undo);
     try tester.expectContent("|");
+
+    //
+    // replace_whole_file diff
+    //
+    tester.editor.executeCommand(.{ .replace_whole_file = .{ .new_text = "pub fn main() !void { return 5; }" } });
+    try tester.expectContent("pub fn main() !void { return 5; }|");
+    tester.editor.executeCommand(.{ .click = .{ .pos = tester.pos(29) } });
+    try tester.expectContent("pub fn main() !void { return |5; }");
+    tester.editor.executeCommand(.{ .replace_whole_file = .{ .new_text = "pub fn main() !void {\n    return 5;\n}" } });
+    try tester.expectContent("pub fn main() !void {\n    return |5;\n}");
+    tester.editor.executeCommand(.undo);
+    try tester.expectContent("pub fn main() !void { return |5; }");
 
     // undo everything, see if it works
     while (tester.editor.undo.values.items.len > 0) {

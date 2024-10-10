@@ -15,6 +15,8 @@ pub fn build(b: *std.Build) !void {
     });
     b.installArtifact(zls_dep.artifact("zls"));
 
+    const diffz_dep = b.dependency("diffz", .{ .target = target, .optimize = optimize });
+
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
     const seg_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
     const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
@@ -30,6 +32,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    texteditor_mod.addImport("diffz", diffz_dep.module("diffz"));
     texteditor_mod.addImport("blocks", blocks_dep.module("blocks"));
     texteditor_mod.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
     texteditor_mod.addImport("anywhere", anywhere_dep.module("anywhere"));
@@ -43,6 +46,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .filter = b.option([]const u8, "filter", ""),
     });
+    texteditor_test.root_module.addImport("diffz", diffz_dep.module("diffz"));
     texteditor_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
     texteditor_test.root_module.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
     texteditor_test.root_module.addImport("anywhere", anywhere_dep.module("anywhere"));
