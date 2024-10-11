@@ -398,6 +398,18 @@ const IDSegment = struct {
         return std.mem.eql(u8, std.mem.asBytes(&self), std.mem.asBytes(&other));
     }
 };
+const IDSegmentNode = struct {
+    segment: IDSegment,
+    parent: ?*const IDSegmentNode,
+
+    // eventually we can have an id tree in b2
+    // and that way comparing ids is as simple as id_1 == id_2 because the pointers will
+    // be the same if the ids are the same.
+    //
+    // pushing an id for the first time costs a memorypool allocation.
+    // subsequent times, it finds the same one as last time.
+    // id storage longer than two frames requires ref()ing the id or something
+};
 pub const ID = struct {
     var unique_id_idx: u64 = 0;
     b2: *Beui2,
