@@ -7,7 +7,7 @@ const util = @import("util.zig");
 const LayoutCache = @import("LayoutCache.zig");
 pub const Theme = @import("Theme.zig");
 
-fn IdMap(comptime V: type) type {
+pub fn IdMap(comptime V: type) type {
     const IDContext = struct {
         pub fn hash(_: @This(), id: ID) u64 {
             return id.hash();
@@ -18,7 +18,7 @@ fn IdMap(comptime V: type) type {
     };
     return std.HashMap(ID, V, IDContext, std.hash_map.default_max_load_percentage);
 }
-fn IdArrayMap(comptime V: type) type {
+pub fn IdArrayMap(comptime V: type) type {
     const IDContext = struct {
         pub fn hash(_: @This(), id: ID) u32 {
             return @truncate(id.hash());
