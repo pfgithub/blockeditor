@@ -89,6 +89,10 @@ const Beui2Persistent = struct {
     wm: WindowManager,
 
     beui1: *Beui,
+
+    mouse_pos: ?@Vector(2, f32) = null,
+    mouse_focus: ?ID = null,
+    uncommitted_move_offset: @Vector(2, f32) = .{ 0, 0 },
 };
 pub const Beui2 = struct {
     frame: Beui2Frame,
@@ -152,9 +156,101 @@ pub const Beui2 = struct {
     // ie onMouseClick()
     // it will look through last_frame_mouse2_events
 
+    pub fn onMouseMove(self: *Beui2, new_pos: ?@Vector(2, f32)) void {
+        const prev_pos = self.persistent.mouse_pos;
+        self.persistent.mouse_pos = new_pos;
+        if (prev_pos != null and new_pos != null) {
+            self.persistent.uncommitted_move_offset += new_pos.? - prev_pos.?;
+        } else {
+            self.persistent.uncommitted_move_offset = .{ 0, 0 };
+        }
+    }
+    pub fn onMouseEvent(self: *Beui2, btn: enum(u4) { left, middle, right, _ }, ev: enum { down, up }) void {
+        _ = btn; // TODO
+        commitMouseMoveEvents(self);
+        switch (ev) {
+            .down => {
+                const mpos = self.persistent.mouse_pos orelse return;
+                // find who captures this event
+                for (self.persistent.last_frame_mouse2_events.items) |item| {
+                    if (pointInRect(mpos, item.pos, item.size)) {
+                        if (item.cfg.onMouseEvent) |onMouseEventFn| {
+                            self.persistent.beui1.frame.cursor = onMouseEventFn.call(self, .{
+                                .capture_pos = item.pos,
+                                .capture_size = item.size,
+                                .pos = mpos,
+                                .action = .down,
+                            });
+                            // it ate the event, so we set it as the mouse focus
+                            self.persistent.mouse_focus = item.id;
+                            break;
+                        }
+                    }
+                }
+            },
+            .up => {
+                // we give the event to the mouse focus
+                const mfid = self.persistent.mouse_focus orelse return;
+                for (self.persistent.last_frame_mouse2_events.items) |item| {
+                    if (item.id.eql(mfid)) {
+                        if (item.cfg.onMouseEvent) |onMouseEventFn| {
+                            self.persistent.beui1.frame.cursor = onMouseEventFn.call(self, .{
+                                .capture_pos = item.pos,
+                                .capture_size = item.size,
+                                .pos = self.persistent.mouse_pos,
+                                .action = .up,
+                            });
+                        }
+                    }
+                }
+                self.persistent.mouse_focus = null;
+            },
+        }
+    }
+    fn commitMouseMoveEvents(self: *Beui2) void {
+        defer self.persistent.uncommitted_move_offset = .{ 0, 0 };
+        if (@reduce(.And, self.persistent.uncommitted_move_offset == @Vector(2, f32){ 0, 0 })) return;
+        const mpos = self.persistent.mouse_pos orelse return;
+        if (self.persistent.mouse_focus) |mfid| {
+            // if there is a mouse focus:
+            for (self.persistent.last_frame_mouse2_events.items) |item| {
+                if (item.id.eql(mfid)) {
+                    if (item.cfg.onMouseEvent) |onMouseEventFn| {
+                        self.persistent.beui1.frame.cursor = onMouseEventFn.call(self, .{
+                            .capture_pos = item.pos,
+                            .capture_size = item.size,
+                            .pos = mpos,
+                            .action = .move_while_down,
+                        });
+                    }
+                }
+            }
+        } else {
+            // else, give it to whoever can see it:
+            // TODO and should also give the event to the item which most recently recieved a move_while_up event
+            //          so that it can know the mouse moved out of its range.
+            for (self.persistent.last_frame_mouse2_events.items) |item| {
+                if (pointInRect(mpos, item.pos, item.size)) {
+                    if (item.cfg.onMouseEvent) |onMouseEventFn| {
+                        self.persistent.beui1.frame.cursor = onMouseEventFn.call(self, .{
+                            .capture_pos = item.pos,
+                            .capture_size = item.size,
+                            .pos = mpos,
+                            .action = .move_while_up,
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn newFrame(self: *Beui2, frame_cfg: Beui2FrameCfg) ID {
         const beui = self.persistent.beui1;
         self.persistent.layout_cache.tick(beui);
+        self.commitMouseMoveEvents();
+        self.persistent.last_frame_mouse2_events.clearRetainingCapacity();
+        if (self.persistent.mouse_focus) |*mf| mf.* = mf.refresh();
         // handle events
         // - scroll: if there is a scroll event, hit test to find which handler it touched
         const mousepos_int: @Vector(2, f32) = beui.persistent.mouse_pos;
@@ -510,8 +606,9 @@ const MouseEventEntry = struct {
         return pointInRect(point, self.pos, self.size);
     }
 };
-pub fn pointInRect(point: @Vector(2, f32), rect_pos: @Vector(2, f32), rect_size: @Vector(2, f32)) bool {
-    return @reduce(.And, point >= rect_pos) and @reduce(.And, point < rect_pos + rect_size);
+pub fn pointInRect(point: ?@Vector(2, f32), rect_pos: @Vector(2, f32), rect_size: @Vector(2, f32)) bool {
+    if (point == null) return false;
+    return @reduce(.And, point.? >= rect_pos) and @reduce(.And, point.? < rect_pos + rect_size);
 }
 const MouseEventCaptureConfig = struct {
     /// if there was a click within the area of this, report it but keep processing the event until it is captured
@@ -758,7 +855,7 @@ pub const RepositionableDrawList = struct {
         self.content.append(.{ .mouse = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
     }
     pub const MouseEventCapture2Config = struct {
-        onMouseEvent: BetweenFrameCallback(*Beui2, MouseEvent, Beui.Cursor),
+        onMouseEvent: ?BetweenFrameCallback(*Beui2, MouseEvent, Beui.Cursor),
     };
     fn addMouseEventCapture2(self: *RepositionableDrawList, id: ID, pos: @Vector(2, f32), size: @Vector(2, f32), cfg: MouseEventCapture2Config) void {
         self.content.append(.{ .mouse2 = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
@@ -996,8 +1093,8 @@ pub fn button(call_info: StandardCallInfo, ehdl: ButtonEhdl, child_component: Co
 const MouseEvent = struct {
     capture_pos: @Vector(2, f32),
     capture_size: @Vector(2, f32),
-    pos: @Vector(2, f32),
-    action: enum { down, up, move_wihle_down, move_while_up },
+    pos: ?@Vector(2, f32),
+    action: enum { down, up, move_while_down, move_while_up },
 };
 fn button__onMouseEvent(st: *ButtonState, b2: *Beui2, ev: MouseEvent) Beui.Cursor {
     if (ev.action == .move_while_up) return .arrow;

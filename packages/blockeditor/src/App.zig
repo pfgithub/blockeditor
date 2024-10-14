@@ -248,7 +248,7 @@ fn render__tree__child_onClick(data: *render__tree__child_onClick_data, b2: *B2.
             std.log.err("Failed to open file: {s}", .{@errorName(e)});
         }
     } else {
-        if (tree_node.children_owned == null) {
+        if (!tree_node.opened) {
             self.tree.expand(tree_node) catch |e| {
                 std.log.err("Failed to open directory: {s}", .{@errorName(e)});
             };
@@ -336,12 +336,13 @@ const FsTree2 = struct {
         child_index: usize,
         node_type: enum { dir, file, other },
         parent: ?*Node,
-        children_owned: ?[]*Node,
+        children_owned: []*Node, // MUST BE SORTED BY std.mem.order IF opened IS false
+        opened: bool,
         is_deleted: bool,
         indent_level: usize,
         fn deinit(self: *Node, gpa: std.mem.Allocator) void {
             gpa.free(self.basename_owned);
-            if (self.children_owned) |co| gpa.free(co);
+            gpa.free(self.children_owned);
         }
     };
     root_dir_owned: []const u8,
@@ -377,27 +378,28 @@ const FsTree2 = struct {
             if (itm.current_node == null) return null;
             const parent = itm.current_node.?.parent orelse return null;
             if (itm.current_node.?.child_index == 0) return .{ .current_node = parent };
-            if (parent.children_owned == null) return .{ .current_node = parent }; // weird state
+            if (!parent.opened) return .{ .current_node = parent }; // weird state
             const prev_index = itm.current_node.?.child_index - 1;
-            if (prev_index >= parent.children_owned.?.len) return .{ .current_node = parent }; // child index out of range
-            var lastchild = parent.children_owned.?[prev_index];
-            while (lastchild.children_owned != null and lastchild.children_owned.?.len > 0) {
-                lastchild = lastchild.children_owned.?[lastchild.children_owned.?.len - 1];
+            if (prev_index >= parent.children_owned.len) return .{ .current_node = parent }; // child index out of range
+            var lastchild = parent.children_owned[prev_index];
+            while (lastchild.opened and lastchild.children_owned.len > 0) {
+                lastchild = lastchild.children_owned[lastchild.children_owned.len - 1];
             }
             return .{ .current_node = lastchild };
         }
         pub fn next(itm: Index, self: *FsTree2) ?Index {
             _ = self;
             if (itm.current_node == null) return null;
-            if (itm.current_node.?.children_owned) |children| {
+            if (itm.current_node.?.opened) {
+                const children = itm.current_node.?.children_owned;
                 if (children.len > 0) return .{ .current_node = children[0] };
             }
             var current = itm.current_node.?;
             while (true) {
                 const parent = current.parent orelse return null;
-                if (parent.children_owned == null) return .{ .current_node = parent }; // weird state
+                if (!parent.opened) return .{ .current_node = parent }; // weird state
                 const next_index = std.math.add(usize, current.child_index, 1) catch return .{ .current_node = parent };
-                if (next_index < parent.children_owned.?.len) return .{ .current_node = parent.children_owned.?[next_index] };
+                if (next_index < parent.children_owned.len) return .{ .current_node = parent.children_owned[next_index] };
                 current = parent;
             }
         }
@@ -425,7 +427,8 @@ const FsTree2 = struct {
             .basename_owned = self.all_nodes.allocator.dupe(u8, ".") catch @panic("oom"),
             .node_type = .dir,
             .parent = null,
-            .children_owned = null,
+            .opened = false,
+            .children_owned = &.{},
             .is_deleted = false,
             .indent_level = 0,
             .child_index = 0,
@@ -441,8 +444,11 @@ const FsTree2 = struct {
         result.appendSlice("/") catch @panic("oom");
         result.appendSlice(dir.basename_owned) catch @panic("oom");
     }
+    fn binarySearchCompareFn(ctx: []const u8, t: *Node) std.math.Order {
+        return std.mem.order(u8, ctx, t.basename_owned);
+    }
     pub fn expand(self: *FsTree2, dir: *Node) !void {
-        if (dir.children_owned != null) return;
+        if (dir.opened) return;
 
         var whole_path = std.ArrayList(u8).init(self.all_nodes.allocator);
         defer whole_path.deinit();
@@ -456,7 +462,8 @@ const FsTree2 = struct {
         defer dirent.close();
         var iter = dirent.iterateAssumeFirstIteration();
         while (try iter.next()) |entry| {
-            res_children.append(self._addNode(.{
+            const prev_entry_idx_opt = std.sort.binarySearch(*Node, dir.children_owned, entry.name, binarySearchCompareFn);
+            const newnode = if (prev_entry_idx_opt) |idx| dir.children_owned[idx] else self._addNode(.{
                 .basename_owned = self.all_nodes.allocator.dupe(u8, entry.name) catch @panic("oom"),
                 .child_index = std.math.maxInt(usize),
                 .node_type = switch (entry.kind) {
@@ -465,10 +472,13 @@ const FsTree2 = struct {
                     else => .other,
                 },
                 .parent = dir,
-                .children_owned = null,
+                .children_owned = &.{},
+                .opened = false,
                 .is_deleted = false,
                 .indent_level = dir.indent_level + 1,
-            })) catch @panic("oom");
+            });
+            if (prev_entry_idx_opt != null) newnode.is_deleted = true; // HACK: mark "is_deleted". the flag will be removed later.
+            res_children.append(newnode) catch @panic("oom");
         }
 
         // sort
@@ -476,11 +486,22 @@ const FsTree2 = struct {
         // fill indices
         for (res_children.items, 0..) |v, i| v.child_index = i;
 
+        for (dir.children_owned) |prev_ch| {
+            if (!prev_ch.is_deleted) {
+                self._removeNode(prev_ch);
+            }
+            prev_ch.is_deleted = false;
+        }
+        self.all_nodes.allocator.free(dir.children_owned);
         dir.children_owned = res_children.toOwnedSlice() catch @panic("oom");
+        dir.opened = true;
     }
     fn Node_lessThanFn(_: *FsTree2, a: *Node, b: *Node) bool {
         if (a.node_type == .dir and b.node_type != .dir) return true; // dirs go first
         if (b.node_type == .dir and a.node_type != .dir) return false;
+        return std.mem.order(u8, a.basename_owned, b.basename_owned) == .lt;
+    }
+    fn Node_orderOnly(_: *FsTree2, a: *Node, b: *Node) bool {
         return std.mem.order(u8, a.basename_owned, b.basename_owned) == .lt;
     }
 
@@ -490,15 +511,22 @@ const FsTree2 = struct {
     fn _contract(self: *FsTree2, dir: *Node, setparent: *Node) void {
         // setparent is just so large trees can exit instantly and have less chance of jumping to a
         // newly overwritten node.
-        if (dir.children_owned) |children| {
-            for (children) |child| {
+        if (!dir.opened) return;
+        dir.opened = false;
+        var new_children: std.ArrayList(*Node) = .init(self.all_nodes.allocator);
+        defer new_children.deinit();
+        for (dir.children_owned) |child| {
+            if (child.opened) {
+                new_children.append(child) catch @panic("oom");
+            } else {
                 self._contract(child, setparent);
                 child.parent = setparent;
                 self._removeNode(child);
             }
-            self.all_nodes.allocator.free(children);
-            dir.children_owned = null;
         }
+        std.mem.sort(*Node, new_children.items, self, Node_orderOnly); // must be std.mem.order sorted
+        self.all_nodes.allocator.free(dir.children_owned);
+        dir.children_owned = new_children.toOwnedSlice() catch @panic("oom");
     }
 
     fn _addNode(self: *FsTree2, value: Node) *Node {

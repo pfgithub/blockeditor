@@ -590,12 +590,14 @@ const callbacks = struct {
             // TODO: mouse_pos = null
             // TODO: if can_capture_mouse becomes false but no new cursorPosCallback is
             // received, set mouse_pos to the last known one from cursorPosCallback
+            b2.onMouseMove(null);
             beui.persistent.mouse_pos = .{ 0, 0 };
             return;
         }
         beui.frame.has_events = true;
         const prev_pos = beui.persistent.mouse_pos;
         beui.persistent.mouse_pos = @floatCast(@Vector(2, f64){ xpos, ypos });
+        b2.onMouseMove(@floatCast(@Vector(2, f64){ xpos, ypos }));
         if (prev_pos[0] != 0 or prev_pos[1] != 0) {
             beui.frame.mouse_offset += beui.persistent.mouse_pos - prev_pos;
         }
@@ -615,6 +617,21 @@ const callbacks = struct {
         if (action != .release) {
             if (!beui.frame.frame_cfg.?.can_capture_mouse) return;
         }
+
+        b2.onMouseEvent(switch (button) {
+            .left => .left,
+            .middle => .middle,
+            .right => .right,
+            .four => @enumFromInt(3),
+            .five => @enumFromInt(4),
+            .six => @enumFromInt(5),
+            .seven => @enumFromInt(6),
+            .eight => @enumFromInt(7),
+        }, switch (action) {
+            .release => .up,
+            .press => .down,
+            .repeat => @panic("can a mouse click event really repeat?"),
+        });
 
         const beui_key = zglfwButtonToBeuiKey(button) orelse {
             std.log.warn("not supported glfw button: {}", .{button});
