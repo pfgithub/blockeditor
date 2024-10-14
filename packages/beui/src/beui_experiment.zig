@@ -166,7 +166,7 @@ pub const Beui2 = struct {
         }
     }
     pub fn onMouseEvent(self: *Beui2, btn: enum(u4) { left, middle, right, _ }, ev: enum { down, up }) void {
-        _ = btn; // TODO
+        if (btn != .left) return; // TODO
         commitMouseMoveEvents(self);
         switch (ev) {
             .down => {
