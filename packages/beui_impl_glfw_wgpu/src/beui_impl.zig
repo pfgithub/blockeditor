@@ -781,6 +781,7 @@ pub fn main() !void {
         });
         defer beui.endFrame();
 
+        // TODO: sleep here to improve latency on 60hz
         zglfw.pollEvents();
         if (frame_num == 0) {
             beui.frame.has_events = true;
