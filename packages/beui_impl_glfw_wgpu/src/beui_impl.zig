@@ -762,13 +762,23 @@ pub fn main() !void {
     var timer = try std.time.Timer.start();
 
     var frame_num: u64 = 0;
+    var reduce_input_latency: i32 = 0;
 
     while (!window.shouldClose()) {
         tracy.frameMark();
-        timer.reset();
 
         _ = arena_state.reset(.retain_capacity);
         draw_list.clear();
+
+        if (reduce_input_latency > 0) std.time.sleep(@intCast(reduce_input_latency));
+        timer.reset();
+        // ^ this has a positive impact but:
+        //    - we need to make sure to wait for the last frame to render before starting
+        //      the next one
+        //      - if the last frame can't render in time, that's okay, we can have it go async
+        //        but max 1 frame of that
+        //    - we need to calculate the value automatically based on:
+        //      - (render time of last frame) + (compute time of last frame)
 
         var beui_vtable: BeuiVtable = .{ .window = window };
         beui.newFrame(.{
@@ -781,7 +791,6 @@ pub fn main() !void {
         });
         defer beui.endFrame();
 
-        // TODO: sleep here to improve latency on 60hz
         zglfw.pollEvents();
         if (frame_num == 0) {
             beui.frame.has_events = true;
@@ -880,6 +889,12 @@ pub fn main() !void {
             zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
             zgui.text("frame prepare time: {d}", .{std.fmt.fmtDuration(frame_prepare_ns)});
             zgui.text("ns per vertex: {d:0.3}", .{@as(f64, @floatFromInt(frame_prepare_ns)) / @as(f64, @floatFromInt(draw_list.vertices.items.len))});
+            _ = zgui.sliderInt("reduce_latency", .{
+                .v = &reduce_input_latency,
+                .min = 0,
+                .max = 33 * std.time.ns_per_ms,
+                // .flags = .{ .logarithmic = true },
+            });
         }
         zgui.end();
 
