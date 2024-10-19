@@ -36,14 +36,14 @@ pub fn DistinctUUID(comptime Distinct: type) type {
             result_buffer[0] = '-';
             result_buffer[23] = '-';
             for (1..23) |i| {
-                var actual_bits: usize = 0;
+                var actual_bits: u16 = 0;
                 const read_bits = reader_bits.readBits(usize, chars_bits, &actual_bits) catch @panic("fbs error");
                 result_buffer[i] = chars[read_bits];
             }
 
             // assert at end
             {
-                var actual_bits: usize = 0;
+                var actual_bits: u16 = 0;
                 _ = reader_bits.readBits(u1, 1, &actual_bits) catch @panic("fbs error");
                 std.debug.assert(actual_bits == 0);
             }

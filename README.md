@@ -2,9 +2,9 @@ https://blockeditor.pfg.pw
 
 # Building
 
-Requires zig `0.14.0-dev.1820+ea527f7a8`
+Requires zig `0.14.0-dev.1951+857383689`
 
-Recommended to use zls commit `063d7fffd722165ae863a57b465593ed9831d6fe`
+Recommended to use zls commit `a6bdd0bb5653ca316d96aa8f94395c98a9ffb4e1`
 
 ## Zig setup:
 
