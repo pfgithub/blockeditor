@@ -35,7 +35,13 @@ const WindowManager = struct {
         return .{
             .floating_containers = .init(gpa),
             .inner_containers = .init(gpa),
+            .id_to_inner_container_map = .init(gpa),
         };
+    }
+    pub fn deinit(wm: *WindowManager) void {
+        wm.floating_containers.deinit();
+        wm.inner_containers.deinit();
+        wm.id_to_inner_container_map.deinit();
     }
 
     const ValidateParent = enum { split_x, split_y, other };
