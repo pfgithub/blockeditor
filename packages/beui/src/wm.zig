@@ -65,6 +65,16 @@ const WindowManager = struct {
             .final => {},
         }
     }
+
+    fn moveFloating(id: *FloatingContainer, offset: @Vector(2, f32), anchors: [4]bool) void {
+        _ = id;
+        _ = offset;
+        _ = anchors;
+    }
+    fn moveSplit(id: *InnerContainer, offset: @Vector(2, f32)) void {
+        _ = id;
+        _ = offset;
+    }
 };
 
 test WindowManager {
