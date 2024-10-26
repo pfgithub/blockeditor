@@ -22,7 +22,7 @@ const InnerContainer = struct {
     },
 };
 const SplitContainerInfo = struct {
-    start_percent: f32, // first in the list is 0. next is 33%. next is 66%. end.
+    start_px: f32, // first in the list is 0.
     node: *InnerContainer,
 };
 
@@ -76,10 +76,10 @@ const WindowManager = struct {
         }
     }
 
-    fn moveFloating(self: *WindowManager, ic: *InnerContainer, offset: @Vector(2, f32), anchors: [4]bool) void {
+    pub fn moveFloating(self: *WindowManager, ic: *InnerContainer, offset: @Vector(2, f32), anchors: [4]bool) void {
         // go up to the parent floating container & move it
         const floating_target = self.getFloatingContainerForInnerContainer(ic) orelse {
-            std.log.warn("moveFloating() called on window which no longer exists");
+            std.log.warn("moveFloating() called on window which no longer exists", .{});
             return;
         };
         var x1, var y1 = floating_target.position;
@@ -102,11 +102,39 @@ const WindowManager = struct {
         //      starting a drag, set target position to actual position.
     }
     /// index is the index of the window after the split point
-    fn moveSplit(self: *WindowManager, ic: *InnerContainer, index: usize, offset: @Vector(2, f32)) void {
+    pub fn moveSplit(self: *WindowManager, ic: *InnerContainer, index: usize, offset: f32) void {
+        std.debug.assert(ic.value != .split);
+        std.debug.assert(index == 0);
+        std.debug.assert(index < ic.value.split.items.items.len);
+        const target = &ic.value.split.items.items[index];
+        target.start_px += offset;
         _ = self;
-        _ = ic;
-        _ = index;
-        _ = offset;
+    }
+
+    fn _addInnerContainer(self: *WindowManager, cont: InnerContainer) *InnerContainer {
+        const res = self.inner_containers.create() catch @panic("oom");
+        res.* = cont;
+        return res;
+    }
+
+    /// TODO preserve location across app restarts; store window positions
+    /// in a block or something and store arbitrary data in the window, ie a text
+    /// editor would hold a reference to the text block being edited.
+    /// also todo default layout stuff, ie "open this window to the right of this other window"
+    pub fn getOrOpenWindow(self: *WindowManager, child: B2.ID) *InnerContainer {
+        if(self.id_to_inner_container_map.get(child)) |v| {
+            return v;
+        }
+        const res = self._addInnerContainer(.{
+                .parent = null,
+                .final = child,
+            });
+        self.floating_containers.append(.{
+            .position = .{ 10, 10 },
+            .size = .{ 100, 100 },
+            .child = res,
+        });
+        return res;
     }
 };
 
@@ -115,6 +143,8 @@ test WindowManager {
     defer wm.deinit();
 
     // add a window
+    // const win = wm.getOrOpenWindow();
+    // _ = win;
 
     // find the window for an id
 }
