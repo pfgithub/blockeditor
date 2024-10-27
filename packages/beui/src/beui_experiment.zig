@@ -657,7 +657,7 @@ pub const RepositionableDrawList = struct {
     const RepositionableDrawChild = union(enum) {
         geometry: struct {
             vertices: []const render_list.RenderListVertex,
-            indices: []const u16,
+            indices: []const render_list.RenderListIndex,
             image: ?render_list.RenderListImage,
         },
         mouse: struct {

@@ -8,6 +8,7 @@ const border_width: f32 = 6.0;
 
 pub const colors = struct {
     pub const window_bg: Beui.Color = .fromHexRgb(0x2e2e2e);
+    pub const window_active_tab: Beui.Color = .fromHexRgb(0x4D4D4D);
 };
 
 // so here's the plan:
@@ -53,7 +54,22 @@ fn drawWindowTabbed(root_container: B2.FloatingContainerID, wm: *B2.WindowManage
     const window_id = wm.idForWindowTreeNode(@src(), win.id);
 
     const text_line_res = B2.textLine(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = offset_size[0], .h = null } } }, .{ .text = "Title" });
-    rdl.place(text_line_res.rdl, .{ .offset = offset_pos });
+    // we can replace the manual calculations with:
+    // padding(border_width / 2, h(vcenter(collapseicon), space, vcenter(tab1), space, vcenter(tab2), space, vcenter(tab3)))
+    rdl.addVertices(null, &.{
+        // this is missing antialiasing, we should use an icon instead
+        .{ .pos = .{ offset_pos[0] + 8, offset_pos[1] + 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        .{ .pos = .{ offset_pos[0] + 18, offset_pos[1] + 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        .{ .pos = .{ offset_pos[0] + 13, offset_pos[1] + 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+    }, &.{ 0, 1, 2 });
+    const btn_height = titlebar_height - 4.0;
+    rdl.place(text_line_res.rdl, .{ .offset = .{ offset_pos[0] + border_width * 5, offset_pos[1] + (titlebar_height - text_line_res.size[1]) / 2.0 } });
+    rdl.addRect(.{
+        .pos = .{ offset_pos[0] + border_width * 4, offset_pos[1] + (titlebar_height - btn_height) / 2.0 },
+        .size = .{ text_line_res.size[0] + border_width * 2, btn_height },
+        .tint = colors.window_active_tab,
+        .rounding = .{ .corners = .all, .radius = 6.0 },
+    });
     rdl.addRect(.{
         .pos = offset_pos,
         .size = .{ offset_size[0], titlebar_height },

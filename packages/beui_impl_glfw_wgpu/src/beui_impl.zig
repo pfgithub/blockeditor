@@ -416,6 +416,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
     }
 
     gctx.queue.writeBuffer(gctx.lookupResource(demo.vertex_buffer.?).?, 0, Genres.Vertex, draw_list.vertices.items);
+    if (draw_lists.RenderListIndex == u16 and draw_list.indices.items.len % 2 == 1) draw_list.indices.append(0) catch @panic("oom"); // using a u16 index array it has to be aligned to 4 bytes still
     gctx.queue.writeBuffer(gctx.lookupResource(demo.index_buffer.?).?, 0, draw_lists.RenderListIndex, draw_list.indices.items);
 
     const commands = commands: {
