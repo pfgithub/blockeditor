@@ -134,8 +134,8 @@ pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *B2.FloatingWindow) voi
 
     const resize_width = border_width * 2;
 
-    const win_pos = win.position;
-    const win_size = win.size;
+    const win_pos = @floor(win.position);
+    const win_size = @floor(win.size);
     const whole_pos: @Vector(2, f32) = win_pos + @Vector(2, f32){ -border_width, -border_width };
     const whole_size: @Vector(2, f32) = win_size + @Vector(2, f32){ border_width * 2, border_width * 2 };
     const whole_pos_incl_resize: @Vector(2, f32) = win_pos + @Vector(2, f32){ -resize_width, -resize_width };
