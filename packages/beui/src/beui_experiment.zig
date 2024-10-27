@@ -1302,6 +1302,7 @@ pub const WindowTreeNodeUnion = union(enum) {
 pub const WindowTreeNode = struct {
     id: WindowTreeNodeID,
     value: WindowTreeNodeUnion,
+    collapsed: bool,
     fn deinit(self: *WindowTreeNode) void {
         switch (self.value) {
             .final => {},
@@ -1488,6 +1489,7 @@ pub const WindowManager = struct {
                 .contents = .{
                     .id = .next(),
                     .value = .{ .final = window_id },
+                    .collapsed = false,
                 },
             }) catch @panic("oom");
             Theme.drawFloatingContainer(self, &self.floating_containers.items[self.floating_containers.items.len - 1]);

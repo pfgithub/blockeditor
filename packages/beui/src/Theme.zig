@@ -47,7 +47,37 @@ fn drawWindowFinal(window_content_id: B2.ID, wm: *B2.WindowManager, offset_pos: 
     const win_data = wm.windows.getPtr(window_content_id).?;
     win_data.* = .{ .slot = slot, .position = offset_pos, .size = offset_size };
 }
-fn drawWindowTabbed(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *const B2.WindowTreeNode, current_tab: B2.WindowTreeNodeID, tabs: []const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
+fn drawWindowTabbed_collapseButtonClicked(win: *B2.WindowTreeNode, _: *B2.Beui2, _: void) void {
+    win.collapsed = !win.collapsed;
+}
+fn drawWindowTabbed_collapseButtonChild(win: *B2.WindowTreeNode, call_info: B2.StandardCallInfo, btn_state: B2.ButtonState) B2.StandardChild {
+    const ui = call_info.ui(@src());
+    const rdl = ui.id.b2.draw();
+    // this is missing antialiasing, we should use an icon instead
+    if (win.collapsed) {
+        rdl.addVertices(null, &.{
+            .{ .pos = .{ 10, 7 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 15, 13 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 10, 18 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        }, &.{ 0, 1, 2 });
+    } else {
+        rdl.addVertices(null, &.{
+            .{ .pos = .{ 8, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 18, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 13, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        }, &.{ 0, 1, 2 });
+    }
+    if (btn_state.active) {
+        rdl.addRect(.{
+            .pos = .{ 2, 2 },
+            .size = .{ titlebar_height - 4, titlebar_height - 4 },
+            .tint = colors.window_active_tab,
+            .rounding = .{ .corners = .all, .radius = 6.0 },
+        });
+    }
+    return .{ .rdl = rdl, .size = .{ titlebar_height, titlebar_height } };
+}
+fn drawWindowTabbed(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *B2.WindowTreeNode, current_tab: B2.WindowTreeNodeID, tabs: []B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
     // draw titlebar
 
     const rdl = wm.this_frame_rdl.?;
@@ -56,12 +86,9 @@ fn drawWindowTabbed(root_container: B2.FloatingContainerID, wm: *B2.WindowManage
     const text_line_res = B2.textLine(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = offset_size[0], .h = null } } }, .{ .text = "Title" });
     // we can replace the manual calculations with:
     // padding(border_width / 2, h(vcenter(collapseicon), space, vcenter(tab1), space, vcenter(tab2), space, vcenter(tab3)))
-    rdl.addVertices(null, &.{
-        // this is missing antialiasing, we should use an icon instead
-        .{ .pos = .{ offset_pos[0] + 8, offset_pos[1] + 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-        .{ .pos = .{ offset_pos[0] + 18, offset_pos[1] + 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-        .{ .pos = .{ offset_pos[0] + 13, offset_pos[1] + 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-    }, &.{ 0, 1, 2 });
+    rdl.place(B2.button(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = null, .h = null } } }, .{
+        .onClick = .from(win, drawWindowTabbed_collapseButtonClicked),
+    }, .from(win, drawWindowTabbed_collapseButtonChild)).rdl, .{ .offset = offset_pos });
     const btn_height = titlebar_height - 4.0;
     rdl.place(text_line_res.rdl, .{ .offset = .{ offset_pos[0] + border_width * 5, offset_pos[1] + (titlebar_height - text_line_res.size[1]) / 2.0 } });
     rdl.addRect(.{
@@ -82,7 +109,7 @@ fn drawWindowTabbed(root_container: B2.FloatingContainerID, wm: *B2.WindowManage
     } else @panic("tab not found; TODO?");
     return drawWindowNode(root_container, wm, current_tab_node, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
 }
-fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *const B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
+fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
     switch (win.value) {
         .final => |window_content_id| {
             if (cfg.parent_is_tabs) {
@@ -101,7 +128,7 @@ fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager,
     }
 }
 
-pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *const B2.FloatingWindow) void {
+pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *B2.FloatingWindow) void {
     const id = wm.idForFloatingContainer(@src(), win.id);
     const rdl = wm.this_frame_rdl.?;
 
