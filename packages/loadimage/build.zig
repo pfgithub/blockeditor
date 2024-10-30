@@ -13,21 +13,8 @@ pub fn build(b: *std.Build) !void {
     // Wuffs module (for image loading)
     //
 
-    const wuffs_lib = b.dependency("wuffs", .{});
-    const wuffs_mod = b.createModule(.{
-        .root_source_file = b.path("src/wuffs.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    wuffs_mod.addIncludePath(wuffs_lib.path("release/c"));
-    wuffs_mod.addCSourceFile(.{
-        .file = wuffs_lib.path("release/c/wuffs-v0.4.c"),
-        .flags = &.{"-DWUFFS_IMPLEMENTATION"},
-    });
-    wuffs_mod.link_libc = true;
-    // is this needed? wuffs uses stdbool, stdint, stdlib, string and that seems to be it
-    // ^ unfortunately, both stdlib.h and string.h require libc
-    // maybe we can define them ourselves and see which symbols it needs?
+    const wuffs_dep = b.dependency("wuffs", .{ .target = target, .optimize = optimize });
+    const wuffs_mod = wuffs_dep.module("wuffs");
 
     //
     // Loadimage Module
