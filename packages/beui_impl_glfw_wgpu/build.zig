@@ -8,7 +8,6 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
     const target = options.target;
     const optimize = options.optimize;
     const enable_tracy = options.enable_tracy;
-    const zig_gamedev_dep = b.dependency("zig_gamedev", .{});
 
     const exe = b.addExecutable(.{
         .name = name,
@@ -38,39 +37,27 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
         exe.root_module.addImport("tracy__impl", tracy_dep.module("tracy"));
     }
 
-    {
-        // hack
-        exe.step.owner = zig_gamedev_dep.builder;
-        defer exe.step.owner = b;
+    const zgui = b.dependency("zgui", .{
+        .backend = .glfw_wgpu,
+        .shared = false,
+        .with_implot = false,
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("zgui", zgui.module("root"));
+    exe.linkLibrary(zgui.artifact("imgui"));
 
-        zig_gamedev.pkgs.system_sdk.addLibraryPathsTo(exe);
+    const zglfw = b.dependency("zglfw", .{});
+    exe.root_module.addImport("zglfw", zglfw.module("root"));
+    exe.linkLibrary(zglfw.artifact("glfw"));
 
-        const zglfw = zig_gamedev_dep.builder.dependency("zglfw", .{
-            .target = target,
-        });
-        exe.root_module.addImport("zglfw", zglfw.module("root"));
-        exe.linkLibrary(zglfw.artifact("glfw"));
+    const zpool = b.dependency("zpool", .{});
+    exe.root_module.addImport("zpool", zpool.module("root"));
 
-        zig_gamedev.pkgs.zgpu.addLibraryPathsTo(exe);
-        const zgpu = zig_gamedev_dep.builder.dependency("zgpu", .{
-            .target = target,
-        });
-        exe.root_module.addImport("zgpu", zgpu.module("root"));
-        exe.linkLibrary(zgpu.artifact("zdawn"));
-
-        const zgui = zig_gamedev_dep.builder.dependency("zgui", .{
-            .target = target,
-            .backend = .glfw_wgpu,
-            .with_te = true,
-        });
-        exe.root_module.addImport("zgui", zgui.module("root"));
-        exe.linkLibrary(zgui.artifact("imgui"));
-
-        const zmath = zig_gamedev_dep.builder.dependency("zmath", .{
-            .target = target,
-        });
-        exe.root_module.addImport("zmath", zmath.module("root"));
-    }
+    @import("zgpu").addLibraryPathsTo(exe);
+    const zgpu = b.dependency("zgpu", .{});
+    exe.root_module.addImport("zgpu", zgpu.module("root"));
+    exe.linkLibrary(zgpu.artifact("zdawn"));
 
     return exe.getEmittedBin();
 }

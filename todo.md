@@ -125,6 +125,7 @@ wishlist:
   - it still won't be perfect - the trick is the wayland compositor keeps capturing cursor events
     until the end of the frame, while our application captures it at the start of the frame.
     and apparently gpus have a special mechanism for rendering a perfect cursor.
+- [x] upgrade zig-gamedev to the new multirepo structure, so we don't have to download a huge git repo every time
 
 
 future blocks:
