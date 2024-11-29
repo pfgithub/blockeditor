@@ -26,6 +26,8 @@ zig build run --prominent-compile-errors
 zig build run -Dtracy -Doptimize=ReleaseSafe --prominent-compile-errors
 ```
 
+If you get error: EndOfStream, wait a bit and try again.
+
 Target support
 
 - tests:
