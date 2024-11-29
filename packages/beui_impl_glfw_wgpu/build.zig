@@ -47,15 +47,15 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
     exe.root_module.addImport("zgui", zgui.module("root"));
     exe.linkLibrary(zgui.artifact("imgui"));
 
-    const zglfw = b.dependency("zglfw", .{});
+    const zglfw = b.dependency("zglfw", .{ .target = target, .optimize = optimize });
     exe.root_module.addImport("zglfw", zglfw.module("root"));
     exe.linkLibrary(zglfw.artifact("glfw"));
 
-    const zpool = b.dependency("zpool", .{});
+    const zpool = b.dependency("zpool", .{ .target = target, .optimize = optimize });
     exe.root_module.addImport("zpool", zpool.module("root"));
 
     @import("zgpu").addLibraryPathsTo(exe);
-    const zgpu = b.dependency("zgpu", .{});
+    const zgpu = b.dependency("zgpu", .{ .target = target, .optimize = optimize });
     exe.root_module.addImport("zgpu", zgpu.module("root"));
     exe.linkLibrary(zgpu.artifact("zdawn"));
 

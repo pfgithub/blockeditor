@@ -26,6 +26,22 @@ zig build run --prominent-compile-errors
 zig build run -Dtracy -Doptimize=ReleaseSafe --prominent-compile-errors
 ```
 
+Target support
+
+- tests:
+  - should support all targets, native and cross-compile
+- glfw_wgpu:
+  - aarch64-macOS (native only)
+  - x86_64-macOS (native only)
+  - x86_64-windows (supports cross-compile)
+  - x86_64-linux (native only)
+- android:
+  - must be built in android studio from `packages/Android`
+  - arm-linux-android
+  - aarch64-linux-android
+  - x86-linux-android
+  - x86_64-linux-android
+
 # Debugging
 
 ## Linux (recommended)
