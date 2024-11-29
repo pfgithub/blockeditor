@@ -8,6 +8,7 @@ jobs:
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.14.0-dev.2340+182cdf74b
+      - run: zig build
       - run: zig build test -Dci
       - run: zig build -Dtarget=x86_64-windows
 
