@@ -1710,7 +1710,7 @@ pub fn main() !void {
     }
     std.log.info("- height: {d}", .{testres.final_height});
 }
-pub const std_options = .{ .log_level = .info };
+pub const std_options: std.Options = .{ .log_level = .info };
 
 test "undo problem" {
     const gpa = std.testing.allocator;

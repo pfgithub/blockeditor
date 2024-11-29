@@ -16,8 +16,8 @@
             .hash = "12209e3d2e251728540a4005a898615469757e004dcd1dea4e38f5559fb1ee0f3e28",
         },
         .zls = .{
-            .url = "git+https://github.com/zigtools/zls?ref=master#b2e89dfe92850cf02cbd4b73004aaaecd5cf1739",
-            .hash = "12208ebf14c73280fc637c05f0a61b08c2a4ebd2ebe7297c9f13224f3eaf52c19067",
+            .url = "git+https://github.com/zigtools/zls#2eb3a2f5873c694b1f56c9412598665272e138ce",
+            .hash = "122082fdd4f6f6bedf8ee1a19a05d68aadf44ce04cf1401f602ccd25fb13266584a9",
         },
         .diffz = .{
             .url = "git+https://github.com/ziglibs/diffz#420fcb22306ffd4c9c3c761863dfbb6bdbb18a73",

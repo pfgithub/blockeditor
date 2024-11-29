@@ -2,9 +2,9 @@ https://blockeditor.pfg.pw
 
 # Building
 
-Requires zig `0.14.0-dev.2064+b5cafe223`
+Requires zig `0.14.0-dev.2340+182cdf74b`
 
-Recommended to use zls commit `b2e89dfe92850cf02cbd4b73004aaaecd5cf1739`
+Recommended to use zls commit `2eb3a2f5873c694b1f56c9412598665272e138ce`
 
 ## Zig setup:
 
@@ -42,3 +42,10 @@ zig build run -Dtracy -Doptimize=ReleaseSafe --prominent-compile-errors
     vscode and switch tabs to debug console, then select rr.
     - an example command is `print &myvar` to get the address of a variable
     - to read memory (vscode's "hex editor" thing doesn't seem to work at all), use `x/LENcb value` eg `x/160cb myslice.ptr`. to read array items, can `print myslice.ptr[index]` 
+
+# Updating Zig
+
+- Update zig version and zls commit in `README.md`
+- Update zig version in `.github/workflows/main.yml`
+- Update zls commit hash in `packages/texteditor/build.zig.zon` (and remove `.hash = ` to allow zig to download and provide the new hash)
+- Fix any issues (`zig build run` / `zig test`)
