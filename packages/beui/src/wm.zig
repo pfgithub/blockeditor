@@ -46,7 +46,7 @@ const InnerContainer = struct {
         try writer.writeAll("[");
         switch (self.value) {
             .final => |id| {
-                try writer.print("{d}", .{id.hash()});
+                try writer.print("{d}", .{id.id.hash()});
             },
             .tabs => |t| {
                 try writer.print("T", .{});
