@@ -261,7 +261,7 @@ pub fn build(b: *std.Build) !void {
     tracy_exe.addIncludePath(tracy_dep.path("profiler"));
     tracy_exe.addIncludePath(tracy_dep.path("server"));
     tracy_exe.addIncludePath(tracy_dep.path("tracy"));
-    tracy_exe.addIncludePath(tracy_dep.path(""));
+    tracy_exe.addIncludePath(tracy_dep.path("."));
     tracy_exe.addIncludePath(tracy_dep.path("common"));
     tracy_exe.linkLibC();
     tracy_exe.linkLibCpp();
