@@ -107,7 +107,11 @@ fn drawWindowTabbed(root_container: B2.FloatingContainerID, wm: *B2.WindowManage
     const current_tab_node = for (tabs) |*tab| {
         if (tab.id == current_tab) break tab;
     } else @panic("tab not found; TODO?");
-    return drawWindowNode(root_container, wm, current_tab_node, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
+    if (win.collapsed) {
+        // ...
+    } else {
+        return drawWindowNode(root_container, wm, current_tab_node, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
+    }
 }
 fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager, win: *B2.WindowTreeNode, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
     switch (win.value) {
@@ -135,7 +139,8 @@ pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *B2.FloatingWindow) voi
     const resize_width = border_width * 2;
 
     const win_pos = @floor(win.position);
-    const win_size = @floor(win.size);
+    var win_size = @floor(win.size);
+    if (win.contents.collapsed) win_size[1] = titlebar_height;
     const whole_pos: @Vector(2, f32) = win_pos + @Vector(2, f32){ -border_width, -border_width };
     const whole_size: @Vector(2, f32) = win_size + @Vector(2, f32){ border_width * 2, border_width * 2 };
     const whole_pos_incl_resize: @Vector(2, f32) = win_pos + @Vector(2, f32){ -resize_width, -resize_width };
@@ -145,14 +150,14 @@ pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *B2.FloatingWindow) voi
     rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .raise = .{ .window = win.id } }), whole_pos_incl_resize, whole_size_incl_resize, .{ .observe_mouse_down = true });
 
     // add the resize captures
-    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top } }), .{ win_pos[0], win_pos[1] + -resize_width }, .{ win_size[0], resize_width }, .{ .capture_click = .resize_ns });
-    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top_right } }), .{ win_pos[0] + win_size[0], win_pos[1] - resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom else .top } }), .{ win_pos[0], win_pos[1] + -resize_width }, .{ win_size[0], resize_width }, .{ .capture_click = .resize_ns });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom_right else .top_right } }), .{ win_pos[0] + win_size[0], win_pos[1] - resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
     rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .right } }), .{ win_pos[0] + win_size[0], win_pos[1] }, .{ resize_width, win_size[1] }, .{ .capture_click = .resize_ew });
-    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .bottom_right } }), .{ win_pos[0] + win_size[0], win_pos[1] + win_size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
-    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .bottom } }), .{ win_pos[0], win_pos[1] + win_size[1] }, .{ win_size[0], resize_width }, .{ .capture_click = .resize_ns });
-    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .bottom_left } }), .{ win_pos[0] - resize_width, win_pos[1] + win_size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom_right else .bottom_right } }), .{ win_pos[0] + win_size[0], win_pos[1] + win_size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom else .bottom } }), .{ win_pos[0], win_pos[1] + win_size[1] }, .{ win_size[0], resize_width }, .{ .capture_click = .resize_ns });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom_left else .bottom_left } }), .{ win_pos[0] - resize_width, win_pos[1] + win_size[1] }, .{ resize_width, resize_width }, .{ .capture_click = .resize_ne_sw });
     rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .left } }), .{ win_pos[0] - resize_width, win_pos[1] }, .{ resize_width, win_size[1] }, .{ .capture_click = .resize_ew });
-    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top_left } }), .{ win_pos[0] - resize_width, win_pos[1] - resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
+    rdl.addMouseEventCapture(wm.addIkey(id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom_left else .top_left } }), .{ win_pos[0] - resize_width, win_pos[1] - resize_width }, .{ resize_width, resize_width }, .{ .capture_click = .resize_nw_se });
 
     // render the children
     drawWindowNode(win.id, wm, &win.contents, win_pos, win_size, .{ .parent_is_tabs = false });

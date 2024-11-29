@@ -641,6 +641,22 @@ const Sides = packed struct(u4) {
     pub const left: Sides = .{ ._left = true };
     pub const top_left: Sides = .{ ._top = true, ._left = true };
     pub const all: Sides = .{ ._top = true, ._left = true, ._bottom = true, ._right = true };
+    pub const top_bottom: Sides = .{ ._top = true, ._left = false, ._bottom = true, ._right = false };
+    pub const top_bottom_right: Sides = .{ ._top = true, ._left = false, ._bottom = true, ._right = true };
+    pub const top_bottom_left: Sides = .{ ._top = true, ._left = true, ._bottom = true, ._right = false };
+    pub const none: Sides = .{ ._top = false, ._left = false, ._bottom = false, ._right = false };
+    fn andTop(a: Sides) Sides {
+        return .{ ._top = true, .left = a._left, ._bottom = a._bottom, .right = a._right };
+    }
+    fn andLeft(a: Sides) Sides {
+        return .{ ._top = a._top, .left = true, ._bottom = a._bottom, .right = a._right };
+    }
+    fn andBottom(a: Sides) Sides {
+        return .{ ._top = a._top, .left = a._left, ._bottom = true, .right = a._right };
+    }
+    fn andRight(a: Sides) Sides {
+        return .{ ._top = a._top, .left = a._left, ._bottom = a._bottom, .right = true };
+    }
 };
 pub const RepositionableDrawList = struct {
     const Reservation = struct {
