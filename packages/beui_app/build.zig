@@ -2,11 +2,11 @@ const std = @import("std");
 const beui_impl_glfw_wgpu = @import("beui_impl_glfw_wgpu");
 const beui_impl_web = @import("beui_impl_web");
 
-const AppKind = enum { android, web, glfw_wgpu };
+const Platform = enum { android, web, glfw_wgpu };
 pub const App = struct {
     name: []const u8,
     bin_name: []const u8,
-    kind: AppKind,
+    kind: Platform,
     emitted_file: std.Build.LazyPath,
 
     dep: ?*std.Build.Dependency,
@@ -21,6 +21,8 @@ pub const AppCfg = struct {
     name: []const u8,
 };
 pub const AppOpts = struct {
+    platform: Platform,
+
     // glfw_wgpu
     tracy: bool,
 
@@ -37,6 +39,7 @@ pub fn standardAppOptions(b: *std.Build) AppOpts {
         return std.json.parseFromSliceLeaky(AppOpts, b.allocator, opts_val, .{}) catch @panic("bad opts arg");
     } else {
         return .{
+            .platform = b.option(Platform, "platform", "Platform to build app for") orelse .glfw_wgpu,
             .tracy = b.option(bool, "tracy", "[glfw-wgpu] Use tracy?") orelse false,
             .port = b.option(u16, "port", "[web] Port to serve from?") orelse 3556,
         };
@@ -45,46 +48,49 @@ pub fn standardAppOptions(b: *std.Build) AppOpts {
 
 pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
     // choose
-    // TODO -Dplatform=<AppKind>
     const app_res = b.allocator.create(App) catch @panic("oom");
-    if (cfg.target.result.abi.isAndroid()) {
-        // `zig build -Dplatform=android` -> error ("TODO setup & build instructions")
-        // `zig build -Dplatform=android -D_android_options=....` (called from cmake) -> builds (that way we can eliminate
-        //   beui_impl_android depending on blockeditor and instead have android build blockeditor for android)
-        const fail_step = b.addFail("TODO android setup & build instructions");
-        const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
-        fail_genf.* = .{ .step = &fail_step.step };
-        app_res.* = .{
-            .name = b.dupe(cfg.name),
-            .bin_name = b.dupe(cfg.name),
-            .emitted_file = .{ .generated = .{ .file = fail_genf } },
-            .kind = .android,
-            .dep = null,
-        };
-    } else if (cfg.target.result.cpu.arch.isWasm()) {
-        const beui_impl_web_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_web, .{ .target = cfg.target, .optimize = cfg.optimize, .port = cfg.opts.port });
+    switch (cfg.opts.platform) {
+        .android => {
+            // `zig build -Dplatform=android` -> error ("TODO setup & build instructions")
+            // `zig build -Dplatform=android -D_android_options=....` (called from cmake) -> builds (that way we can eliminate
+            //   beui_impl_android depending on blockeditor and instead have android build blockeditor for android)
+            const fail_step = b.addFail("TODO android setup & build instructions");
+            const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
+            fail_genf.* = .{ .step = &fail_step.step };
+            app_res.* = .{
+                .name = b.dupe(cfg.name),
+                .bin_name = b.dupe(cfg.name),
+                .emitted_file = .{ .generated = .{ .file = fail_genf } },
+                .kind = .android,
+                .dep = null,
+            };
+        },
+        .web => {
+            const beui_impl_web_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_web, .{ .target = cfg.target, .optimize = cfg.optimize, .port = cfg.opts.port });
 
-        app_res.* = .{
-            .name = b.dupe(cfg.name),
-            .bin_name = b.fmt("{s}.site", .{cfg.name}),
-            .emitted_file = beui_impl_web.createApp(cfg.name, beui_impl_web_dep, cfg.module),
-            .kind = .web,
-            .dep = beui_impl_web_dep,
-        };
-    } else {
-        const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = cfg.target, .optimize = cfg.optimize, .tracy = cfg.opts.tracy });
+            app_res.* = .{
+                .name = b.dupe(cfg.name),
+                .bin_name = b.fmt("{s}.site", .{cfg.name}),
+                .emitted_file = beui_impl_web.createApp(cfg.name, beui_impl_web_dep, cfg.module),
+                .kind = .web,
+                .dep = beui_impl_web_dep,
+            };
+        },
+        .glfw_wgpu => {
+            const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = cfg.target, .optimize = cfg.optimize, .tracy = cfg.opts.tracy });
 
-        app_res.* = .{
-            .name = b.dupe(cfg.name),
-            .bin_name = std.zig.binNameAlloc(b.allocator, .{
-                .root_name = cfg.name,
-                .target = cfg.target.result,
-                .output_mode = .Exe,
-            }) catch @panic("oom"),
-            .emitted_file = beui_impl_glfw_wgpu.createApp(cfg.name, beui_impl_glfw_wgpu_dep, cfg.module),
-            .kind = .glfw_wgpu,
-            .dep = beui_impl_glfw_wgpu_dep,
-        };
+            app_res.* = .{
+                .name = b.dupe(cfg.name),
+                .bin_name = std.zig.binNameAlloc(b.allocator, .{
+                    .root_name = cfg.name,
+                    .target = cfg.target.result,
+                    .output_mode = .Exe,
+                }) catch @panic("oom"),
+                .emitted_file = beui_impl_glfw_wgpu.createApp(cfg.name, beui_impl_glfw_wgpu_dep, cfg.module),
+                .kind = .glfw_wgpu,
+                .dep = beui_impl_glfw_wgpu_dep,
+            };
+        },
     }
     return app_res;
 }
