@@ -38,7 +38,7 @@ pub fn initWithCfg(self: *App, gpa: std.mem.Allocator, cfg: struct { enable_db_s
     self.gpa = gpa;
 
     self.db = db_mod.BlockDB.init(gpa);
-    if (cfg.enable_db_sync) {
+    if (@import("builtin").target.os.tag != .wasi and cfg.enable_db_sync) {
         self.db_sync = @as(blocks_net.TcpSync, undefined);
         self.db_sync.?.init(gpa, &self.db);
     } else {
@@ -57,7 +57,9 @@ pub fn initWithCfg(self: *App, gpa: std.mem.Allocator, cfg: struct { enable_db_s
     self.addTab(@embedFile("App.zig"));
 
     var outbuf: [std.fs.max_path_bytes]u8 = undefined;
-    self.tree = .init(std.fs.cwd().realpath(".", &outbuf) catch |e| blk: {
+    self.tree = .init(if (@import("builtin").os.tag == .wasi) (
+    // realpath should never be used. but until then:
+        "/") else std.fs.cwd().realpath(".", &outbuf) catch |e| blk: {
         std.log.err("unable to get realpath: {s}", .{@errorName(e)});
         break :blk "";
     }, gpa);

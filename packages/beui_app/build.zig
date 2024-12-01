@@ -25,6 +25,9 @@ pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
     // TODO -Dplatform=<AppKind>
     const app_res = b.allocator.create(App) catch @panic("oom");
     if (cfg.target.result.abi.isAndroid()) {
+        // `zig build -Dplatform=android` -> error ("TODO setup & build instructions")
+        // `zig build -Dplatform=android -D_android_options=....` (called from cmake) -> builds (that way we can eliminate
+        //   beui_impl_android depending on blockeditor and instead have android build blockeditor for android)
         const fail_step = b.addFail("TODO android setup & build instructions");
         const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
         fail_genf.* = .{ .step = &fail_step.step };
@@ -35,14 +38,13 @@ pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
             .dep = null,
         };
     } else if (cfg.target.result.cpu.arch.isWasm()) {
-        const fail_step = b.addFail("TODO createApp web");
-        const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
-        fail_genf.* = .{ .step = &fail_step.step };
+        const beui_impl_web_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_web, .{ .target = cfg.target, .optimize = cfg.optimize });
+
         app_res.* = .{
             .name = b.fmt("web: {s}", .{cfg.name}),
-            .emitted_file = .{ .generated = .{ .file = fail_genf } },
+            .emitted_file = beui_impl_web.createApp(cfg.name, beui_impl_web_dep, cfg.module),
             .kind = .web,
-            .dep = null,
+            .dep = beui_impl_web_dep,
         };
     } else {
         const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = cfg.target, .optimize = cfg.optimize, .tracy = cfg.tracy });

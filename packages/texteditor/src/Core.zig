@@ -539,7 +539,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
 
                 var dupe_al: std.ArrayList(u8) = .init(self.gpa);
                 defer dupe_al.deinit();
-                block.readSlice(start_line, dupe_al.addManyAsSlice(end_byte - start_byte) catch @panic("oom"));
+                block.readSlice(start_line, dupe_al.addManyAsSlice(@intCast(end_byte - start_byte)) catch @panic("oom"));
                 switch (dupe_cmd.direction) {
                     .down => {
                         if (dupe_al.items.len == 0 or dupe_al.items[dupe_al.items.len - 1] != '\n') {
@@ -673,7 +673,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
         .replace_whole_file => |rphf_op| {
             const token = self.addUndoToken(.always_split);
 
-            const current_text_tmp = self.gpa.alloc(u8, block.length()) catch @panic("oom");
+            const current_text_tmp = self.gpa.alloc(u8, @intCast(block.length())) catch @panic("oom");
             defer self.gpa.free(current_text_tmp);
             block.readSlice(block.positionFromDocbyte(0), current_text_tmp);
 
@@ -736,7 +736,7 @@ pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: Copy
         } else {
             paste_in_new_line = false;
         }
-        const slice = self.gpa.alloc(u8, pos_range.len) catch @panic("oom");
+        const slice = self.gpa.alloc(u8, @intCast(pos_range.len)) catch @panic("oom");
         self.document.value.readSlice(pos_range.pos, slice);
         stored.* = slice;
 

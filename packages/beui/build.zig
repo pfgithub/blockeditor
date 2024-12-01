@@ -90,4 +90,17 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
     test_step.dependOn(&run_beui_tests.step);
+
+    // wasm fix
+    if (target.result.os.tag == .wasi) {
+        if (mach_freetype_dep.builder.lazyDependency("harfbuzz", .{
+            .target = target,
+            .optimize = optimize,
+            .enable_freetype = true,
+            .freetype_use_system_zlib = false,
+            .freetype_enable_brotli = true,
+        })) |dep| {
+            dep.artifact("harfbuzz").defineCMacro("HB_NO_MT", "");
+        }
+    }
 }

@@ -1059,7 +1059,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             std.debug.assert(!span_data.deleted());
             var current_position = self.span_bbt.getCountForNode(span);
             // now we have to walk
-            const slice = self.buffer.items[span_data.bufbyte.?..][0..span_data.length];
+            const slice = self.buffer.items[usi(span_data.bufbyte.?)..][0..usi(span_data.length)];
             const tctx_ = tracy.traceNamed(@src(), "count chars");
             defer tctx_.end();
             for (slice, 0..) |char, i| {

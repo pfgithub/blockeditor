@@ -9,8 +9,8 @@
             .path = "../loadimage",
         },
         .mach_freetype = .{
-            .url = "https://github.com/pfgithub/mach-freetype/archive/fbbbed93e7c663a76bb6ff48584ef75621ba9f94.tar.gz",
-            .hash = "1220b867b8d7fd32cb5c0a165ddc0009a3d2291bb418140fd0cb15c02c868050143c",
+            .url = "https://github.com/hexops/mach-freetype/archive/refs/heads/main.zip",
+            .hash = "12209b2055d213076fa0476de11c5eae1ad5b6fb91789e6bf218686b8f5f4a4114de",
         },
         .fonts = .{
             .url = "https://github.com/pfgithub/fonts/archive/a34bfc717f5f2df359a4114d99be0eb5a2aeeadb.tar.gz",

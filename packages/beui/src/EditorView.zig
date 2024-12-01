@@ -103,7 +103,7 @@ fn layoutLine(self: *EditorView, beui: *Beui, layout_cache: *LayoutCache, line_m
     {
         const tctx_ = tracy.traceNamed(@src(), "readSlice");
         defer tctx_.end();
-        self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(line_len) catch @panic("oom"));
+        self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(@intCast(line_len)) catch @panic("oom"));
     }
 
     return layout_cache.layoutLine(beui, self._layout_temp_al.items);
@@ -455,7 +455,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
     const rendered_area_end_docbyte = block.docbyteFromPosition(self.core.getNextLineStart(line_to_render));
     const rendered_area_len = rendered_area_end_docbyte - line_start_docbyte;
 
-    const line_state = ui.id.b2.frame.arena.alloc(LineCharState, rendered_area_len) catch @panic("oom");
+    const line_state = ui.id.b2.frame.arena.alloc(LineCharState, @intCast(rendered_area_len)) catch @panic("oom");
     for (line_state) |*ls| ls.* = .{ .char_up_left_offset = LineCharState.null_offset, .height = 0, .char_position = .end };
 
     var cursor_pos: @Vector(2, f32) = .{ B2.Theme.window_padding, 0 };
@@ -520,7 +520,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
                 const glyph_offset: @Vector(2, f32) = glyph_info.offset;
 
                 const tint: Core.Highlighter.SynHlColorScope = switch (self.config.syntax_highlighting) {
-                    true => ctx.syn_hl.advanceAndRead(item_docbyte),
+                    true => ctx.syn_hl.advanceAndRead(@intCast(item_docbyte)),
                     false => .unstyled,
                 };
                 text_rdl.addRegion(.{
@@ -559,7 +559,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
                 });
             }
 
-            line_state[docbyte - line_start_docbyte] = .{
+            line_state[@intCast(docbyte - line_start_docbyte)] = .{
                 .char_up_left_offset = @floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion + 1, 0 }),
                 .height = layout_test.height,
                 .char_position = block.positionFromDocbyte(docbyte),

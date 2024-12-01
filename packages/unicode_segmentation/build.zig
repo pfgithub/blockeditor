@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) !void {
         zig_triple = zig_triple[0 .. zig_triple.len - "-none".len];
     }
     if (std.mem.startsWith(u8, zig_triple, "wasm32-")) {
-        zig_triple = "wasm32-freestanding";
+        zig_triple = "wasm32-wasi-musl";
     }
     const afile = switch (target.result.abi == .msvc) {
         true => "unicode_segmentation_bindings.lib",

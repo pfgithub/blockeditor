@@ -298,10 +298,10 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
 
             const portion = @floor(@as(f32, @floatFromInt(docbyte_offset)) / @as(f32, @floatFromInt(len)) * total_width);
 
-            line_state[docbyte] = .{
+            line_state[@intCast(docbyte)] = .{
                 .char_up_left_offset = @floor(cursor_pos + @Vector(2, f32){ -length_with_no_selection_render + portion + 1, 0 }),
                 .line_height = layout.height,
-                .char_byte_in_string = docbyte,
+                .char_byte_in_string = @intCast(docbyte),
             };
         }
 
