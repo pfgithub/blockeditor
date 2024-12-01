@@ -8,8 +8,7 @@ pub const deps = struct {
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-
-    const enable_tracy = b.option(bool, "tracy", "Enable tracy?") orelse false;
+    const opts = deps.beui_app.standardAppOptions(b);
 
     const fmt_all = b.addFmt(.{
         .paths = &.{
@@ -38,8 +37,8 @@ pub fn build(b: *std.Build) void {
 
     const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
-    const blockeditor_dep = b.dependency("blockeditor", .{ .target = target, .optimize = optimize, .tracy = enable_tracy });
-    const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize, .tracy = enable_tracy });
+    const blockeditor_dep = b.dependency("blockeditor", .{ .target = target, .optimize = optimize, .opts = opts.passIn(b) });
+    const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize, .tracy = opts.tracy });
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
     const loadimage_dep = b.dependency("loadimage", .{ .target = target, .optimize = optimize });
     const sheen_bidi_dep = b.dependency("sheen_bidi", .{ .target = target, .optimize = optimize });
@@ -52,7 +51,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(blocks_net_dep.artifact("server"));
     b.installArtifact(texteditor_dep.artifact("zls"));
     b.installArtifact(blocks_dep.artifact("bench"));
-    if (enable_tracy) b.getInstallStep().dependOn(&b.addInstallArtifact(tracy_dep.artifact("tracy"), .{ .dest_dir = .{ .override = .{ .custom = "tool" } } }).step); // tracy exe has system dependencies and cannot be compiled for all targets
+    if (opts.tracy) b.getInstallStep().dependOn(&b.addInstallArtifact(tracy_dep.artifact("tracy"), .{ .dest_dir = .{ .override = .{ .custom = "tool" } } }).step); // tracy exe has system dependencies and cannot be compiled for all targets
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());

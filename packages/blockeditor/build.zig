@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) !void {
         .name = "blockeditor",
         .target = target,
         .optimize = optimize,
-        .tracy = b.option(bool, "tracy", "") orelse false,
+        .opts = beui_app.standardAppOptions(b),
         .module = app_mod,
     });
 

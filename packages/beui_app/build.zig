@@ -5,6 +5,7 @@ const beui_impl_web = @import("beui_impl_web");
 const AppKind = enum { android, web, glfw_wgpu };
 pub const App = struct {
     name: []const u8,
+    bin_name: []const u8,
     kind: AppKind,
     emitted_file: std.Build.LazyPath,
 
@@ -14,11 +15,33 @@ pub const App = struct {
 pub const AppCfg = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    tracy: bool,
+    opts: AppOpts,
 
     module: *std.Build.Module,
     name: []const u8,
 };
+pub const AppOpts = struct {
+    // glfw_wgpu
+    tracy: bool,
+
+    // web
+    port: u16,
+
+    pub fn passIn(self: *const AppOpts, b: *std.Build) []const u8 {
+        return std.json.stringifyAlloc(b.allocator, self, .{}) catch @panic("oom");
+    }
+};
+
+pub fn standardAppOptions(b: *std.Build) AppOpts {
+    if (b.option([]const u8, "opts", "")) |opts_val| {
+        return std.json.parseFromSliceLeaky(AppOpts, b.allocator, opts_val, .{}) catch @panic("bad opts arg");
+    } else {
+        return .{
+            .tracy = b.option(bool, "tracy", "[glfw-wgpu] Use tracy?") orelse false,
+            .port = b.option(u16, "port", "[web] Port to serve from?") orelse 3556,
+        };
+    }
+}
 
 pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
     // choose
@@ -32,25 +55,32 @@ pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
         const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
         fail_genf.* = .{ .step = &fail_step.step };
         app_res.* = .{
-            .name = b.fmt("android: {s}", .{cfg.name}),
+            .name = b.dupe(cfg.name),
+            .bin_name = b.dupe(cfg.name),
             .emitted_file = .{ .generated = .{ .file = fail_genf } },
             .kind = .android,
             .dep = null,
         };
     } else if (cfg.target.result.cpu.arch.isWasm()) {
-        const beui_impl_web_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_web, .{ .target = cfg.target, .optimize = cfg.optimize });
+        const beui_impl_web_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_web, .{ .target = cfg.target, .optimize = cfg.optimize, .port = cfg.opts.port });
 
         app_res.* = .{
-            .name = b.fmt("web: {s}", .{cfg.name}),
+            .name = b.dupe(cfg.name),
+            .bin_name = b.fmt("{s}.site", .{cfg.name}),
             .emitted_file = beui_impl_web.createApp(cfg.name, beui_impl_web_dep, cfg.module),
             .kind = .web,
             .dep = beui_impl_web_dep,
         };
     } else {
-        const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = cfg.target, .optimize = cfg.optimize, .tracy = cfg.tracy });
+        const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = cfg.target, .optimize = cfg.optimize, .tracy = cfg.opts.tracy });
 
         app_res.* = .{
-            .name = b.fmt("glfw_wgpu: {s}", .{cfg.name}),
+            .name = b.dupe(cfg.name),
+            .bin_name = std.zig.binNameAlloc(b.allocator, .{
+                .root_name = cfg.name,
+                .target = cfg.target.result,
+                .output_mode = .Exe,
+            }) catch @panic("oom"),
             .emitted_file = beui_impl_glfw_wgpu.createApp(cfg.name, beui_impl_glfw_wgpu_dep, cfg.module),
             .kind = .glfw_wgpu,
             .dep = beui_impl_glfw_wgpu_dep,
@@ -67,24 +97,37 @@ pub fn app(dep: *std.Build.Dependency, name: []const u8) *App {
     return findArbitrary(dep, App, name);
 }
 
-pub fn addInstallApp(b: *std.Build, the_app: *App, dir: std.Build.InstallDir, new_name: ?[]const u8) *InstallApp {
-    return InstallApp.create(b, the_app, dir, new_name);
+pub fn addInstallApp(b: *std.Build, the_app: *App, dir: std.Build.InstallDir) std.Build.LazyPath {
+    const genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
+    if (the_app.kind == .web) {
+        const id_step = b.addInstallDirectory(.{
+            .source_dir = the_app.emitted_file,
+            .install_dir = dir,
+            .install_subdir = the_app.bin_name,
+        });
+        genf.* = .{ .step = &id_step.step, .path = b.getInstallPath(dir, the_app.bin_name) };
+    } else {
+        const if_step = b.addInstallFileWithDir(the_app.emitted_file, dir, the_app.bin_name);
+        genf.* = .{ .step = &if_step.step, .path = b.getInstallPath(dir, the_app.bin_name) };
+    }
+    return .{ .generated = .{ .file = genf } };
 }
 /// unlinke b.installArtifact(), this one returns *InstallApp instead of void because it is
 /// needed to be passed into addRunApp
-pub fn installApp(b: *std.Build, the_app: *App) *InstallApp {
-    const step = addInstallApp(b, the_app, .bin, null);
-    b.getInstallStep().dependOn(&step.step);
-    return step;
+pub fn installApp(b: *std.Build, the_app: *App) std.Build.LazyPath {
+    const lp = addInstallApp(b, the_app, .bin);
+    lp.addStepDependencies(b.getInstallStep());
+    return lp;
 }
-pub fn addRunApp(b: *std.Build, the_app: *App, install_step: ?*InstallApp) *std.Build.Step.Run {
+pub fn addRunApp(b: *std.Build, the_app: *App, install_step: ?std.Build.LazyPath) *std.Build.Step.Run {
     switch (the_app.kind) {
-        .glfw_wgpu => return beui_impl_glfw_wgpu.runApp(the_app.dep.?, if (install_step) |s| s.getInstalledFile() else the_app.emitted_file),
+        .glfw_wgpu => return beui_impl_glfw_wgpu.runApp(the_app.dep.?, if (install_step) |s| s else the_app.emitted_file),
+        .web => return beui_impl_web.runApp(the_app.dep.?, if (install_step) |s| s else the_app.emitted_file),
         else => {
             const res = std.Build.Step.Run.create(b, "fail");
             const fail_step = b.addFail(b.fmt("TODO addRunApp: {s}", .{@tagName(the_app.kind)}));
             the_app.emitted_file.addStepDependencies(&fail_step.step);
-            if (install_step) |is| is.getInstalledFile().addStepDependencies(&fail_step.step);
+            if (install_step) |is| is.addStepDependencies(&fail_step.step);
             const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
             fail_genf.* = .{ .step = &fail_step.step };
             res.addFileArg(.{ .generated = .{ .file = fail_genf } });
@@ -99,67 +142,6 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&format_step.step);
 }
-
-pub const InstallApp = struct {
-    const Step = std.Build.Step;
-    const LazyPath = std.Build.LazyPath;
-    const InstallDir = std.Build.InstallDir;
-    const InstallFile = @This();
-    const assert = std.debug.assert;
-
-    pub const base_id: Step.Id = .custom;
-
-    step: Step,
-    app: *App,
-    dir: InstallDir,
-    result: std.Build.GeneratedFile,
-    new_name: ?[]const u8,
-
-    pub fn create(
-        owner: *std.Build,
-        the_app: *App,
-        dir: InstallDir,
-        new_name: ?[]const u8,
-    ) *InstallApp {
-        const install_file = owner.allocator.create(InstallApp) catch @panic("OOM");
-        install_file.* = .{
-            .step = Step.init(.{
-                .id = base_id,
-                .name = owner.fmt("install {s}", .{the_app.name}),
-                .owner = owner,
-                .makeFn = make,
-            }),
-            .app = the_app,
-            .dir = dir.dupe(owner),
-            .result = .{ .step = &install_file.step },
-            .new_name = if (new_name) |n| owner.dupe(n) else null,
-        };
-        install_file.app.emitted_file.addStepDependencies(&install_file.step);
-        return install_file;
-    }
-
-    pub fn getInstalledFile(self: *InstallApp) std.Build.LazyPath {
-        return .{ .generated = .{ .file = &self.result } };
-    }
-
-    fn make(step: *Step, options: Step.MakeOptions) !void {
-        _ = options;
-        const b = step.owner;
-        const install_app: *InstallApp = @fieldParentPtr("step", step);
-        try step.singleUnchangingWatchInput(install_app.app.emitted_file);
-
-        const full_src_path = install_app.app.emitted_file.getPath2(b, step);
-        const full_dest_path = b.getInstallPath(install_app.dir, install_app.new_name orelse std.fs.path.basename(full_src_path));
-        const cwd = std.fs.cwd();
-        const prev = std.fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
-            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                full_src_path, full_dest_path, @errorName(err),
-            });
-        };
-        install_app.result.path = full_dest_path;
-        step.result_cached = prev == .fresh;
-    }
-};
 
 const AnyPtr = struct {
     id: [*]const u8,

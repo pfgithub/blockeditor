@@ -15,6 +15,7 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
         .optimize = optimize,
     });
     exe.import_symbols = true; // freetype uses setjmp/longjmp :/ uh oh. also "undefined symbol: main"
+    // how to implement setjmp/longjmp: https://stackoverflow.com/questions/44263019/how-would-setjmp-longjmp-be-implemented-in-webassembly
     exe.rdynamic = true;
 
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
@@ -22,20 +23,26 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
 
     exe.root_module.addImport("app", app_mod);
 
-    return exe.getEmittedBin();
+    const bundler = b.addRunArtifact(self_dep.artifact("bundle"));
+    bundler.addFileArg(exe.getEmittedBin());
+    bundler.addFileArg(b.path("src/index.html"));
+    return bundler.addOutputFileArg(b.fmt("{s}", .{name}));
 }
 
 const Options = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    port: u16,
 };
 
 pub fn runApp(self_dep: *std.Build.Dependency, app: std.Build.LazyPath) *std.Build.Step.Run {
     const b = self_dep.builder;
 
-    const run_step = std.Build.Step.Run.create(b, b.fmt("beui_impl_glfw_wgpu_runApp: {s}", .{app.getDisplayName()}));
+    const options = findArbitrary(self_dep, Options, "options");
 
+    const run_step = b.addRunArtifact(self_dep.artifact("server"));
     run_step.addFileArg(app);
+    run_step.addArg(b.fmt("{d}", .{options.port}));
 
     return run_step;
 }
@@ -43,9 +50,10 @@ pub fn runApp(self_dep: *std.Build.Dependency, app: std.Build.LazyPath) *std.Bui
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const port = b.option(u16, "port", "port") orelse @panic("missing port option");
 
     const options = b.allocator.create(Options) catch @panic("oom");
-    options.* = .{ .target = target, .optimize = optimize };
+    options.* = .{ .target = target, .optimize = optimize, .port = port };
     exposeArbitrary(b, "options", Options, options);
 
     const format_step = b.addFmt(.{
@@ -53,13 +61,29 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&format_step.step);
 
-    const multirun_exe = b.addExecutable(.{
-        .name = "multirun",
-        .root_source_file = b.path("multirun.zig"),
+    const server_exe = b.addExecutable(.{
+        .name = "server",
         .target = b.resolveTargetQuery(.{}),
         .optimize = .Debug,
+        .root_source_file = b.path("src/server.zig"),
     });
-    b.installArtifact(multirun_exe);
+    // waiting on https://github.com/ziglang/zig/issues/21525 : for now, it will always fetch the dependency
+    // even if server_exe is never compiled
+    if (b.lazyDependency("mime", .{
+        .target = b.resolveTargetQuery(.{}),
+        .optimize = .Debug,
+    })) |mime_dep| {
+        server_exe.root_module.addImport("mime", mime_dep.module("mime"));
+    }
+    b.installArtifact(server_exe);
+
+    const bundle_exe = b.addExecutable(.{
+        .name = "bundle",
+        .target = b.resolveTargetQuery(.{}),
+        .optimize = .Debug,
+        .root_source_file = b.path("src/bundle.zig"),
+    });
+    b.installArtifact(bundle_exe);
 }
 
 const AnyPtr = struct {
