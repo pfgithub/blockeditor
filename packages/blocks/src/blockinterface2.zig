@@ -28,14 +28,14 @@ pub const OperationIterator = struct {
 
         std.debug.assert(Alignment >= 8);
         const itm_len = std.mem.readInt(u64, self.content[0..8], .little);
-        const itm_len_aligned = std.mem.alignForward(usize, itm_len, Alignment);
+        const itm_len_aligned = std.mem.alignForward(u64, itm_len, Alignment);
 
         self.content = self.content[Alignment..];
 
         if (self.content.len < itm_len_aligned) return error.DeserializeError;
 
-        const res = self.content[0..itm_len];
-        self.content = @alignCast(self.content[itm_len_aligned..]);
+        const res = self.content[0..text_component.usi(itm_len)];
+        self.content = @alignCast(self.content[text_component.usi(itm_len_aligned)..]);
         return res;
     }
 };

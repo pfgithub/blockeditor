@@ -35,7 +35,7 @@ pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
             .dep = null,
         };
     } else if (cfg.target.result.cpu.arch.isWasm()) {
-        const fail_step = b.addFail("TODO web");
+        const fail_step = b.addFail("TODO createApp web");
         const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
         fail_genf.* = .{ .step = &fail_step.step };
         app_res.* = .{
@@ -81,6 +81,8 @@ pub fn addRunApp(b: *std.Build, the_app: *App, install_step: ?*InstallApp) *std.
         else => {
             const res = std.Build.Step.Run.create(b, "fail");
             const fail_step = b.addFail(b.fmt("TODO addRunApp: {s}", .{@tagName(the_app.kind)}));
+            the_app.emitted_file.addStepDependencies(&fail_step.step);
+            if (install_step) |is| is.getInstalledFile().addStepDependencies(&fail_step.step);
             const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
             fail_genf.* = .{ .step = &fail_step.step };
             res.addFileArg(.{ .generated = .{ .file = fail_genf } });

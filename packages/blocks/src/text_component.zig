@@ -848,7 +848,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 }
                 try writer.print("{}.{d}", .{ span.id, span.start_segbyte });
                 if (span.bufbyte) |bufbyte| {
-                    const span_text = self.buffer.items[bufbyte..][0..span.length];
+                    const span_text = self.buffer.items[usi(bufbyte)..][0..usi(span.length)];
                     try writer.print("\"{}\"", .{std.zig.fmtEscapes(span_text)});
                 } else {
                     try writer.print("-{d}", .{span.length});
@@ -1423,7 +1423,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 .delete => blk: {
                                     // consider reclaiming space in the bufbyte array?
                                     if (span_info.bufbyte) |current_bufbyte| {
-                                        const old_text = self.buffer.items[current_bufbyte..][0..span_info.length];
+                                        const old_text = self.buffer.items[usi(current_bufbyte)..][0..usi(span_info.length)];
 
                                         undo_op_res_ranges.append(.{
                                             .mode = .replace,
@@ -1445,11 +1445,11 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                                 },
                                 .replace => blk: {
                                     if (rd_op.replace_buffer.len < data_i + spanbyte_len) return error.DeserializeError;
-                                    const new_content = rd_op.replace_buffer[data_i..][0..spanbyte_len];
-                                    data_i += spanbyte_len;
+                                    const new_content = rd_op.replace_buffer[data_i..][0..usi(spanbyte_len)];
+                                    data_i += usi(spanbyte_len);
 
                                     if (span_info.bufbyte) |current_bufbyte| {
-                                        const old_text = self.buffer.items[current_bufbyte..][0..span_info.length];
+                                        const old_text = self.buffer.items[usi(current_bufbyte)..][0..usi(span_info.length)];
 
                                         undo_op_res_ranges.append(.{
                                             .mode = .replace,
@@ -2013,9 +2013,9 @@ fn testDocument(alloc: std.mem.Allocator, count: usize, progress_node: ?std.Prog
         for (&random_bytes) |*byte| byte.* = rng.intRangeAtMost(u8, 'a', 'z');
         const insert_count = rng.intRangeLessThan(u64, 0, random_bytes.len);
 
-        try tester.testReplaceRange(insert_pos, delete_len, random_bytes[0..insert_count]);
+        try tester.testReplaceRange(insert_pos, delete_len, random_bytes[0..usi(insert_count)]);
 
-        max_len = @max(max_len, tester.complex.length());
+        max_len = @max(max_len, usi(tester.complex.length()));
         if (progress_node) |n| n.completeOne();
     }
 
@@ -2060,7 +2060,7 @@ const BlockTester = struct {
             .opgen_al = .init(alloc),
             .opgen = undefined,
         };
-        self.complex.readSlice(self.complex.positionFromDocbyte(0), self.event_mirror.addManyAsSlice(self.complex.length()) catch @panic("oom"));
+        self.complex.readSlice(self.complex.positionFromDocbyte(0), self.event_mirror.addManyAsSlice(usi(self.complex.length())) catch @panic("oom"));
         self.complex.on_after_simple_operation.addListener(.from(self, onAfterSimpleOperation));
         self.opgen = .{ .base = .{ .al = &self.opgen_al, .prefix = .init(alloc) } };
     }
@@ -2076,7 +2076,7 @@ const BlockTester = struct {
     }
 
     fn onAfterSimpleOperation(self: *BlockTester, op: TextDocument.EmitSimpleOperation) void {
-        self.event_mirror.replaceRange(op.position, op.delete_len, op.insert_text) catch @panic("oom");
+        self.event_mirror.replaceRange(usi(op.position), usi(op.delete_len), op.insert_text) catch @panic("oom");
     }
 
     pub fn testReplaceRange(self: *@This(), start: u64, delete_count: u64, insert_text: []const u8) !void {
@@ -2092,7 +2092,7 @@ const BlockTester = struct {
         {
             const tctx = anywhere.tracy.traceNamed(@src(), "simple");
             defer tctx.end();
-            self.simple.replaceRange(start, delete_count, insert_text) catch @panic("oom");
+            self.simple.replaceRange(usi(start), usi(delete_count), insert_text) catch @panic("oom");
         }
 
         self.timings.simple += timer.lap();
@@ -2115,7 +2115,7 @@ const BlockTester = struct {
 
         try std.testing.expectEqual(self.simple.items.len, self.complex.length());
 
-        const rendered = self.rendered_result.addManyAsSlice(self.complex.length()) catch @panic("iin");
+        const rendered = self.rendered_result.addManyAsSlice(usi(self.complex.length())) catch @panic("iin");
         defer self.rendered_result.clearRetainingCapacity();
         self.timings.test_addManyAsSlice += timer.lap();
 
@@ -2147,7 +2147,7 @@ const BlockTester = struct {
     }
 };
 
-fn usi(a: u64) usize {
+pub inline fn usi(a: u64) usize {
     return @intCast(a);
 }
 

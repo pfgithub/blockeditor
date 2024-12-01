@@ -1,8 +1,14 @@
 const std = @import("std");
 const ws = @import("websocket");
 const shared = @import("shared.zig");
+const builtin = @import("builtin");
 
 pub fn main() !void {
+    if (builtin.target.os.tag == .wasi) {
+        std.log.err("TODO support ws on wasi", .{});
+        return error.Todo;
+    }
+
     var gpa_backing = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(gpa_backing.deinit() == .ok);
     const gpa = gpa_backing.allocator();
