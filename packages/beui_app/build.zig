@@ -2,11 +2,13 @@ const std = @import("std");
 const beui_impl_glfw_wgpu = @import("beui_impl_glfw_wgpu");
 const beui_impl_web = @import("beui_impl_web");
 
+const AppKind = enum { android, web, glfw_wgpu };
 pub const App = struct {
     name: []const u8,
+    kind: AppKind,
     emitted_file: std.Build.LazyPath,
 
-    beui_impl_glfw_wgpu_dep: *std.Build.Dependency,
+    dep: ?*std.Build.Dependency,
 };
 
 pub const AppCfg = struct {
@@ -19,16 +21,39 @@ pub const AppCfg = struct {
 };
 
 pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
-    const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = cfg.target, .optimize = cfg.optimize, .tracy = cfg.tracy });
-    const result = beui_impl_glfw_wgpu.createApp(cfg.name, beui_impl_glfw_wgpu_dep, cfg.module);
-
+    // choose
+    // TODO -Dplatform=<AppKind>
     const app_res = b.allocator.create(App) catch @panic("oom");
-    app_res.* = .{
-        .name = b.dupe(cfg.name),
-        .emitted_file = result,
-        .beui_impl_glfw_wgpu_dep = beui_impl_glfw_wgpu_dep,
-    };
+    if (cfg.target.result.abi.isAndroid()) {
+        const fail_step = b.addFail("TODO android setup & build instructions");
+        const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
+        fail_genf.* = .{ .step = &fail_step.step };
+        app_res.* = .{
+            .name = b.fmt("android: {s}", .{cfg.name}),
+            .emitted_file = .{ .generated = .{ .file = fail_genf } },
+            .kind = .android,
+            .dep = null,
+        };
+    } else if (cfg.target.result.cpu.arch.isWasm()) {
+        const fail_step = b.addFail("TODO web");
+        const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
+        fail_genf.* = .{ .step = &fail_step.step };
+        app_res.* = .{
+            .name = b.fmt("web: {s}", .{cfg.name}),
+            .emitted_file = .{ .generated = .{ .file = fail_genf } },
+            .kind = .web,
+            .dep = null,
+        };
+    } else {
+        const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = cfg.target, .optimize = cfg.optimize, .tracy = cfg.tracy });
 
+        app_res.* = .{
+            .name = b.fmt("glfw_wgpu: {s}", .{cfg.name}),
+            .emitted_file = beui_impl_glfw_wgpu.createApp(cfg.name, beui_impl_glfw_wgpu_dep, cfg.module),
+            .kind = .glfw_wgpu,
+            .dep = beui_impl_glfw_wgpu_dep,
+        };
+    }
     return app_res;
 }
 pub fn addApp(b: *std.Build, name: []const u8, opts: AppCfg) *App {
@@ -51,8 +76,17 @@ pub fn installApp(b: *std.Build, the_app: *App) *InstallApp {
     return step;
 }
 pub fn addRunApp(b: *std.Build, the_app: *App, install_step: ?*InstallApp) *std.Build.Step.Run {
-    _ = b;
-    return beui_impl_glfw_wgpu.runApp(the_app.beui_impl_glfw_wgpu_dep, if (install_step) |s| s.getInstalledFile() else the_app.emitted_file);
+    switch (the_app.kind) {
+        .glfw_wgpu => return beui_impl_glfw_wgpu.runApp(the_app.dep.?, if (install_step) |s| s.getInstalledFile() else the_app.emitted_file),
+        else => {
+            const res = std.Build.Step.Run.create(b, "fail");
+            const fail_step = b.addFail(b.fmt("TODO addRunApp: {s}", .{@tagName(the_app.kind)}));
+            const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
+            fail_genf.* = .{ .step = &fail_step.step };
+            res.addFileArg(.{ .generated = .{ .file = fail_genf } });
+            return res;
+        },
+    }
 }
 
 pub fn build(b: *std.Build) !void {
