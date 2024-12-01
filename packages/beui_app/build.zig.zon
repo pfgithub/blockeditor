@@ -1,0 +1,12 @@
+.{
+    .name = "beui_app",
+    .version = "0.1.0",
+    .paths = .{
+        "",
+    },
+    .dependencies = .{
+        .beui = .{ .path = "../beui" },
+        .beui_impl_glfw_wgpu = .{ .path = "../beui_impl_glfw_wgpu" },
+        .beui_impl_web = .{ .path = "../beui_impl_web" },
+    },
+}

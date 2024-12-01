@@ -8,7 +8,7 @@
         .blocks = .{ .path = "../blocks" },
         .blocks_net = .{ .path = "../blocks_net" },
         .beui = .{ .path = "../beui" },
-        .beui_impl_glfw_wgpu = .{ .path = "../beui_impl_glfw_wgpu" },
+        .beui_app = .{ .path = "../beui_app" },
         .anywhere = .{ .path = "../anywhere" },
     },
 }

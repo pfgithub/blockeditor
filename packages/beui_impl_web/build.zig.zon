@@ -1,0 +1,10 @@
+.{
+    .name = "beui_impl_web",
+    .version = "0.1.0",
+    .paths = .{
+        "",
+    },
+    .dependencies = .{
+        .beui = .{ .path = "../beui" },
+    },
+}

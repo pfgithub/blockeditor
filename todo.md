@@ -91,6 +91,7 @@ Tasks:
 
 wishlist:
 
+- [ ] custom build_runner like zls has that generates a graph of all the steps that are going to run and shows it to you
 - [ ] for minimum input latency, wait to begin the frame until (frame end time) - (time it took to
   calculate and render last frame) * (150%). this way we can collect more events before starting
   the frame, but sometimes we'll skip a frame by accident because of this.

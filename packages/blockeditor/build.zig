@@ -1,6 +1,6 @@
 const std = @import("std");
 const zig_gamedev = @import("zig_gamedev");
-const beui_impl_glfw_wgpu = @import("beui_impl_glfw_wgpu");
+const beui_app = @import("beui_app");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -44,12 +44,16 @@ pub fn build(b: *std.Build) !void {
     const test_run = b.step("test", "Test");
     test_run.dependOn(&app_test_run.step);
 
-    const beui_impl_glfw_wgpu_dep = b.dependency("beui_impl_glfw_wgpu", .{ .target = target, .optimize = optimize, .tracy = b.option(bool, "tracy", "") orelse false });
-    const exe_path = beui_impl_glfw_wgpu.createApp("blockeditor", beui_impl_glfw_wgpu_dep, app_mod);
-    b.addNamedLazyPath("blockeditor", exe_path);
+    const blockeditor_app = beui_app.addApp(b, "blockeditor", .{
+        .name = "blockeditor",
+        .target = target,
+        .optimize = optimize,
+        .tracy = b.option(bool, "tracy", "") orelse false,
+        .module = app_mod,
+    });
 
-    const installed_exe = beui_impl_glfw_wgpu.InstallFile2.create(b, exe_path, .bin, null);
-    const run_step = beui_impl_glfw_wgpu.runApp(beui_impl_glfw_wgpu_dep, installed_exe.getInstalledFile());
+    const beui_app_install = beui_app.installApp(b, blockeditor_app);
+    const run_step = beui_app.addRunApp(b, blockeditor_app, beui_app_install);
     if (b.args) |args| run_step.addArgs(args);
     run_step.step.dependOn(b.getInstallStep());
     const run = b.step("run", "Run");

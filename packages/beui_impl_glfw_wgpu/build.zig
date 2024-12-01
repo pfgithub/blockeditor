@@ -77,7 +77,7 @@ pub fn runApp(self_dep: *std.Build.Dependency, app: std.Build.LazyPath) *std.Bui
     const enable_tracy = options.enable_tracy;
     const multirun_exe = self_dep.artifact("multirun");
 
-    const run_step = std.Build.Step.Run.create(b, &.{});
+    const run_step = std.Build.Step.Run.create(b, b.fmt("beui_impl_glfw_wgpu_runApp: {s}", .{app.getDisplayName()}));
 
     if (enable_tracy) {
         if (optimize == .Debug) {
@@ -126,67 +126,6 @@ pub fn build(b: *std.Build) !void {
     });
     b.installArtifact(multirun_exe);
 }
-
-pub const InstallFile2 = struct {
-    const Step = std.Build.Step;
-    const LazyPath = std.Build.LazyPath;
-    const InstallDir = std.Build.InstallDir;
-    const InstallFile = @This();
-    const assert = std.debug.assert;
-
-    pub const base_id: Step.Id = .custom;
-
-    step: Step,
-    source: LazyPath,
-    dir: InstallDir,
-    result: std.Build.GeneratedFile,
-    new_name: ?[]const u8,
-
-    pub fn create(
-        owner: *std.Build,
-        source: LazyPath,
-        dir: InstallDir,
-        new_name: ?[]const u8,
-    ) *InstallFile2 {
-        const install_file = owner.allocator.create(InstallFile2) catch @panic("OOM");
-        install_file.* = .{
-            .step = Step.init(.{
-                .id = base_id,
-                .name = owner.fmt("install {s}", .{source.getDisplayName()}),
-                .owner = owner,
-                .makeFn = make,
-            }),
-            .source = source.dupe(owner),
-            .dir = dir.dupe(owner),
-            .result = .{ .step = &install_file.step },
-            .new_name = if (new_name) |n| owner.dupe(n) else null,
-        };
-        source.addStepDependencies(&install_file.step);
-        return install_file;
-    }
-
-    pub fn getInstalledFile(self: *InstallFile2) std.Build.LazyPath {
-        return .{ .generated = .{ .file = &self.result } };
-    }
-
-    fn make(step: *Step, options: Step.MakeOptions) !void {
-        _ = options;
-        const b = step.owner;
-        const install_file: *InstallFile2 = @fieldParentPtr("step", step);
-        try step.singleUnchangingWatchInput(install_file.source);
-
-        const full_src_path = install_file.source.getPath2(b, step);
-        const full_dest_path = b.getInstallPath(install_file.dir, install_file.new_name orelse std.fs.path.basename(full_src_path));
-        const cwd = std.fs.cwd();
-        const prev = std.fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
-            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                full_src_path, full_dest_path, @errorName(err),
-            });
-        };
-        install_file.result.path = full_dest_path;
-        step.result_cached = prev == .fresh;
-    }
-};
 
 const AnyPtr = struct {
     id: [*]const u8,
