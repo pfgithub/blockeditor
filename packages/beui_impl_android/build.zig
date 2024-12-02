@@ -6,10 +6,10 @@ const TargetInfo = struct {
 };
 
 const target_map = std.StaticStringMap(TargetInfo).initComptime(.{
-    .{ "armeabi-v7a", .{ .triple = "arm-linux-android", .dir = "arm-linux-androideabi" } },
-    .{ "arm64-v8a", .{ .triple = "aarch64-linux-android", .dir = "aarch64-linux-android" } },
-    .{ "x86", .{ .triple = "x86-linux-android", .dir = "i686-linux-android" } },
-    .{ "x86_64", .{ .triple = "x86_64-linux-android", .dir = "x86_64-linux-android" } },
+    .{ "armeabi-v7a", TargetInfo{ .triple = "arm-linux-android", .dir = "arm-linux-androideabi" } },
+    .{ "arm64-v8a", TargetInfo{ .triple = "aarch64-linux-android", .dir = "aarch64-linux-android" } },
+    .{ "x86", TargetInfo{ .triple = "x86-linux-android", .dir = "i686-linux-android" } },
+    .{ "x86_64", TargetInfo{ .triple = "x86_64-linux-android", .dir = "x86_64-linux-android" } },
 });
 
 const BuildCache = struct {
@@ -116,7 +116,7 @@ pub fn build(b: *std.Build) !void {
     // HACK: fish out every dependency's Compile steps and set thier libc files (& depend on the step).
     // needed until zig has an answer for libc txt in pkg trees.
     if (true) {
-        var id_iter = b.initialized_deps.valueIterator();
+        var id_iter = b.graph.dependency_cache.valueIterator();
         while (id_iter.next()) |itm| {
             for (itm.*.builder.install_tls.step.dependencies.items) |dep_step| {
                 const inst = dep_step.cast(std.Build.Step.InstallArtifact) orelse continue;
