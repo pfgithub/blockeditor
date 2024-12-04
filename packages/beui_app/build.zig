@@ -188,7 +188,7 @@ pub fn addInstallApp(b: *std.Build, the_app: *App, dir: std.Build.InstallDir) st
 /// unlinke b.installArtifact(), this one returns *InstallApp instead of void because it is
 /// needed to be passed into addRunApp
 pub fn installApp(b: *std.Build, the_app: *App) std.Build.LazyPath {
-    const lp = addInstallApp(b, the_app, if(the_app.kind == .android) .lib else .bin);
+    const lp = addInstallApp(b, the_app, if (the_app.kind == .android) .lib else .bin);
     lp.addStepDependencies(b.getInstallStep());
     return lp;
 }
