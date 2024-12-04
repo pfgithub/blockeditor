@@ -39,6 +39,9 @@ Target support
   - x86_64-linux (native only)
 - android:
   - must be built in android studio from `packages/Android`
+  - requires a zig patch:
+    - in file `lib/libcxx/include/__support/xlocale/__posix_l_fallback.h`, prepend the line:
+    - `#define _LIBCPP___SUPPORT_XLOCALE_POSIX_L_FALLBACK_H`
   - arm-linux-android
   - aarch64-linux-android
   - x86-linux-android

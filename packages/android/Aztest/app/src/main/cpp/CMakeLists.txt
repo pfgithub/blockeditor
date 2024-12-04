@@ -21,17 +21,17 @@ add_custom_command(
         COMMENT "Generating libzigpart.so"
         VERBATIM
 )
-add_custom_target(generate_liba ALL DEPENDS ${APP_DIR}/zig-out/lib/libzigpart.so)
+add_custom_target(generate_libzigpart ALL DEPENDS ${APP_DIR}/zig-out/lib/libzigpart.so)
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
         native-lib.cpp)
 
-add_dependencies(${CMAKE_PROJECT_NAME} generate_liba)
+add_dependencies(${CMAKE_PROJECT_NAME} generate_libzigpart)
 
-set(LIBA_PATH "${APP_DIR}/zig-out/lib/libzigpart.so")
+set(LIBZIGPART_PATH "${APP_DIR}/zig-out/lib/libzigpart.so")
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
         ${ANDROID_LIB}
         ${LOG_LIB}
         ${GLESV3_LIB}
-        ${LIBA_PATH})
+        ${LIBZIGPART_PATH})
