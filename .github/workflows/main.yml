@@ -11,5 +11,5 @@ jobs:
       - run: zig build
       - run: zig build test -Dci
       - run: zig build -Dtarget=x86_64-windows
-      - run: zig build -Dplatform=web -Dtarget=wasm32-wasi-musl
+      - run: zig build -Dplatform=web
 

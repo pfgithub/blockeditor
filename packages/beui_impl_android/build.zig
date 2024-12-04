@@ -12,29 +12,57 @@ const target_map = std.StaticStringMap(TargetInfo).initComptime(.{
     .{ "x86_64", TargetInfo{ .triple = "x86_64-linux-android", .dir = "x86_64-linux-android" } },
 });
 
-const BuildCache = struct {
+pub const BuildCache = struct {
     INCLUDE_DIR: ?[]const u8 = null,
     CRT1_PATH: ?[]const u8 = null,
     CMAKE_ANDROID_ARCH_ABI: ?[]const u8 = null,
     ANDROID_LIB: ?[]const u8 = null,
     LOG_LIB: ?[]const u8 = null,
     GLESV3_LIB: ?[]const u8 = null,
+
+    pub fn toJson(opts: BuildCache, arena: std.mem.Allocator) []const u8 {
+        const printed = std.json.stringifyAlloc(arena, opts, .{ .whitespace = .indent_4 }) catch |e| {
+            std.log.warn("failed to stringify json: {s}", .{@errorName(e)});
+            @panic("failure");
+        };
+        return printed;
+    }
+    pub fn fromJsonAllocIfNeeded(arena: std.mem.Allocator, cache_text: []const u8) ?BuildCache {
+        return std.json.parseFromSliceLeaky(BuildCache, arena, cache_text, .{ .allocate = .alloc_if_needed }) catch |e| {
+            std.log.warn("malformatted build-options-cache: {s}", .{@errorName(e)});
+            return null;
+        };
+    }
+
+    pub fn getTargetOptimize(opts: BuildCache, b: *std.Build) struct { std.Build.ResolvedTarget, std.builtin.OptimizeMode } {
+        const target_info = target_map.get(opts.CMAKE_ANDROID_ARCH_ABI.?) orelse @panic("TODO support android arch abi");
+        const target = b.resolveTargetQuery(std.Target.Query.parse(.{ .arch_os_abi = target_info.triple }) catch @panic("bad target query"));
+        const optimize: std.builtin.OptimizeMode = .Debug;
+        return .{ target, optimize };
+    }
 };
 
-pub fn build(b: *std.Build) !void {
-    const cache_file_path = b.path(".build-options-cache.json").getPath(b);
+pub fn buildCacheOptions(b: *std.Build) BuildCache {
+    // consider moving into .zig-cache/ of the root
+    const cache_file_path = ".build-options-cache.json";
     var opts: BuildCache = blk: {
-        const cache_text = std.fs.cwd().readFileAlloc(b.allocator, cache_file_path, 1000 * 1000) catch |e| {
-            std.log.warn("no existing build-options-cache: {s} {s}", .{ @errorName(e), @src().file });
+        const cache_text = b.cache_root.handle.readFileAlloc(b.allocator, cache_file_path, 1000 * 1000) catch |e| {
+            std.log.warn("no existing build-options-cache: {s}", .{@errorName(e)});
             break :blk .{};
         };
-        break :blk std.json.parseFromSliceLeaky(BuildCache, b.allocator, cache_text, .{ .allocate = .alloc_if_needed }) catch |e| {
-            std.log.warn("malformatted build-options-cache: {s}", .{@errorName(e)});
-            break :blk .{};
-        };
+        break :blk BuildCache.fromJsonAllocIfNeeded(b.allocator, cache_text) orelse .{};
     };
 
-    opts.INCLUDE_DIR = b.option([]const u8, "INCLUDE_DIR", "") orelse opts.INCLUDE_DIR orelse @panic("missing INCLUDE_DIR");
+    opts.INCLUDE_DIR = b.option([]const u8, "INCLUDE_DIR", "") orelse opts.INCLUDE_DIR orelse {
+        std.log.err(
+            \\Android-specific build options have not been provided (missing INCLUDE_DIR).\n
+            \\
+            \\  - The first build from Android Studio will cache these build options.
+            \\  - After this, `zig build` may be used for error checking.
+            \\
+        , .{});
+        std.process.exit(1);
+    };
     opts.CRT1_PATH = b.option([]const u8, "CRT1_PATH", "") orelse opts.CRT1_PATH orelse @panic("missing CRT1_PATH");
 
     opts.CMAKE_ANDROID_ARCH_ABI = b.option([]const u8, "CMAKE_ANDROID_ARCH_ABI", "") orelse opts.CMAKE_ANDROID_ARCH_ABI orelse @panic("missing CMAKE_ANDROID_ARCH_ABI");
@@ -43,12 +71,9 @@ pub fn build(b: *std.Build) !void {
     opts.GLESV3_LIB = b.option([]const u8, "GLESV3_LIB", "") orelse opts.GLESV3_LIB orelse @panic("missing GLESV3_LIB");
 
     blk: {
-        const printed = std.json.stringifyAlloc(b.allocator, opts, .{ .whitespace = .indent_4 }) catch |e| {
-            std.log.warn("failed to stringify json: {s}", .{@errorName(e)});
-            break :blk;
-        };
+        const printed = opts.toJson(b.allocator);
 
-        var atomic_file = std.fs.cwd().atomicFile(cache_file_path, .{}) catch |e| {
+        var atomic_file = b.cache_root.handle.atomicFile(cache_file_path, .{}) catch |e| {
             std.log.warn("failed to open json output file: {s}", .{@errorName(e)});
             break :blk;
         };
@@ -63,10 +88,79 @@ pub fn build(b: *std.Build) !void {
         };
     }
 
+    return opts;
+}
+
+pub fn createApp(self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) struct { []const u8, []const u8, std.Build.LazyPath } {
+    const b = self_dep.builder;
+    const make_libc_stdout = self_dep.namedLazyPath("make_libc_stdout");
+    const pass_info = findArbitrary(self_dep, PassInfo, "pass_info");
+
+    const target = pass_info.target;
+    const optimize = pass_info.optimize;
+    const opts = pass_info.opts;
+
+    // https://github.com/ziglang/zig/issues/20327#issuecomment-2382059477 we need to specify a libc file
+    // for every addStaticLibrary, addDynamicLibrary call otherwise this won't compile
+    const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
+
+    const lib = b.addSharedLibrary(.{
+        .name = "zigpart",
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .pic = true,
+    });
+    b.installArtifact(lib);
+
+    lib.setLibCFile(make_libc_stdout);
+    make_libc_stdout.addStepDependencies(&lib.step); // work around bug where setLibCFile doesn't add the step dependency
+    lib.linkLibC();
+    lib.addLibraryPath(.{ .cwd_relative = opts.CRT1_PATH.? });
+    lib.linkSystemLibrary("android");
+    lib.linkSystemLibrary("log");
+    lib.linkSystemLibrary("GLESv3");
+    lib.root_module.addImport("app", app_mod);
+    lib.root_module.addImport("beui", beui_dep.module("beui"));
+
+    if (_fix_android_libc != null) @panic("android libc twice!!! uh oh  oh oh");
+    _fix_android_libc = make_libc_stdout;
+
+    return .{ lib.name, lib.out_filename, lib.getEmittedBin() };
+}
+var _fix_android_libc: ?std.Build.LazyPath = null;
+pub fn fixAndroidLibc(b: *std.Build) void {
+    if (_fix_android_libc) |make_libc_stdout| {
+        // HACK: fish out every dependency's Compile steps and set thier libc files (& depend on the step).
+        // needed until zig has an answer for libc txt in pkg trees.
+        var id_iter = b.graph.dependency_cache.valueIterator();
+        while (id_iter.next()) |itm| {
+            fixAndroidLibcForBuilder(itm.*.builder, make_libc_stdout);
+        }
+        fixAndroidLibcForBuilder(b, make_libc_stdout);
+    }
+}
+fn fixAndroidLibcForBuilder(b: *std.Build, libc: std.Build.LazyPath) void {
+    for (b.install_tls.step.dependencies.items) |dep_step| {
+        const inst = dep_step.cast(std.Build.Step.InstallArtifact) orelse continue;
+        if (inst.artifact.rootModuleTarget().abi == .android) {
+            inst.artifact.setLibCFile(libc);
+            libc.addStepDependencies(&inst.artifact.step); // work around bug
+        }
+    }
+}
+
+const PassInfo = struct {
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    opts: BuildCache,
+};
+
+pub fn build(b: *std.Build) !void {
+    const opts = BuildCache.fromJsonAllocIfNeeded(b.allocator, b.option([]const u8, "android", "android value").?).?;
+    const target, const optimize = opts.getTargetOptimize(b);
     const target_info = target_map.get(opts.CMAKE_ANDROID_ARCH_ABI.?) orelse @panic("TODO support android arch abi");
     const SYS_INCLUDE_DIR = b.fmt("{s}/{s}", .{ opts.INCLUDE_DIR.?, target_info.dir });
-    const target = b.resolveTargetQuery(try std.Target.Query.parse(.{ .arch_os_abi = target_info.triple }));
-    const optimize: std.builtin.OptimizeMode = .Debug;
 
     const libc_file_builder = b.addExecutable(.{
         .name = "libc_file_builder",
@@ -89,42 +183,38 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&format_step.step);
 
-    // https://github.com/ziglang/zig/issues/20327#issuecomment-2382059477 we need to specify a libc file
-    // for every addStaticLibrary, addDynamicLibrary call otherwise this won't compile
-    const app_dep = b.dependency("app", .{ .target = target, .optimize = optimize });
-    const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
+    b.addNamedLazyPath("make_libc_stdout", make_libc_stdout);
 
-    const lib = b.addSharedLibrary(.{
-        .name = "zigpart",
-        .root_source_file = b.path("src/root.zig"),
+    const pass_info = try b.allocator.create(PassInfo);
+    pass_info.* = .{
         .target = target,
         .optimize = optimize,
-        .pic = true,
-    });
-    b.installArtifact(lib);
+        .opts = opts,
+    };
+    exposeArbitrary(b, "pass_info", PassInfo, pass_info);
+}
 
-    lib.setLibCFile(make_libc_stdout);
-    lib.step.dependOn(&make_libc_file.step); // work around bug where setLibCFile doesn't add the step dependency
-    lib.linkLibC();
-    lib.addLibraryPath(.{ .cwd_relative = opts.CRT1_PATH.? });
-    lib.linkSystemLibrary("android");
-    lib.linkSystemLibrary("log");
-    lib.linkSystemLibrary("GLESv3");
-    lib.root_module.addImport("app", app_dep.module("blockeditor"));
-    lib.root_module.addImport("beui", beui_dep.module("beui"));
-
-    // HACK: fish out every dependency's Compile steps and set thier libc files (& depend on the step).
-    // needed until zig has an answer for libc txt in pkg trees.
-    if (true) {
-        var id_iter = b.graph.dependency_cache.valueIterator();
-        while (id_iter.next()) |itm| {
-            for (itm.*.builder.install_tls.step.dependencies.items) |dep_step| {
-                const inst = dep_step.cast(std.Build.Step.InstallArtifact) orelse continue;
-                if (inst.artifact.rootModuleTarget().abi == .android) {
-                    inst.artifact.setLibCFile(make_libc_stdout);
-                    inst.artifact.step.dependOn(&make_libc_file.step);
-                }
-            }
-        }
-    }
+const AnyPtr = struct {
+    id: [*]const u8,
+    val: *const anyopaque,
+};
+fn exposeArbitrary(b: *std.Build, name: []const u8, comptime ty: type, val: *const ty) void {
+    const valv = b.allocator.create(AnyPtr) catch @panic("oom");
+    valv.* = .{
+        .id = @typeName(ty),
+        .val = val,
+    };
+    const name_fmt = b.fmt("__exposearbitrary_{s}", .{name});
+    const mod = b.addModule(name_fmt, .{});
+    // HACKHACKHACK
+    mod.* = undefined;
+    mod.owner = @ptrCast(@alignCast(@constCast(valv)));
+}
+fn findArbitrary(dep: *std.Build.Dependency, comptime ty: type, name: []const u8) *const ty {
+    const name_fmt = dep.builder.fmt("__exposearbitrary_{s}", .{name});
+    const modv = dep.module(name_fmt);
+    // HACKHACKHACK
+    const anyptr: *const AnyPtr = @ptrCast(@alignCast(modv.owner));
+    std.debug.assert(anyptr.id == @typeName(ty));
+    return @ptrCast(@alignCast(anyptr.val));
 }

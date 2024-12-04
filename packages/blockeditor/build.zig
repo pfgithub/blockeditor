@@ -3,8 +3,10 @@ const zig_gamedev = @import("zig_gamedev");
 const beui_app = @import("beui_app");
 
 pub fn build(b: *std.Build) !void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    defer beui_app.fixAndroidLibc(b);
+    const opts = beui_app.standardAppOptions(b);
+    const target = opts.target(b);
+    const optimize = opts.optimize;
 
     const format_step = b.addFmt(.{
         .paths = &.{ "src", "build.zig", "build.zig.zon" },
@@ -37,7 +39,7 @@ pub fn build(b: *std.Build) !void {
     app_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
     app_test.root_module.addImport("blocks_net", blocks_net_dep.module("client"));
     app_test.root_module.addImport("beui", beui_dep.module("beui"));
-    b.installArtifact(app_test);
+    if (opts.platform != .android) b.installArtifact(app_test);
 
     const app_test_run = b.addRunArtifact(app_test);
     app_test_run.step.dependOn(b.getInstallStep());
@@ -46,9 +48,7 @@ pub fn build(b: *std.Build) !void {
 
     const blockeditor_app = beui_app.addApp(b, "blockeditor", .{
         .name = "blockeditor",
-        .target = target,
-        .optimize = optimize,
-        .opts = beui_app.standardAppOptions(b),
+        .opts = opts,
         .module = app_mod,
     });
 

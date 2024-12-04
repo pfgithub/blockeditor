@@ -1,4 +1,5 @@
 const std = @import("std");
+const beui_impl_android = @import("beui_impl_android");
 const beui_impl_glfw_wgpu = @import("beui_impl_glfw_wgpu");
 const beui_impl_web = @import("beui_impl_web");
 
@@ -12,61 +13,130 @@ pub const App = struct {
     dep: ?*std.Build.Dependency,
 };
 
+const _targethack = struct {
+    var th: std.ArrayList(std.Build.ResolvedTarget) = undefined;
+    var th_rev: std.StringArrayHashMap(usize) = undefined;
+    var th_initialized = false;
+    fn minit(b: *std.Build) void {
+        if (!_targethack.th_initialized) {
+            _targethack.th = .init(b.allocator);
+            _targethack.th_rev = .init(b.allocator);
+            _targethack.th_initialized = true;
+        }
+    }
+    fn targetToString(b: *std.Build, target: std.Build.ResolvedTarget) []const u8 {
+        return b.fmt("{s}:{s}", .{
+            target.query.zigTriple(b.allocator) catch @panic("oom"),
+            target.query.serializeCpuAlloc(b.allocator) catch @panic("oom"),
+        });
+    }
+};
+fn putTargetHack(b: *std.Build, value: std.Build.ResolvedTarget) usize {
+    _targethack.minit(b);
+    const rev_val = _targethack.th_rev.getOrPut(_targethack.targetToString(b, value)) catch @panic("oom");
+    if (!rev_val.found_existing) {
+        rev_val.value_ptr.* = _targethack.th.items.len;
+        _targethack.th.append(value) catch @panic("oom");
+    }
+    return rev_val.value_ptr.*;
+}
+fn getTargetHack(b: *std.Build, itm: usize) std.Build.ResolvedTarget {
+    _targethack.minit(b);
+    return _targethack.th.items[itm];
+}
+
+pub fn fixAndroidLibc(b: *std.Build) void {
+    return beui_impl_android.fixAndroidLibc(b);
+}
+
 pub const AppCfg = struct {
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
     opts: AppOpts,
 
     module: *std.Build.Module,
     name: []const u8,
 };
 pub const AppOpts = struct {
+    target_hack: usize,
+    optimize: std.builtin.OptimizeMode,
+
     platform: Platform,
 
     // glfw_wgpu
-    tracy: bool,
+    tracy: bool = false,
 
     // web
-    port: u16,
+    port: u16 = 3556,
+
+    // android
+    android: ?beui_impl_android.BuildCache = null,
 
     pub fn passIn(self: *const AppOpts, b: *std.Build) []const u8 {
         return std.json.stringifyAlloc(b.allocator, self, .{}) catch @panic("oom");
+    }
+    pub fn target(self: AppOpts, b: *std.Build) std.Build.ResolvedTarget {
+        return getTargetHack(b, self.target_hack);
     }
 };
 
 pub fn standardAppOptions(b: *std.Build) AppOpts {
     if (b.option([]const u8, "opts", "")) |opts_val| {
         return std.json.parseFromSliceLeaky(AppOpts, b.allocator, opts_val, .{}) catch @panic("bad opts arg");
-    } else {
+    }
+    const platform: Platform = b.option(Platform, "platform", "Platform to build app for") orelse .glfw_wgpu;
+    if (platform == .android) {
+        // to block these options from showing up in help
+        const android = beui_impl_android.buildCacheOptions(b);
+        const target, const optimize = android.getTargetOptimize(b);
         return .{
-            .platform = b.option(Platform, "platform", "Platform to build app for") orelse .glfw_wgpu,
-            .tracy = b.option(bool, "tracy", "[glfw-wgpu] Use tracy?") orelse false,
-            .port = b.option(u16, "port", "[web] Port to serve from?") orelse 3556,
+            .target_hack = putTargetHack(b, target),
+            .optimize = optimize,
+            .platform = .android,
+            .android = android,
         };
     }
+    var target: std.Build.ResolvedTarget = undefined;
+    if (platform == .web) {
+        target = b.resolveTargetQuery(.{
+            .cpu_arch = .wasm32,
+            .os_tag = .wasi,
+            .abi = .musl,
+        });
+    } else {
+        target = b.standardTargetOptions(.{});
+    }
+
+    return .{
+        .target_hack = putTargetHack(b, target),
+        .optimize = b.standardOptimizeOption(.{}),
+        .platform = platform,
+        .tracy = b.option(bool, "tracy", "[glfw-wgpu] Use tracy?") orelse false,
+        .port = b.option(u16, "port", "[web] Port to serve from?") orelse 3556,
+    };
 }
 
 pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
     // choose
     const app_res = b.allocator.create(App) catch @panic("oom");
+    const target = cfg.opts.target(b);
     switch (cfg.opts.platform) {
         .android => {
             // `zig build -Dplatform=android` -> error ("TODO setup & build instructions")
             // `zig build -Dplatform=android -D_android_options=....` (called from cmake) -> builds (that way we can eliminate
             //   beui_impl_android depending on blockeditor and instead have android build blockeditor for android)
-            const fail_step = b.addFail("TODO android setup & build instructions");
-            const fail_genf = b.allocator.create(std.Build.GeneratedFile) catch @panic("oom");
-            fail_genf.* = .{ .step = &fail_step.step };
+
+            const beui_impl_android_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_android, .{ .android = cfg.opts.android.?.toJson(b.allocator) });
+
+            const vname, const vbin_name, const vemitted_file = beui_impl_android.createApp(beui_impl_android_dep, cfg.module);
             app_res.* = .{
-                .name = b.dupe(cfg.name),
-                .bin_name = b.dupe(cfg.name),
-                .emitted_file = .{ .generated = .{ .file = fail_genf } },
+                .name = vname,
+                .bin_name = vbin_name,
+                .emitted_file = vemitted_file,
                 .kind = .android,
-                .dep = null,
+                .dep = beui_impl_android_dep,
             };
         },
         .web => {
-            const beui_impl_web_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_web, .{ .target = cfg.target, .optimize = cfg.optimize, .port = cfg.opts.port });
+            const beui_impl_web_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_web, .{ .target = target, .optimize = cfg.opts.optimize, .port = cfg.opts.port });
 
             app_res.* = .{
                 .name = b.dupe(cfg.name),
@@ -77,16 +147,13 @@ pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
             };
         },
         .glfw_wgpu => {
-            const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = cfg.target, .optimize = cfg.optimize, .tracy = cfg.opts.tracy });
+            const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = target, .optimize = cfg.opts.optimize, .tracy = cfg.opts.tracy });
 
+            const vname, const vbin_name, const vemitted_file = beui_impl_glfw_wgpu.createApp(cfg.name, beui_impl_glfw_wgpu_dep, cfg.module);
             app_res.* = .{
-                .name = b.dupe(cfg.name),
-                .bin_name = std.zig.binNameAlloc(b.allocator, .{
-                    .root_name = cfg.name,
-                    .target = cfg.target.result,
-                    .output_mode = .Exe,
-                }) catch @panic("oom"),
-                .emitted_file = beui_impl_glfw_wgpu.createApp(cfg.name, beui_impl_glfw_wgpu_dep, cfg.module),
+                .name = vname,
+                .bin_name = vbin_name,
+                .emitted_file = vemitted_file,
                 .kind = .glfw_wgpu,
                 .dep = beui_impl_glfw_wgpu_dep,
             };
@@ -121,7 +188,7 @@ pub fn addInstallApp(b: *std.Build, the_app: *App, dir: std.Build.InstallDir) st
 /// unlinke b.installArtifact(), this one returns *InstallApp instead of void because it is
 /// needed to be passed into addRunApp
 pub fn installApp(b: *std.Build, the_app: *App) std.Build.LazyPath {
-    const lp = addInstallApp(b, the_app, .bin);
+    const lp = addInstallApp(b, the_app, if(the_app.kind == .android) .lib else .bin);
     lp.addStepDependencies(b.getInstallStep());
     return lp;
 }

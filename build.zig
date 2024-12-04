@@ -6,9 +6,10 @@ pub const deps = struct {
 };
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    defer deps.beui_app.fixAndroidLibc(b);
     const opts = deps.beui_app.standardAppOptions(b);
+    const target = opts.target(b);
+    const optimize = opts.optimize;
 
     const fmt_all = b.addFmt(.{
         .paths = &.{
@@ -37,13 +38,13 @@ pub fn build(b: *std.Build) void {
 
     const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
-    const blockeditor_dep = b.dependency("blockeditor", .{ .target = target, .optimize = optimize, .opts = opts.passIn(b) });
+    const blockeditor_dep = b.dependency("blockeditor", .{ .opts = opts.passIn(b) });
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize, .tracy = opts.tracy });
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
     const loadimage_dep = b.dependency("loadimage", .{ .target = target, .optimize = optimize });
     const sheen_bidi_dep = b.dependency("sheen_bidi", .{ .target = target, .optimize = optimize });
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
-    const tracy_dep = b.dependency("tracy", .{ .target = target, .optimize = optimize });
+    const tracy_dep = b.dependency("tracy", .{ .target = b.resolveTargetQuery(.{}), .optimize = .ReleaseSafe });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
 
     const blockeditor_app = deps.beui_app.app(blockeditor_dep, "blockeditor");

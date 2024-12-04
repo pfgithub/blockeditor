@@ -1,7 +1,7 @@
 const std = @import("std");
 const zig_gamedev = @import("zig_gamedev");
 
-pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) std.Build.LazyPath {
+pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) struct { []const u8, []const u8, std.Build.LazyPath } {
     const b = self_dep.builder;
 
     const options = findArbitrary(self_dep, Options, "options");
@@ -59,7 +59,7 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
     exe.root_module.addImport("zgpu", zgpu.module("root"));
     exe.linkLibrary(zgpu.artifact("zdawn"));
 
-    return exe.getEmittedBin();
+    return .{ exe.name, exe.out_filename, exe.getEmittedBin() };
 }
 
 const Options = struct {

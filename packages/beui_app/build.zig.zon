@@ -6,6 +6,7 @@
     },
     .dependencies = .{
         .beui = .{ .path = "../beui" },
+        .beui_impl_android = .{ .path = "../beui_impl_android" },
         .beui_impl_glfw_wgpu = .{ .path = "../beui_impl_glfw_wgpu" },
         .beui_impl_web = .{ .path = "../beui_impl_web" },
     },
