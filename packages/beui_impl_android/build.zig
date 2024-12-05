@@ -6,7 +6,7 @@ const TargetInfo = struct {
 };
 
 const target_map = std.StaticStringMap(TargetInfo).initComptime(.{
-    .{ "armeabi-v7a", TargetInfo{ .triple = "arm-linux-android", .dir = "arm-linux-androideabi" } },
+    .{ "armeabi-v7a", TargetInfo{ .triple = "arm-linux-androideabi", .dir = "arm-linux-androideabi" } },
     .{ "arm64-v8a", TargetInfo{ .triple = "aarch64-linux-android", .dir = "aarch64-linux-android" } },
     .{ "x86", TargetInfo{ .triple = "x86-linux-android", .dir = "i686-linux-android" } },
     .{ "x86_64", TargetInfo{ .triple = "x86_64-linux-android", .dir = "x86_64-linux-android" } },
@@ -93,7 +93,6 @@ pub fn buildCacheOptions(b: *std.Build) BuildCache {
 
 pub fn createApp(self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) struct { []const u8, []const u8, std.Build.LazyPath } {
     const b = self_dep.builder;
-    const make_libc_stdout = self_dep.namedLazyPath("make_libc_stdout");
     const pass_info = findArbitrary(self_dep, PassInfo, "pass_info");
 
     const target = pass_info.target;
@@ -113,9 +112,9 @@ pub fn createApp(self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) st
     });
     b.installArtifact(lib);
 
-    lib.setLibCFile(make_libc_stdout);
-    make_libc_stdout.addStepDependencies(&lib.step); // work around bug where setLibCFile doesn't add the step dependency
+    fixAndroidLibcForCompile(lib);
     lib.linkLibC();
+    if(target.result.cpu.arch == .x86) lib.link_z_notext = true; // https://github.com/ziglang/zig/issues/7935
     lib.addLibraryPath(.{ .cwd_relative = opts.CRT1_PATH.? });
     lib.linkSystemLibrary("android");
     lib.linkSystemLibrary("log");
@@ -123,31 +122,53 @@ pub fn createApp(self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) st
     lib.root_module.addImport("app", app_mod);
     lib.root_module.addImport("beui", beui_dep.module("beui"));
 
-    if (_fix_android_libc != null) @panic("android libc twice!!! uh oh  oh oh");
-    _fix_android_libc = make_libc_stdout;
-
     return .{ lib.name, lib.out_filename, lib.getEmittedBin() };
 }
 var _fix_android_libc: ?std.Build.LazyPath = null;
 pub fn fixAndroidLibc(b: *std.Build) void {
-    if (_fix_android_libc) |make_libc_stdout| {
+    if (_fix_android_libc) |_| {
         // HACK: fish out every dependency's Compile steps and set thier libc files (& depend on the step).
         // needed until zig has an answer for libc txt in pkg trees.
         var id_iter = b.graph.dependency_cache.valueIterator();
         while (id_iter.next()) |itm| {
-            fixAndroidLibcForBuilder(itm.*.builder, make_libc_stdout);
+            fixAndroidLibcForBuilder(itm.*.builder);
         }
-        fixAndroidLibcForBuilder(b, make_libc_stdout);
+        fixAndroidLibcForBuilder(b);
     }
 }
-fn fixAndroidLibcForBuilder(b: *std.Build, libc: std.Build.LazyPath) void {
+fn fixAndroidLibcForBuilder(b: *std.Build) void {
     for (b.install_tls.step.dependencies.items) |dep_step| {
         const inst = dep_step.cast(std.Build.Step.InstallArtifact) orelse continue;
-        if (inst.artifact.rootModuleTarget().abi == .android) {
-            inst.artifact.setLibCFile(libc);
-            libc.addStepDependencies(&inst.artifact.step); // work around bug
-        }
+        fixAndroidLibcForCompile(inst.artifact);
     }
+}
+fn fixAndroidLibcForCompile(lib: *std.Build.Step.Compile) void {
+    if(lib.libc_file != null) return; // already handled
+    if(_fix_android_libc == null) return;
+    if (lib.rootModuleTarget().isAndroid()) {
+        lib.setLibCFile(_fix_android_libc.?);
+        _fix_android_libc.?.addStepDependencies(&lib.step); // work around bug where setLibCFile doesn't add the step dependency
+
+        // fixPicForModule(b, &lib.root_module);
+    }
+}
+
+var workaround_applied: bool = false;
+fn applyWorkaround(b: *std.Build) void {
+    defer std.log.warn("Patch applied to lib/libcxx/include/__support/xlocale/__posix_l_fallback.h", .{});
+    if(workaround_applied) return;
+    workaround_applied = true;
+    const zig_lib_dir = b.graph.zig_lib_directory;
+    const fpath = "libcxx/include/__support/xlocale/__posix_l_fallback.h";
+    const current_content = zig_lib_dir.handle.readFileAlloc(b.allocator, fpath, 64000) catch |e| {
+        std.debug.panic("could not find __posix_l_fallback to apply patch: {s}", .{@errorName(e)});
+    };
+    const prepend = "#define _LIBCPP___SUPPORT_XLOCALE_POSIX_L_FALLBACK_H\n";
+    if(std.mem.startsWith(u8, current_content, prepend)) return; // no patch needed
+    const final_content = std.mem.concat(b.allocator, u8, &.{prepend, current_content}) catch @panic("oom");
+    zig_lib_dir.handle.writeFile(.{.sub_path = fpath, .data = final_content}) catch |e| {
+        std.debug.panic("failed to apply patch to __posix_l_fallback: {s}", .{@errorName(e)});
+    };
 }
 
 const PassInfo = struct {
@@ -157,6 +178,8 @@ const PassInfo = struct {
 };
 
 pub fn build(b: *std.Build) !void {
+    applyWorkaround(b);
+
     const opts = BuildCache.fromJsonAllocIfNeeded(b.allocator, b.option([]const u8, "android", "android value").?).?;
     const target, const optimize = opts.getTargetOptimize(b);
     const target_info = target_map.get(opts.CMAKE_ANDROID_ARCH_ABI.?) orelse @panic("TODO support android arch abi");
@@ -178,12 +201,13 @@ pub fn build(b: *std.Build) !void {
     make_libc_file.addArg("gcc_dir=");
     const make_libc_stdout = make_libc_file.captureStdOut();
 
+    if (_fix_android_libc != null) @panic("android libc twice!!! uh oh  oh oh");
+    _fix_android_libc = make_libc_stdout;
+
     const format_step = b.addFmt(.{
         .paths = &.{ "src", "build.zig", "build.zig.zon" },
     });
     b.getInstallStep().dependOn(&format_step.step);
-
-    b.addNamedLazyPath("make_libc_stdout", make_libc_stdout);
 
     const pass_info = try b.allocator.create(PassInfo);
     pass_info.* = .{

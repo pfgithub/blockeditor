@@ -8,8 +8,14 @@ jobs:
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.14.0-dev.2340+182cdf74b
+      - name: set up JDK 1.8
+        uses: actions/setup-java@v1
+        with:
+          java-version: 1.8
       - run: zig build
       - run: zig build test -Dci
       - run: zig build -Dtarget=x86_64-windows
       - run: zig build -Dplatform=web
+      - run: ./gradlew assembleDebug
+        working-directory: packages/android/Aztest
 
