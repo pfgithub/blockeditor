@@ -5,6 +5,7 @@
         "",
     },
     .dependencies = .{
+        .anywhere = .{ .path = "../anywhere" },
         .beui = .{ .path = "../beui" },
         .mime = .{
             .url = "git+https://github.com/andrewrk/mime.git#0b676643886b1e2f19cf11b4e15b028768708342",

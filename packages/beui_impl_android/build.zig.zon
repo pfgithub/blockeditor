@@ -5,6 +5,7 @@
         "",
     },
     .dependencies = .{
+        .anywhere = .{ .path = "../anywhere" },
         .beui = .{ .path = "../beui" },
     },
 }

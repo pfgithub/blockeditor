@@ -1,4 +1,5 @@
 const std = @import("std");
+const anywhere = @import("anywhere").lib;
 const beui_impl_android = @import("beui_impl_android");
 const beui_impl_glfw_wgpu = @import("beui_impl_glfw_wgpu");
 const beui_impl_web = @import("beui_impl_web");
@@ -163,11 +164,11 @@ pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
 }
 pub fn addApp(b: *std.Build, name: []const u8, opts: AppCfg) *App {
     const app_res = createApp(b, opts);
-    exposeArbitrary(b, name, App, app_res);
+    anywhere.util.build.expose(b, name, *App, app_res);
     return app_res;
 }
 pub fn app(dep: *std.Build.Dependency, name: []const u8) *App {
-    return findArbitrary(dep, App, name);
+    return anywhere.util.build.find(dep, *App, name);
 }
 
 pub fn addInstallApp(b: *std.Build, the_app: *App, dir: std.Build.InstallDir) std.Build.LazyPath {
@@ -214,29 +215,4 @@ pub fn build(b: *std.Build) !void {
         .paths = &.{ "src", "build.zig", "build.zig.zon" },
     });
     b.getInstallStep().dependOn(&format_step.step);
-}
-
-const AnyPtr = struct {
-    id: [*]const u8,
-    val: *anyopaque,
-};
-fn exposeArbitrary(b: *std.Build, name: []const u8, comptime ty: type, val: *ty) void {
-    const valv = b.allocator.create(AnyPtr) catch @panic("oom");
-    valv.* = .{
-        .id = @typeName(ty),
-        .val = val,
-    };
-    const name_fmt = b.fmt("__exposearbitrary_{s}", .{name});
-    const mod = b.addModule(name_fmt, .{});
-    // HACKHACKHACK
-    mod.* = undefined;
-    mod.owner = @ptrCast(@alignCast(@constCast(valv)));
-}
-fn findArbitrary(dep: *std.Build.Dependency, comptime ty: type, name: []const u8) *ty {
-    const name_fmt = dep.builder.fmt("__exposearbitrary_{s}", .{name});
-    const modv = dep.module(name_fmt);
-    // HACKHACKHACK
-    const anyptr: *const AnyPtr = @ptrCast(@alignCast(modv.owner));
-    std.debug.assert(anyptr.id == @typeName(ty));
-    return @ptrCast(@alignCast(anyptr.val));
 }

@@ -26,3 +26,5 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Test");
     test_step.dependOn(&run_block_tests.step);
 }
+
+pub const lib = @import("src/anywhere.zig");

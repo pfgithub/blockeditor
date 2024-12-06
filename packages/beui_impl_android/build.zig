@@ -1,4 +1,5 @@
 const std = @import("std");
+const anywhere = @import("anywhere").lib;
 
 const TargetInfo = struct {
     query: std.Target.Query,
@@ -98,7 +99,7 @@ pub fn buildCacheOptions(b: *std.Build) BuildCache {
 
 pub fn createApp(self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) struct { []const u8, []const u8, std.Build.LazyPath } {
     const b = self_dep.builder;
-    const pass_info = findArbitrary(self_dep, PassInfo, "pass_info");
+    const pass_info = anywhere.util.build.find(self_dep, PassInfo, "pass_info");
 
     const target = pass_info.target;
     const optimize = pass_info.optimize;
@@ -194,36 +195,9 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&format_step.step);
 
-    const pass_info = try b.allocator.create(PassInfo);
-    pass_info.* = .{
+    anywhere.util.build.expose(b, "pass_info", PassInfo, .{
         .target = target,
         .optimize = optimize,
         .opts = opts,
-    };
-    exposeArbitrary(b, "pass_info", PassInfo, pass_info);
-}
-
-const AnyPtr = struct {
-    id: [*]const u8,
-    val: *const anyopaque,
-};
-fn exposeArbitrary(b: *std.Build, name: []const u8, comptime ty: type, val: *const ty) void {
-    const valv = b.allocator.create(AnyPtr) catch @panic("oom");
-    valv.* = .{
-        .id = @typeName(ty),
-        .val = val,
-    };
-    const name_fmt = b.fmt("__exposearbitrary_{s}", .{name});
-    const mod = b.addModule(name_fmt, .{});
-    // HACKHACKHACK
-    mod.* = undefined;
-    mod.owner = @ptrCast(@alignCast(@constCast(valv)));
-}
-fn findArbitrary(dep: *std.Build.Dependency, comptime ty: type, name: []const u8) *const ty {
-    const name_fmt = dep.builder.fmt("__exposearbitrary_{s}", .{name});
-    const modv = dep.module(name_fmt);
-    // HACKHACKHACK
-    const anyptr: *const AnyPtr = @ptrCast(@alignCast(modv.owner));
-    std.debug.assert(anyptr.id == @typeName(ty));
-    return @ptrCast(@alignCast(anyptr.val));
+    });
 }

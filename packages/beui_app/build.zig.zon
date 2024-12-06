@@ -5,6 +5,7 @@
         "",
     },
     .dependencies = .{
+        .anywhere = .{ .path = "../anywhere" },
         .beui = .{ .path = "../beui" },
         .beui_impl_android = .{ .path = "../beui_impl_android" },
         .beui_impl_glfw_wgpu = .{ .path = "../beui_impl_glfw_wgpu" },

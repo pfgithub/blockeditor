@@ -5,9 +5,9 @@
         "",
     },
     .dependencies = .{
+        .anywhere = .{ .path = "../anywhere" },
         .beui = .{ .path = "../beui" },
         .tracy = .{ .path = "../tracy" },
-        .anywhere = .{ .path = "../anywhere" },
 
         .zglfw = .{
             .url = "https://github.com/zig-gamedev/zglfw/archive/d18b30438d630d44e50aa30e2300a96c4f4ff67d.tar.gz",

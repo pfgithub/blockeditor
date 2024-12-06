@@ -1,10 +1,11 @@
 const std = @import("std");
+const anywhere = @import("anywhere").lib;
 const zig_gamedev = @import("zig_gamedev");
 
 pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) std.Build.LazyPath {
     const b = self_dep.builder;
 
-    const options = findArbitrary(self_dep, Options, "options");
+    const options = anywhere.util.build.find(self_dep, Options, "options");
     const target = options.target;
     const optimize = options.optimize;
 
@@ -38,7 +39,7 @@ const Options = struct {
 pub fn runApp(self_dep: *std.Build.Dependency, app: std.Build.LazyPath) *std.Build.Step.Run {
     const b = self_dep.builder;
 
-    const options = findArbitrary(self_dep, Options, "options");
+    const options = anywhere.util.build.find(self_dep, Options, "options");
 
     const run_step = b.addRunArtifact(self_dep.artifact("server"));
     run_step.addFileArg(app);
@@ -52,9 +53,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const port = b.option(u16, "port", "port") orelse @panic("missing port option");
 
-    const options = b.allocator.create(Options) catch @panic("oom");
-    options.* = .{ .target = target, .optimize = optimize, .port = port };
-    exposeArbitrary(b, "options", Options, options);
+    anywhere.util.build.expose(b, "options", Options, .{ .target = target, .optimize = optimize, .port = port });
 
     const format_step = b.addFmt(.{
         .paths = &.{ "src", "build.zig", "build.zig.zon" },
@@ -84,29 +83,4 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/bundle.zig"),
     });
     b.installArtifact(bundle_exe);
-}
-
-const AnyPtr = struct {
-    id: [*]const u8,
-    val: *const anyopaque,
-};
-fn exposeArbitrary(b: *std.Build, name: []const u8, comptime ty: type, val: *const ty) void {
-    const valv = b.allocator.create(AnyPtr) catch @panic("oom");
-    valv.* = .{
-        .id = @typeName(ty),
-        .val = val,
-    };
-    const name_fmt = b.fmt("__exposearbitrary_{s}", .{name});
-    const mod = b.addModule(name_fmt, .{});
-    // HACKHACKHACK
-    mod.* = undefined;
-    mod.owner = @ptrCast(@alignCast(@constCast(valv)));
-}
-fn findArbitrary(dep: *std.Build.Dependency, comptime ty: type, name: []const u8) *const ty {
-    const name_fmt = dep.builder.fmt("__exposearbitrary_{s}", .{name});
-    const modv = dep.module(name_fmt);
-    // HACKHACKHACK
-    const anyptr: *const AnyPtr = @ptrCast(@alignCast(modv.owner));
-    std.debug.assert(anyptr.id == @typeName(ty));
-    return @ptrCast(@alignCast(anyptr.val));
 }
