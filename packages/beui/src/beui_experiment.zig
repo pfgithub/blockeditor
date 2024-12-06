@@ -1133,14 +1133,8 @@ fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component
 }
 const ScrollState = struct {
     offset: f32,
-    anchor: [IDSegment.IDSegmentSize]u8,
+    anchor: util.AnySized(IDSegment.IDSegmentSize, 8),
 };
-fn indexToBytes(index: anytype) [IDSegment.IDSegmentSize]u8 {
-    return util.anyToAny([IDSegment.IDSegmentSize]u8, @TypeOf(index), index);
-}
-fn bytesToIndex(bytes: *const [IDSegment.IDSegmentSize]u8, comptime T: type) T {
-    return std.mem.bytesAsValue(T, bytes[0..@sizeOf(T)]).*;
-}
 
 var _scroll_state: ?ScrollState = null;
 
@@ -1170,7 +1164,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
 
     const scroll_state = blk: {
         const scroll_state = ui.id.b2.state(ui.id.sub(@src()), ScrollState);
-        if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = indexToBytes(Index.first(context)) };
+        if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = .from(Index, .first(context)) };
         break :blk scroll_state.value;
     };
 
@@ -1178,9 +1172,9 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
 
     var cursor: f32 = scroll_state.offset;
 
-    const idx_initial = bytesToIndex(&scroll_state.anchor, Index);
+    const idx_initial = scroll_state.anchor.as(Index);
     var idx = idx_initial.update(context);
-    if (idx) |val| scroll_state.anchor = indexToBytes(val);
+    if (idx) |val| scroll_state.anchor = .from(Index, val);
 
     const loop_index = ui.id.pushLoop(@src(), Index);
     if (cursor > 0 and idx != null) {
@@ -1195,7 +1189,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
             } }, backwards_index);
 
             backwards_cursor -= child.size[1];
-            scroll_state.anchor = indexToBytes(backwards_index);
+            scroll_state.anchor = .from(Index, backwards_index);
             scroll_state.offset -= child.size[1];
             rdl.place(child.rdl, .{ .offset = .{ 0, backwards_cursor } });
         }
@@ -1208,7 +1202,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
         } }, idx.?);
 
         if (cursor < -child.size[1]) blk: {
-            scroll_state.anchor = indexToBytes(idx.?.next(context) orelse break :blk);
+            scroll_state.anchor = .from(Index, idx.?.next(context) orelse break :blk);
             scroll_state.offset += child.size[1];
         }
         rdl.place(child.rdl, .{ .offset = .{ 0, cursor } });
@@ -1221,7 +1215,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
     // disabled for now because it doesn't work right and I'm not sure how to make it work.
     // some kind of you have to look at where items rendered on screen or something
     if (@hasDecl(Index, "parentSticky") and false) blk: {
-        var sticky = bytesToIndex(&scroll_state.anchor, Index);
+        var sticky = scroll_state.anchor.as(Index);
         if (scroll_state.offset > 0) break :blk; // we're off the top of the page! no need for stickies
         if (scroll_state.offset < 0) sticky = sticky.next(context) orelse break :blk;
         var i: usize = 0;

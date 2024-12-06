@@ -210,18 +210,24 @@ pub fn CallbackList(comptime cb_type: type) type {
     };
 }
 
+// is Align necessary? can we skip it and make asPtr return *align(4) T?
 pub fn AnySized(comptime Size: comptime_int, comptime Align: comptime_int) type {
     return struct {
         data: [Size]u8 align(Align),
         ty: if (std.debug.runtime_safety) [*:0]const u8 else void,
 
         pub fn from(comptime T: type, value: T) @This() {
-            std.debug.assert(@sizeOf(T) <= Size);
-            std.debug.assert(@alignOf(T) <= Align);
+            comptime {
+                std.debug.assert(@sizeOf(T) <= Size);
+                std.debug.assert(@alignOf(T) <= Align);
+            }
             var result_bytes: [Size]u8 = [_]u8{0} ** Size;
             const bytes = std.mem.asBytes(&value);
             @memcpy(result_bytes[0..bytes.len], bytes);
-            return .{ .data = result_bytes, .ty = if (std.debug.runtime_safety) @typeName(T) else void };
+            return .{
+                .data = result_bytes,
+                .ty = if (std.debug.runtime_safety) @typeName(T) else void,
+            };
         }
         pub fn asPtr(self: *@This(), comptime T: type) *T {
             if (std.debug.runtime_safety) std.debug.assert(self.ty == @typeName(T));
@@ -240,20 +246,4 @@ test AnySized {
     try std.testing.expectEqual(@as(u32, 25), my_any.as(u32));
     my_any.asPtr(u32).* += 12;
     try std.testing.expectEqual(@as(u32, 25 + 12), my_any.as(u32));
-}
-
-pub fn typeValidForAnyToAny(comptime T: type, comptime V: type) bool {
-    if (!std.meta.hasUniqueRepresentation(T)) return false;
-    if (!std.meta.hasUniqueRepresentation(V)) return false;
-    if (@sizeOf(T) > @sizeOf(V)) return false;
-    return true;
-}
-pub fn anyToAny(comptime V: type, comptime T: type, value: T) V {
-    comptime std.debug.assert(typeValidForAnyToAny(T, V));
-
-    var result: V = undefined;
-    var result_slice = std.mem.asBytes(&result);
-    @memcpy(result_slice[0..@sizeOf(T)], std.mem.asBytes(&value));
-    @memset(result_slice[@sizeOf(T)..], 0);
-    return result;
 }
