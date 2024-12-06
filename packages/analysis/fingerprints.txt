@@ -1,0 +1,60 @@
+# b2.text() migration will fix
+beb09fb02abc68949baa5ed30eb51f72
+ec3733ac307da265884ce822ef2d7fad
+92b3da0b00888a0b2b43f36b44df3f63
+
+# might be helped with mouse2 improvements
+3622a889a7a908a3230299ae5e9b74be
+6c2e753c02fc101ea7b4b4fbaac8275e
+
+# mouse2 migration will fix
+0a29cc90c94a6f0c6350449b1f934667
+
+# not a problem
+520c7ceedf2dc0c45740ce6b498936ce 
+4e55a5afaca2fb1ec99066ef87665d92
+df52a418a5426c1a908830d27075583b
+3ac078c094eabfd5aa5f63e5a0d61baa
+eb6099a59904333d8ec894fd4722095a
+0c2704d2d13f1863be9cbb9d65587f7d
+fc60438259a2d28fa80aa04e06f9e5ee
+db2cdcba2d7db013b56b8091648907da
+
+# not worth it
+7779d0f2eb3e917d0e23a8422414c788 
+b59c87605baf76347185e895da7416b7
+d589a02ec73e2802c53b7c5300d427e9
+9a5d4c280e08ec9fd09021a7f125faa6
+
+# consider combining
+dc027cded688c4ebcf7ad3975344020e
+
+# might be helped by b1 & b2 merging & simplification
+b411ea1464429d712232a7b8e7b934c9
+b805a19fc7c7a9ec7b1eb924a74675fb
+39e2f4ec94defc367319767fa4d39fb2
+147a4edad82326f582a7f2a904d1e6a4
+917590cc52a1268fb2b2f7ffb3c271aa
+c40ce3e07f820632409348c4f29b99ac
+a22c1cc513d3e1353b284090363c936b
+
+# opengl backend unification will fix
+76c2e9aef0eddfaf8d6eff05671d4360
+
+# hotkey description file will fix
+ab36ed97235b8cd9b107a703e23cd359 
+8dfe693d04d509d35afa3bd6aae09a1d
+
+# merge in packages/util
+56c8db1d71fb1db80ed4b2e381cf21fc
+946b4b2005c0055d7414ae29b10f7ab5
+49dfa7491bf7272bf6894c21d1de7b1b
+
+# maybe could genericise in packages/util
+dcff95c5d159cb6b7de7cf61b9f96fd0
+
+# textcomponent applyOperation simplification
+597e2fbab322149925ff639340747ab0
+
+# removing zgui will fix
+7ea2833b422698d31a3647e5199edaee
