@@ -17,7 +17,7 @@ set(LIBZIGPART_PATH "${APP_DIR}/zig-out/lib/libzigpart.so")
 add_custom_command(
         OUTPUT ${LIBZIGPART_PATH}
         OUTPUT ${APP_DIR}/zig-out/lib/_force_rerun_every_time # cmake can't track zig deps properly. zig caches so it shouldn't slow down the build too much.
-        COMMAND zig build -Dplatform=android -DINCLUDE_DIR=${INCLUDE_DIR} -DCRT1_PATH=${CRT1_PATH} -DCMAKE_ANDROID_ARCH_ABI=${CMAKE_ANDROID_ARCH_ABI} -DANDROID_LIB=${ANDROID_LIB} -DLOG_LIB=${LOG_LIB} -DGLESV3_LIB=${GLESV3_LIB}
+        COMMAND zig build -Dplatform=android -DINCLUDE_DIR=${INCLUDE_DIR} -DCRT1_PATH=${CRT1_PATH} -DCMAKE_ANDROID_ARCH_ABI=${CMAKE_ANDROID_ARCH_ABI} -DANDROID_LIB=${ANDROID_LIB} -DANDROID_PLATFORM=${ANDROID_PLATFORM} -DLOG_LIB=${LOG_LIB} -DGLESV3_LIB=${GLESV3_LIB}
         WORKING_DIRECTORY ${APP_DIR}
         COMMENT "Generating libzigpart.so"
         VERBATIM

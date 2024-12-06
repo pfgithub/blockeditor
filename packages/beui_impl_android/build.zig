@@ -17,6 +17,7 @@ pub const BuildCache = struct {
     CRT1_PATH: ?[]const u8 = null,
     CMAKE_ANDROID_ARCH_ABI: ?[]const u8 = null,
     ANDROID_LIB: ?[]const u8 = null,
+    ANDROID_PLATFORM: ?[]const u8 = null,
     LOG_LIB: ?[]const u8 = null,
     GLESV3_LIB: ?[]const u8 = null,
 
@@ -35,8 +36,11 @@ pub const BuildCache = struct {
     }
 
     pub fn getTargetOptimize(opts: BuildCache, b: *std.Build) struct { std.Build.ResolvedTarget, std.builtin.OptimizeMode } {
+        if (!std.mem.startsWith(u8, opts.ANDROID_PLATFORM.?, "android-")) std.debug.panic("ANDROID_PLATFORM={s}", .{opts.ANDROID_PLATFORM.?});
         const target_info = target_map.get(opts.CMAKE_ANDROID_ARCH_ABI.?) orelse @panic("TODO support android arch abi");
-        const target = b.resolveTargetQuery(std.Target.Query.parse(.{ .arch_os_abi = target_info.triple }) catch @panic("bad target query"));
+        const target = b.resolveTargetQuery(std.Target.Query.parse(.{
+            .arch_os_abi = b.fmt("{s}.{s}", .{ target_info.triple, opts.ANDROID_PLATFORM.?["android-".len..] }),
+        }) catch @panic("bad target query"));
         const optimize: std.builtin.OptimizeMode = .Debug;
         return .{ target, optimize };
     }
@@ -67,6 +71,7 @@ pub fn buildCacheOptions(b: *std.Build) BuildCache {
 
     opts.CMAKE_ANDROID_ARCH_ABI = b.option([]const u8, "CMAKE_ANDROID_ARCH_ABI", "") orelse opts.CMAKE_ANDROID_ARCH_ABI orelse @panic("missing CMAKE_ANDROID_ARCH_ABI");
     opts.ANDROID_LIB = b.option([]const u8, "ANDROID_LIB", "") orelse opts.ANDROID_LIB orelse @panic("missing ANDROID_LIB");
+    opts.ANDROID_PLATFORM = b.option([]const u8, "ANDROID_PLATFORM", "") orelse opts.ANDROID_PLATFORM orelse @panic("missing ANDROID_PLATFORM");
     opts.LOG_LIB = b.option([]const u8, "LOG_LIB", "") orelse opts.LOG_LIB orelse @panic("missing LOG_LIB");
     opts.GLESV3_LIB = b.option([]const u8, "GLESV3_LIB", "") orelse opts.GLESV3_LIB orelse @panic("missing GLESV3_LIB");
 
@@ -114,7 +119,7 @@ pub fn createApp(self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) st
 
     fixAndroidLibcForCompile(lib);
     lib.linkLibC();
-    if(target.result.cpu.arch == .x86) lib.link_z_notext = true; // https://github.com/ziglang/zig/issues/7935
+    if (target.result.cpu.arch == .x86) lib.link_z_notext = true; // https://github.com/ziglang/zig/issues/7935
     lib.addLibraryPath(.{ .cwd_relative = opts.CRT1_PATH.? });
     lib.linkSystemLibrary("android");
     lib.linkSystemLibrary("log");
@@ -143,8 +148,8 @@ fn fixAndroidLibcForBuilder(b: *std.Build) void {
     }
 }
 fn fixAndroidLibcForCompile(lib: *std.Build.Step.Compile) void {
-    if(lib.libc_file != null) return; // already handled
-    if(_fix_android_libc == null) return;
+    if (lib.libc_file != null) return; // already handled
+    if (_fix_android_libc == null) return;
     if (lib.rootModuleTarget().isAndroid()) {
         lib.setLibCFile(_fix_android_libc.?);
         _fix_android_libc.?.addStepDependencies(&lib.step); // work around bug where setLibCFile doesn't add the step dependency
@@ -155,20 +160,21 @@ fn fixAndroidLibcForCompile(lib: *std.Build.Step.Compile) void {
 
 var workaround_applied: bool = false;
 fn applyWorkaround(b: *std.Build) void {
-    defer std.log.warn("Patch applied to lib/libcxx/include/__support/xlocale/__posix_l_fallback.h", .{});
-    if(workaround_applied) return;
-    workaround_applied = true;
-    const zig_lib_dir = b.graph.zig_lib_directory;
-    const fpath = "libcxx/include/__support/xlocale/__posix_l_fallback.h";
-    const current_content = zig_lib_dir.handle.readFileAlloc(b.allocator, fpath, 64000) catch |e| {
-        std.debug.panic("could not find __posix_l_fallback to apply patch: {s}", .{@errorName(e)});
-    };
-    const prepend = "#define _LIBCPP___SUPPORT_XLOCALE_POSIX_L_FALLBACK_H\n";
-    if(std.mem.startsWith(u8, current_content, prepend)) return; // no patch needed
-    const final_content = std.mem.concat(b.allocator, u8, &.{prepend, current_content}) catch @panic("oom");
-    zig_lib_dir.handle.writeFile(.{.sub_path = fpath, .data = final_content}) catch |e| {
-        std.debug.panic("failed to apply patch to __posix_l_fallback: {s}", .{@errorName(e)});
-    };
+    _ = b;
+    // defer std.log.warn("Patch applied to lib/libcxx/include/__support/xlocale/__posix_l_fallback.h", .{});
+    // if(workaround_applied) return;
+    // workaround_applied = true;
+    // const zig_lib_dir = b.graph.zig_lib_directory;
+    // const fpath = "libcxx/include/__support/xlocale/__posix_l_fallback.h";
+    // const current_content = zig_lib_dir.handle.readFileAlloc(b.allocator, fpath, 64000) catch |e| {
+    //     std.debug.panic("could not find __posix_l_fallback to apply patch: {s}", .{@errorName(e)});
+    // };
+    // const prepend = "#define _LIBCPP___SUPPORT_XLOCALE_POSIX_L_FALLBACK_H\n";
+    // if(std.mem.startsWith(u8, current_content, prepend)) return; // no patch needed
+    // const final_content = std.mem.concat(b.allocator, u8, &.{prepend, current_content}) catch @panic("oom");
+    // zig_lib_dir.handle.writeFile(.{.sub_path = fpath, .data = final_content}) catch |e| {
+    //     std.debug.panic("failed to apply patch to __posix_l_fallback: {s}", .{@errorName(e)});
+    // };
 }
 
 const PassInfo = struct {
