@@ -30,8 +30,7 @@ pub fn build(b: *std.Build) void {
     const sheen_bidi_dep = b.dependency("sheen_bidi", .{ .target = target, .optimize = optimize });
     const sheen_bidi_mod = sheen_bidi_dep.module("sheen_bidi");
 
-    const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
-    const anywhere_mod = anywhere_dep.module("anywhere");
+    const anywhere_mod = b.dependency("anywhere", .{}).module("anywhere");
 
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
     const texteditor_mod = texteditor_dep.module("texteditor");

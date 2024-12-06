@@ -8,8 +8,7 @@ pub fn build(b: *std.Build) !void {
     const fmt_step = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
     b.getInstallStep().dependOn(&fmt_step.step);
 
-    const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
-    const anywhere_mod = anywhere_dep.module("anywhere");
+    const anywhere_mod = b.dependency("anywhere", .{}).module("anywhere");
 
     const build_opts = b.addOptions();
     build_opts.addOption(bool, "use_tracy", use_tracy);

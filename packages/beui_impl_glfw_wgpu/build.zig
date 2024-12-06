@@ -20,8 +20,8 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
     exe.root_module.addImport("beui", beui_dep.module("beui"));
 
-    const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
-    exe.root_module.addImport("anywhere", anywhere_dep.module("anywhere"));
+    const anywhere_mod = b.dependency("anywhere", .{}).module("anywhere");
+    exe.root_module.addImport("anywhere", anywhere_mod);
 
     exe.root_module.addImport("app", app_mod);
 

@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&format_step.step);
 
-    const anywhere_dep = b.dependency("anywhere", .{ .target = target, .optimize = optimize });
+    const anywhere_mod = b.dependency("anywhere", .{}).module("anywhere");
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "anywhere", .module = anywhere_dep.module("anywhere") },
+            .{ .name = "anywhere", .module = anywhere_mod },
             .{ .name = "blocks", .module = blocks_dep.module("blocks") },
             .{ .name = "blocks_net", .module = blocks_net_dep.module("client") },
             .{ .name = "beui", .module = beui_dep.module("beui") },
@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    app_test.root_module.addImport("anywhere", anywhere_dep.module("anywhere"));
+    app_test.root_module.addImport("anywhere", anywhere_mod);
     app_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
     app_test.root_module.addImport("blocks_net", blocks_net_dep.module("client"));
     app_test.root_module.addImport("beui", beui_dep.module("beui"));

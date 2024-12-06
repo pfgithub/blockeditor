@@ -9,8 +9,6 @@ pub fn build(b: *std.Build) !void {
 
     _ = b.addModule("anywhere", .{
         .root_source_file = b.path("src/anywhere.zig"),
-        .target = target,
-        .optimize = optimize,
     });
 
     const block_test = b.addTest(.{
