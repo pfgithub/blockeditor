@@ -44,6 +44,10 @@ Target support
   - x86-linux-android
   - x86_64-linux-android
 
+## Build specific projects
+
+It is recommended to use `env ZIG_LOCAL_CACHE_DIR=../../.zig-cache/ zig build` when cd'd into a subproject folder to avoid double-compiling stuff
+
 # Debugging
 
 ## Linux (recommended)
