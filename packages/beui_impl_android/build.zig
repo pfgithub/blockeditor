@@ -1,15 +1,15 @@
 const std = @import("std");
 
 const TargetInfo = struct {
-    triple: []const u8,
+    query: std.Target.Query,
     dir: []const u8,
 };
 
 const target_map = std.StaticStringMap(TargetInfo).initComptime(.{
-    .{ "armeabi-v7a", TargetInfo{ .triple = "arm-linux-androideabi", .dir = "arm-linux-androideabi" } },
-    .{ "arm64-v8a", TargetInfo{ .triple = "aarch64-linux-android", .dir = "aarch64-linux-android" } },
-    .{ "x86", TargetInfo{ .triple = "x86-linux-android", .dir = "i686-linux-android" } },
-    .{ "x86_64", TargetInfo{ .triple = "x86_64-linux-android", .dir = "x86_64-linux-android" } },
+    .{ "armeabi-v7a", TargetInfo{ .query = .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .androideabi }, .dir = "arm-linux-androideabi" } },
+    .{ "arm64-v8a", TargetInfo{ .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .android }, .dir = "aarch64-linux-android" } },
+    .{ "x86", TargetInfo{ .query = .{ .cpu_arch = .x86, .os_tag = .linux, .abi = .android }, .dir = "i686-linux-android" } },
+    .{ "x86_64", TargetInfo{ .query = .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .android }, .dir = "x86_64-linux-android" } },
 });
 
 pub const BuildCache = struct {
@@ -36,11 +36,11 @@ pub const BuildCache = struct {
     }
 
     pub fn getTargetOptimize(opts: BuildCache, b: *std.Build) struct { std.Build.ResolvedTarget, std.builtin.OptimizeMode } {
-        if (!std.mem.startsWith(u8, opts.ANDROID_PLATFORM.?, "android-")) std.debug.panic("ANDROID_PLATFORM={s}", .{opts.ANDROID_PLATFORM.?});
+        if (!std.mem.startsWith(u8, opts.ANDROID_PLATFORM.?, "android-")) std.debug.panic("bad ANDROID_PLATFORM={s}", .{opts.ANDROID_PLATFORM.?});
         const target_info = target_map.get(opts.CMAKE_ANDROID_ARCH_ABI.?) orelse @panic("TODO support android arch abi");
-        const target = b.resolveTargetQuery(std.Target.Query.parse(.{
-            .arch_os_abi = b.fmt("{s}.{s}", .{ target_info.triple, opts.ANDROID_PLATFORM.?["android-".len..] }),
-        }) catch @panic("bad target query"));
+        var target_query: std.Target.Query = target_info.query;
+        target_query.android_api_level = std.fmt.parseInt(u32, opts.ANDROID_PLATFORM.?["android-".len..], 10) catch std.debug.panic("bad ANDROID_PLATFORM={s}", .{opts.ANDROID_PLATFORM.?});
+        const target = b.resolveTargetQuery(target_query);
         const optimize: std.builtin.OptimizeMode = .Debug;
         return .{ target, optimize };
     }
