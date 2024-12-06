@@ -120,41 +120,8 @@ pub const tracy = struct {
     }
 };
 
-pub const util = struct {
-    pub const AnyPtr = struct {
-        id: [*]const u8,
-        val: *anyopaque,
-        pub fn from(comptime T: type, value: *const T) AnyPtr {
-            return .{ .id = @typeName(T), .val = @ptrCast(@constCast(value)) };
-        }
-        pub fn to(self: AnyPtr, comptime T: type) *T {
-            std.debug.assert(self.id == @typeName(T));
-            return @ptrCast(@alignCast(self.val));
-        }
-    };
-
-    pub const build = struct {
-        fn arbitraryName(b: *std.Build, name: []const u8, comptime ty: type) []const u8 {
-            return b.fmt("__exposearbitrary_{d}_{s}_{d}", .{ @intFromPtr(b), name, @intFromPtr(@typeName(ty)) });
-        }
-        pub fn expose(b: *std.Build, name: []const u8, comptime ty: type, val: ty) void {
-            const valdupe = b.allocator.create(ty) catch @panic("oom");
-            valdupe.* = val;
-            const valv = b.allocator.create(AnyPtr) catch @panic("oom");
-            valv.* = .from(ty, valdupe);
-            const name_fmt = arbitraryName(b, name, ty);
-            b.named_lazy_paths.putNoClobber(name_fmt, .{ .cwd_relative = @as([*]u8, @ptrCast(valv))[0..1] }) catch @panic("oom");
-        }
-        pub fn find(dep: *std.Build.Dependency, comptime ty: type, name: []const u8) ty {
-            const name_fmt = arbitraryName(dep.builder, name, ty);
-            const modv = dep.builder.named_lazy_paths.get(name_fmt).?;
-            const anyptr: *const AnyPtr = @alignCast(@ptrCast(modv.cwd_relative.ptr));
-            std.debug.assert(anyptr.id == @typeName(ty));
-            return anyptr.to(ty).*;
-        }
-    };
-};
+pub const util = @import("util.zig");
 
 test "refAllDecls" {
-    std.testing.refAllDecls(@This());
+    std.testing.refAllDeclsRecursive(@This());
 }

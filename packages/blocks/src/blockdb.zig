@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const bi = @import("blockinterface2.zig");
-const util = @import("util.zig");
+const util = @import("anywhere").util;
 
 // TODO: you should be able to apply multiple operations at once by calling on the BlockDBInterface. The server should be able to send
 // batches of multiple operations at once to apply all at the same time.

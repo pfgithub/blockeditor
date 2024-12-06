@@ -1,5 +1,5 @@
 const std = @import("std");
-const util = @import("util.zig");
+const util = @import("anywhere").util;
 pub const text_component = @import("text_component.zig");
 
 pub const Alignment = 16;

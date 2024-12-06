@@ -12,7 +12,7 @@
 //! TODO: audit code for uses of 'bufbyte' and correct them to 'docbyte' where needed
 
 const bi = @import("blockinterface2.zig");
-const util = @import("util.zig");
+const util = anywhere.util;
 const build_options = @import("build_options");
 const anywhere = @import("anywhere");
 const tracy = anywhere.tracy;
