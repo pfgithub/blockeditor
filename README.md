@@ -2,18 +2,17 @@ https://blockeditor.pfg.pw
 
 # Building
 
-Requires zig `0.14.0-dev.2340+182cdf74b`
+Requires zig `0.14.0-dev.2443+3f7b3daaa`
 
-Recommended to use zls commit `2eb3a2f5873c694b1f56c9412598665272e138ce`
+Recommended to use zls commit `a74eda0297abc7940144768af96605cc56222ead`
 
 ## Zig setup:
 
 - install zig & add to path
   - for asahi linux: apply patch to `lib/std/mem.zig`: 
     - `pub const page_size = ... .arch64 => .{ ... .visionos }` add `, .linux`
-- `git clone https://github.com/zigtools/zls`
-- `zig build -Doptimize=ReleaseSafe`
-- add zls to path from `zig-out/bin/zls`
+- `zig build`
+- take zls from zig-out/bin/zls add zls to path from `zig-out/bin/zls`
 
 ## Build project
 
