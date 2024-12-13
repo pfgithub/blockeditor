@@ -4,7 +4,7 @@
 
     .dependencies = .{
         .websocket_zig = .{
-            .url = "git+https://github.com/karlseguin/websocket.zig#ba14f387b22210667a2941c1e5e4170eb1854957",
+            .url = "https://github.com/karlseguin/websocket.zig/archive/ba14f387b22210667a2941c1e5e4170eb1854957.zip",
             .hash = "1220276bfd080f184d931f7fbd63769151100abfaf047472cb9c09da5a03af3a2b21",
         },
         .blocks = .{

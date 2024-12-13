@@ -8,19 +8,19 @@
         .tree_sitter = .{ .path = "../tree_sitter" },
 
         .tree_sitter_zig = .{
-            .url = "git+https://github.com/maxxnino/tree-sitter-zig?ref=main#2bac4cc6c697d46a193905fef6d003bfa0bfabfd",
+            .url = "https://github.com/maxxnino/tree-sitter-zig/archive/2bac4cc6c697d46a193905fef6d003bfa0bfabfd.zip",
             .hash = "1220806e8fd2c17753c98bf7bc180ff0d23cd6005ecca28046fb2510a590dfd9e927",
         },
         .tree_sitter_markdown = .{
-            .url = "git+https://github.com/tree-sitter-grammars/tree-sitter-markdown?ref=split_parser#d9287a6f36347064e55c36858e9e522eb652c1ad",
+            .url = "https://github.com/tree-sitter-grammars/tree-sitter-markdown/archive/d9287a6f36347064e55c36858e9e522eb652c1ad.zip",
             .hash = "12209e3d2e251728540a4005a898615469757e004dcd1dea4e38f5559fb1ee0f3e28",
         },
         .zls = .{
-            .url = "git+https://github.com/zigtools/zls#a74eda0297abc7940144768af96605cc56222ead",
+            .url = "https://github.com/zigtools/zls/archive/a74eda0297abc7940144768af96605cc56222ead.zip",
             .hash = "12204ef5a8925a21357e056e1e6a74eb2582084955aab7e85328d753a4a76adc5f9b",
         },
         .diffz = .{
-            .url = "git+https://github.com/ziglibs/diffz#420fcb22306ffd4c9c3c761863dfbb6bdbb18a73",
+            .url = "https://github.com/ziglibs/diffz/archive/420fcb22306ffd4c9c3c761863dfbb6bdbb18a73.zip",
             .hash = "12203b5da388003e513da4a48d1c52a8ef4bf4401e27ee54bd4db9771cd6101420cc",
         },
     },

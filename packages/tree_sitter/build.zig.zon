@@ -4,7 +4,7 @@
     .dependencies = .{
         .tree_sitter = .{
             // patched to not error on wasm32-wasi-musl
-            .url = "git+https://github.com/pfgithub/tree-sitter#8ac115c727e5f23c3a3fe6846ef5bceb163ef44a",
+            .url = "https://github.com/pfgithub/tree-sitter/archive/8ac115c727e5f23c3a3fe6846ef5bceb163ef44a.zip",
             .hash = "12209be2da47479f52b74b3f4a0098876b47833fa1e09d39ae2e79563754ead27371",
         },
     },

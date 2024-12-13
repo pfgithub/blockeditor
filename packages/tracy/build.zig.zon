@@ -12,7 +12,7 @@
             .hash = "1220c15e66c13f9633fcfd50b5ed265f74f2950c98b1f1defd66298fa027765e0190",
         },
         .zstd = .{
-            .url = "git+https://github.com/allyourcodebase/zstd.git?ref=master#3247ffbcbc31f014027a5776a25c4261054e9fe9",
+            .url = "https://github.com/allyourcodebase/zstd/archive/3247ffbcbc31f014027a5776a25c4261054e9fe9.zip",
             .hash = "12200dbfe91946451bab186f584edbec9f9f7fdbcf818ad984b7182fea655b3c10e3",
         },
     },
