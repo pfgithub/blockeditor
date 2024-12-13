@@ -60,7 +60,7 @@ pub fn buildCacheOptions(b: *std.Build) BuildCache {
 
     opts.INCLUDE_DIR = b.option([]const u8, "INCLUDE_DIR", "") orelse opts.INCLUDE_DIR orelse {
         std.log.err(
-            \\Android-specific build options have not been provided (missing INCLUDE_DIR).\n
+            \\Android-specific build options have not been provided (missing INCLUDE_DIR).
             \\
             \\  - The first build from Android Studio will cache these build options.
             \\  - After this, `zig build` may be used for error checking.

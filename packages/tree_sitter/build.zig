@@ -23,12 +23,25 @@ pub fn build(b: *std.Build) !void {
 
     b.installArtifact(tree_sitter_dep.artifact("tree-sitter"));
 
-    const tree_sitter_translatec_module = b.addModule("tree_sitter_translatec", .{
-        .root_source_file = b.path("src/tree_sitter.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    tree_sitter_translatec_module.addIncludePath(tree_sitter_dep.path("lib/include/tree_sitter"));
+    const tree_sitter_translatec_module = if (target.result.abi.isAndroid()) blk: {
+        // use addModule so building android works (no way to set a libc file on addTranslateC)
+        const mod = b.addModule("tree_sitter_translatec", .{
+            .root_source_file = b.path("src/workaround.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        mod.addIncludePath(tree_sitter_dep.path("lib/include/tree_sitter"));
+        break :blk mod;
+    } else blk: {
+        // use addTranslateC so building docs works
+        const tree_sitter_translatec = b.addTranslateC(.{
+            .root_source_file = tree_sitter_dep.path("lib/include/tree_sitter/api.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        tree_sitter_translatec.addIncludePath(tree_sitter_dep.path("lib/include/tree_sitter"));
+        break :blk tree_sitter_translatec.addModule("tree_sitter_translatec");
+    };
     tree_sitter_translatec_module.linkLibrary(tree_sitter_dep.artifact("tree-sitter"));
 
     const tree_sitter_bindings_module = b.addModule("tree_sitter", .{
