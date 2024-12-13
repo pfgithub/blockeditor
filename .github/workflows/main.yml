@@ -12,6 +12,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - run: zig build --fetch
       - run: zig build
       - run: zig build test -Dci
       - run: zig build -Dtarget=x86_64-windows
