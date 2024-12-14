@@ -132,6 +132,13 @@ fn drawWindowNode(root_container: B2.FloatingContainerID, wm: *B2.WindowManager,
     }
 }
 
+pub fn drawFullscreenOverlay(wm: *B2.WindowManager, win: *B2.FullscreenOverlay) void {
+    const rdl = wm.this_frame_rdl.?;
+
+    const slot = rdl.reserve();
+    const win_data = wm.windows.getPtr(win.contents).?;
+    win_data.* = .{ .slot = slot, .position = .{ 0, 0 }, .size = .{ 0, 0 } };
+}
 pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *B2.FloatingWindow) void {
     const id = wm.idForFloatingContainer(@src(), win.id);
     const rdl = wm.this_frame_rdl.?;

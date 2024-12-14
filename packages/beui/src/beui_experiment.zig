@@ -1343,11 +1343,23 @@ pub const FloatingContainerID = enum(u64) {
         return @enumFromInt(current);
     }
 };
+pub const FullscreenOverlayID = enum(u64) {
+    _,
+    var current: u64 = 0;
+    pub fn next() FullscreenOverlayID {
+        current += 1;
+        return @enumFromInt(current);
+    }
+};
 pub const FloatingWindow = struct {
     id: FloatingContainerID,
     position: @Vector(2, f32),
     size: @Vector(2, f32),
     contents: WindowTreeNode,
+};
+pub const FullscreenOverlay = struct {
+    id: FullscreenOverlayID,
+    contents: ID,
 };
 const WindowIkey = struct {
     ikey: ID, // recommended ID.unique()
@@ -1389,11 +1401,13 @@ pub const WindowManager = struct {
 
     /// holds pointers so we can store a pointer for <1 frame in WindowIkeyInteractionModel
     floating_containers: std.ArrayList(FloatingWindow),
+    fullscreen_overlays: std.ArrayList(FullscreenOverlay),
     windows: IdArrayMap(?FinalWindowInfo),
     this_frame_rdl: ?*RepositionableDrawList,
 
     ikeys: std.ArrayList(WindowIkey),
     floating_container_ids: ?ID,
+    fullscreen_overlay_ids: ?ID,
     window_tree_node_ids: ?ID,
 
     pub fn init(b2: *Beui2, gpa: std.mem.Allocator) WindowManager {
@@ -1402,15 +1416,18 @@ pub const WindowManager = struct {
             .b2 = b2,
             .windows = .init(gpa),
             .current_window = null,
+            .fullscreen_overlays = .init(gpa),
             .floating_containers = .init(gpa),
             .ikeys = .init(gpa),
             .this_frame_rdl = null,
             .floating_container_ids = null,
+            .fullscreen_overlay_ids = null,
             .window_tree_node_ids = null,
         };
     }
     pub fn deinit(self: *WindowManager) void {
         self.ikeys.deinit();
+        self.fullscreen_overlays.deinit();
         for (self.floating_containers.items) |*item| item.contents.deinit();
         self.floating_containers.deinit();
         self.windows.deinit();
@@ -1418,6 +1435,9 @@ pub const WindowManager = struct {
 
     pub fn idForFloatingContainer(self: *WindowManager, src: std.builtin.SourceLocation, fc: FloatingContainerID) ID {
         return self.floating_container_ids.?.pushLoopValue(src, fc);
+    }
+    pub fn idForFullscreenOverlay(self: *WindowManager, src: std.builtin.SourceLocation, fc: FullscreenOverlayID) ID {
+        return self.fullscreen_overlay_ids.?.pushLoopValue(src, fc);
     }
     pub fn idForWindowTreeNode(self: *WindowManager, src: std.builtin.SourceLocation, fc: WindowTreeNodeID) ID {
         return self.window_tree_node_ids.?.pushLoopValue(src, fc);
@@ -1439,6 +1459,7 @@ pub const WindowManager = struct {
     fn beginFrame(self: *WindowManager, root_id: ID) void {
         self.this_frame_rdl = self.b2.draw();
         self.floating_container_ids = root_id.pushLoop(@src(), FloatingContainerID);
+        self.fullscreen_overlay_ids = root_id.pushLoop(@src(), FullscreenOverlayID);
         self.window_tree_node_ids = root_id.pushLoop(@src(), WindowTreeNodeID);
 
         // 1a. handle interactions from the previous frame
@@ -1471,7 +1492,16 @@ pub const WindowManager = struct {
         for (self.windows.values()) |*win| win.* = null;
         // 1b.iii: refresh ids on all windows
         for (self.windows.keys()) |*k| k.* = k.refresh();
+        for (self.fullscreen_overlays.items) |*fc| fc.contents = fc.contents.refresh();
         for (self.floating_containers.items) |*fc| self.dealWithItem(&fc.contents);
+
+        // 1d. fullscreen overlats
+        var fsoverlay_i: usize = self.fullscreen_overlays.items.len;
+        while (fsoverlay_i > 0) {
+            fsoverlay_i -= 1;
+            const fc = &self.fullscreen_overlays.items[fsoverlay_i];
+            Theme.drawFullscreenOverlay(self, fc);
+        }
 
         // 1c. loop over every window node and draw it using Theme.drawFloatingContainer
         //      (loops in reverse because the last item in floating_containers is the topmost window)
@@ -1481,6 +1511,32 @@ pub const WindowManager = struct {
             const fc = &self.floating_containers.items[container_i];
             Theme.drawFloatingContainer(self, fc);
         }
+    }
+
+    pub fn addFullscreenOverlay(self: *WindowManager, window_id: ID, child: Component(StandardCallInfo, void, *RepositionableDrawList)) void {
+        const gpres = self.windows.getOrPut(window_id) catch @panic("oom");
+        if (!gpres.found_existing) {
+            gpres.value_ptr.* = null;
+            self.fullscreen_overlays.append(.{ .id = .next(), .contents = window_id }) catch @panic("oom");
+            Theme.drawFullscreenOverlay(self, &self.fullscreen_overlays.items[self.fullscreen_overlays.items.len - 1]);
+        }
+        if (gpres.value_ptr.* == null) return; // window isn't wanted this frame
+
+        if (gpres.value_ptr.*.?.is_filled) @panic("trying to fill the same window id twice");
+        gpres.value_ptr.*.?.is_filled = true;
+
+        const slot: RepositionableDrawList.Reservation = gpres.value_ptr.*.?.slot;
+
+        const prev_window = self.current_window;
+        self.current_window = window_id;
+        defer self.current_window = prev_window;
+
+        const child_res = child.call(.{
+            .caller_id = window_id.sub(@src()),
+            .constraints = .{ .available_size = .{ .w = window_id.b2.frame.frame_cfg.size[0], .h = window_id.b2.frame.frame_cfg.size[1] } },
+        }, {});
+        // child.call() invalidates gpres
+        self.this_frame_rdl.?.fill(slot, child_res, .{ .offset = .{ 0, 0 } });
     }
 
     // 2. during the frame (fn addWindow)
@@ -1564,6 +1620,7 @@ pub const WindowManager = struct {
 
     fn render(self: *WindowManager) *RepositionableDrawList {
         defer self.floating_container_ids = null;
+        defer self.fullscreen_overlay_ids = null;
         defer self.this_frame_rdl = null;
         self.this_frame_rdl.?.addRect(.{
             .pos = .{ 0, 0 },

@@ -138,7 +138,124 @@ pub fn render(self: *App, call_id: B2.ID) void {
         id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Editor View.zig", .from(&render__editor__Context{ .self = self, .tab = tab }, render__editor));
     }
     id.b2.persistent.wm.addWindow(id.sub(@src()), "File Tree", .from(self, render__tree));
+    id.b2.persistent.wm.addFullscreenOverlay(id.sub(@src()), .from(@as(*void, undefined), render__bounceBall));
 }
+
+pub fn fpsToMspf(fps: f64) f64 {
+    return (1.0 / fps) * 1000.0;
+}
+const FixedTimestep = struct {
+    start_ms: f64,
+    last_update_ms: f64,
+    total_updates_applied: usize,
+    /// to change this, do fixed_timestep = .init(new_mspf);
+    target_mspf: f64,
+    pub fn init(target_mspf: f64) FixedTimestep {
+        return .{ .start_ms = 0, .last_update_ms = 0, .total_updates_applied = 0, .target_mspf = target_mspf };
+    }
+    fn reset(self: *FixedTimestep, now_ms: f64) void {
+        self.start_ms = now_ms;
+        self.last_update_ms = now_ms;
+        self.total_updates_applied = 0;
+    }
+    pub fn advance(self: *FixedTimestep, now_ms: f64) usize {
+        self.last_update_ms = now_ms;
+
+        const expected_update_count = @floor((self.last_update_ms - self.start_ms) / self.target_mspf);
+        const actual_update_count: f64 = @floatFromInt(self.total_updates_applied);
+
+        const expected_vs_actual_diff = expected_update_count - actual_update_count;
+
+        if (expected_vs_actual_diff < 0) {
+            // went backwards in time
+            self.reset(now_ms);
+            return 1;
+        }
+        if (expected_vs_actual_diff > 4) {
+            // lagging or behind for more than four frames
+            self.reset(now_ms);
+            return 1;
+        }
+        const result: usize = @intFromFloat(expected_vs_actual_diff);
+        self.total_updates_applied += result;
+        return result;
+    }
+};
+const BounceBallState = struct {
+    ball_pos_px: @Vector(2, f32),
+    ball_vel: @Vector(2, f32),
+    fixed_timestep_manager: FixedTimestep,
+};
+fn render__bounceBall(_: *void, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
+    const whole_size: @Vector(2, f32) = .{ call_info.constraints.available_size.w.?, call_info.constraints.available_size.h.? };
+    const ball_diameter: f32 = 80.0;
+    const ball_size: @Vector(2, f32) = @splat(ball_diameter);
+    const ball_size_half: @Vector(2, f32) = @splat(ball_diameter / 2.0);
+
+    const ui = call_info.ui(@src());
+    const b2 = ui.id.b2;
+
+    const state_res = b2.state(ui.id.sub(@src()), BounceBallState);
+    if (!state_res.initialized) state_res.value.* = .{
+        .ball_pos_px = whole_size / @Vector(2, f32){ 2.0, 2.0 },
+        .ball_vel = .{ 0, 0 },
+        .fixed_timestep_manager = .init(fpsToMspf(60.0)),
+    };
+    const state = state_res.value;
+
+    // correct if the window was resized
+    state.ball_pos_px = @max(state.ball_pos_px, ball_size_half);
+    state.ball_pos_px = @min(state.ball_pos_px, whole_size - ball_size_half);
+
+    for (0..state.fixed_timestep_manager.advance(@floatFromInt(std.time.milliTimestamp()))) |_| {
+        // gravity
+        state.ball_vel[1] += 1;
+
+        // move
+        state.ball_pos_px += state.ball_vel;
+
+        // air resistance
+        state.ball_vel *= @splat(0.99);
+
+        // bounce wall
+        if (state.ball_pos_px[0] < ball_size_half[0]) {
+            state.ball_vel[0] = -state.ball_vel[0];
+            state.ball_pos_px[0] = ball_size_half[0];
+        }
+        if (state.ball_pos_px[1] < ball_size_half[1]) {
+            state.ball_vel[1] = -state.ball_vel[1];
+            state.ball_pos_px[1] = ball_size_half[1];
+        }
+        if (state.ball_pos_px[0] > whole_size[0] - ball_size_half[0]) {
+            state.ball_vel[0] = -state.ball_vel[0];
+            state.ball_pos_px[0] = whole_size[0] - ball_size_half[0];
+        }
+        if (state.ball_pos_px[1] > whole_size[1] - ball_size_half[1]) {
+            state.ball_vel[1] = -state.ball_vel[1];
+            state.ball_pos_px[1] = whole_size[1] - ball_size_half[1];
+        }
+    }
+
+    // TODO:
+    // - drag with mouse
+    // - detect when at rest (vel 0 & on ground)
+    // - request an animation frame when not at rest (so when you throw the ball
+    //   it keeps moving. once screen refreshing is only enabled for a real action,
+    //   this will matter.)
+    // - make the ball squash and stretch. that would be fun.
+
+    const rdl = b2.draw();
+
+    rdl.addRect(.{
+        .pos = state.ball_pos_px - ball_size_half,
+        .size = ball_size,
+        .tint = .fromHexRgb(0xFF0000),
+        .rounding = .{ .corners = .all, .style = .round, .radius = ball_diameter / 2 },
+    });
+
+    return rdl;
+}
+
 const render__editor__Context = struct {
     self: *App,
     tab: *EditorTab,
