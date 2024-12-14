@@ -141,56 +141,22 @@ pub fn render(self: *App, call_id: B2.ID) void {
     id.b2.persistent.wm.addFullscreenOverlay(id.sub(@src()), .from(@as(*void, undefined), render__bounceBall));
 }
 
-pub fn fpsToMspf(fps: f64) f64 {
-    return (1.0 / fps) * 1000.0;
-}
-const FixedTimestep = struct {
-    start_ms: f64,
-    last_update_ms: f64,
-    total_updates_applied: usize,
-    /// to change this, do fixed_timestep = .init(new_mspf);
-    target_mspf: f64,
-    pub fn init(target_mspf: f64) FixedTimestep {
-        return .{ .start_ms = 0, .last_update_ms = 0, .total_updates_applied = 0, .target_mspf = target_mspf };
-    }
-    fn reset(self: *FixedTimestep, now_ms: f64) void {
-        self.start_ms = now_ms;
-        self.last_update_ms = now_ms;
-        self.total_updates_applied = 0;
-    }
-    pub fn advance(self: *FixedTimestep, now_ms: f64) usize {
-        self.last_update_ms = now_ms;
-
-        const expected_update_count = @floor((self.last_update_ms - self.start_ms) / self.target_mspf);
-        const actual_update_count: f64 = @floatFromInt(self.total_updates_applied);
-
-        const expected_vs_actual_diff = expected_update_count - actual_update_count;
-
-        if (expected_vs_actual_diff < 0) {
-            // went backwards in time
-            self.reset(now_ms);
-            return 1;
-        }
-        if (expected_vs_actual_diff > 4) {
-            // lagging or behind for more than four frames
-            self.reset(now_ms);
-            return 1;
-        }
-        const result: usize = @intFromFloat(expected_vs_actual_diff);
-        self.total_updates_applied += result;
-        return result;
-    }
-};
 const BounceBallState = struct {
     ball_pos_px: @Vector(2, f32),
-    ball_vel: @Vector(2, f32),
-    fixed_timestep_manager: FixedTimestep,
+    ball_vel_per_frame: @Vector(2, f32),
+    ball_dragging: bool,
+    fixed_timestep_manager: anywhere.util.FixedTimestep,
+
+    prev_mouse_pos: ?@Vector(2, f32) = null,
+    prev_mouse_time: f64 = 0.0,
+    prev2_mouse_pos: ?@Vector(2, f32) = null,
+    prev2_mouse_time: f64 = 0.0,
 };
+const ball_diameter: f32 = 80.0;
+const ball_size: @Vector(2, f32) = @splat(ball_diameter);
+const ball_size_half: @Vector(2, f32) = @splat(ball_diameter / 2.0);
 fn render__bounceBall(_: *void, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
     const whole_size: @Vector(2, f32) = .{ call_info.constraints.available_size.w.?, call_info.constraints.available_size.h.? };
-    const ball_diameter: f32 = 80.0;
-    const ball_size: @Vector(2, f32) = @splat(ball_diameter);
-    const ball_size_half: @Vector(2, f32) = @splat(ball_diameter / 2.0);
 
     const ui = call_info.ui(@src());
     const b2 = ui.id.b2;
@@ -198,8 +164,9 @@ fn render__bounceBall(_: *void, call_info: B2.StandardCallInfo, _: void) *B2.Rep
     const state_res = b2.state(ui.id.sub(@src()), BounceBallState);
     if (!state_res.initialized) state_res.value.* = .{
         .ball_pos_px = whole_size / @Vector(2, f32){ 2.0, 2.0 },
-        .ball_vel = .{ 0, 0 },
-        .fixed_timestep_manager = .init(fpsToMspf(60.0)),
+        .ball_vel_per_frame = .{ 0, 0 },
+        .ball_dragging = false,
+        .fixed_timestep_manager = .init(anywhere.util.fpsToMspf(60.0)),
     };
     const state = state_res.value;
 
@@ -207,42 +174,49 @@ fn render__bounceBall(_: *void, call_info: B2.StandardCallInfo, _: void) *B2.Rep
     state.ball_pos_px = @max(state.ball_pos_px, ball_size_half);
     state.ball_pos_px = @min(state.ball_pos_px, whole_size - ball_size_half);
 
-    for (0..state.fixed_timestep_manager.advance(@floatFromInt(std.time.milliTimestamp()))) |_| {
+    // to update this to variable timestep:
+    // - change gravity to `+= 1 * dt`
+    // - change air resistance to ` *= @splat( std.math.pow(f64, dt, 0.99) )`
+    // where 16.6666 ms = 1.0 dt
+    for (0..state.fixed_timestep_manager.advance(@floatFromInt(b2.persistent.beui1.frame.frame_cfg.?.now_ms))) |_| {
         // gravity
-        state.ball_vel[1] += 1;
+        if (!state.ball_dragging) state.ball_vel_per_frame[1] += 1;
 
         // move
-        state.ball_pos_px += state.ball_vel;
+        state.ball_pos_px += state.ball_vel_per_frame;
 
         // air resistance
-        state.ball_vel *= @splat(0.99);
+        state.ball_vel_per_frame *= @splat(0.99);
 
         // bounce wall
         if (state.ball_pos_px[0] < ball_size_half[0]) {
-            state.ball_vel[0] = -state.ball_vel[0];
+            state.ball_vel_per_frame[0] = -state.ball_vel_per_frame[0];
             state.ball_pos_px[0] = ball_size_half[0];
         }
         if (state.ball_pos_px[1] < ball_size_half[1]) {
-            state.ball_vel[1] = -state.ball_vel[1];
+            state.ball_vel_per_frame[1] = -state.ball_vel_per_frame[1];
             state.ball_pos_px[1] = ball_size_half[1];
         }
         if (state.ball_pos_px[0] > whole_size[0] - ball_size_half[0]) {
-            state.ball_vel[0] = -state.ball_vel[0];
+            state.ball_vel_per_frame[0] = -state.ball_vel_per_frame[0];
             state.ball_pos_px[0] = whole_size[0] - ball_size_half[0];
         }
         if (state.ball_pos_px[1] > whole_size[1] - ball_size_half[1]) {
-            state.ball_vel[1] = -state.ball_vel[1];
+            state.ball_vel_per_frame[1] = -state.ball_vel_per_frame[1];
             state.ball_pos_px[1] = whole_size[1] - ball_size_half[1];
         }
     }
 
     // TODO:
-    // - drag with mouse
-    // - detect when at rest (vel 0 & on ground)
-    // - request an animation frame when not at rest (so when you throw the ball
-    //   it keeps moving. once screen refreshing is only enabled for a real action,
-    //   this will matter.)
-    // - make the ball squash and stretch. that would be fun.
+    // - [x] drag with mouse
+    // - [ ] consistent throwing on mouse up
+    // - [ ] detect when at rest (vel 0 & on ground)
+    // - [ ] request an animation frame when not at rest (so when you throw the ball
+    //       it keeps moving. once screen refreshing is only enabled for a real action,
+    //       this will matter.)
+    // - [ ] support scroll wheel to throw the ball
+    // nice to have:
+    // - [ ] make the ball squash and stretch. that would be fun.
 
     const rdl = b2.draw();
 
@@ -252,8 +226,60 @@ fn render__bounceBall(_: *void, call_info: B2.StandardCallInfo, _: void) *B2.Rep
         .tint = .fromHexRgb(0xFF0000),
         .rounding = .{ .corners = .all, .style = .round, .radius = ball_diameter / 2 },
     });
+    rdl.addMouseEventCapture2(ui.id.sub(@src()), state.ball_pos_px - ball_size_half, ball_size, .{
+        .onMouseEvent = .from(state, render__bounceBall__onMouseEvent),
+    });
 
     return rdl;
+}
+fn render__bounceBall__onMouseEvent(state: *BounceBallState, b2: *B2.Beui2, ev: B2.MouseEvent) ?Beui.Cursor {
+    const now: f64 = @floatFromInt(b2.persistent.beui1.frame.frame_cfg.?.now_ms);
+    if (ev.action == .down or ev.action == .move_while_up) {
+        const cpos = ((ev.pos.? - ev.capture_pos) - ball_size_half) / ball_size_half;
+        const dist = @sqrt(cpos[0] * cpos[0] + cpos[1] * cpos[1]);
+        if (dist <= 1.0) {
+            // actually touching
+            if (ev.action == .down) {
+                state.ball_dragging = true;
+                state.ball_vel_per_frame = .{ 0, 0 };
+                state.prev_mouse_pos = ev.pos.?;
+                state.prev_mouse_time = now;
+                state.prev2_mouse_pos = ev.pos.?;
+                state.prev2_mouse_time = now;
+            }
+            return .arrow;
+        } else {
+            // not touching; ignore event
+            return null;
+        }
+    } else {
+        if (ev.action == .up) {
+            const diff = ev.pos.? - state.prev2_mouse_pos.?;
+            const tdiff: f32 = @floatCast(now - state.prev2_mouse_time);
+
+            state.ball_dragging = false;
+            // TODO: average velocity over a short time period (like 50ms or so)
+            // (currently, it averages over one frame)
+            if (tdiff < 1) {
+                // std.log.info("throw failed; missing average", .{});
+            } else {
+                // std.log.info("throwing {d} over {d}ms", .{ diff, tdiff });
+                state.ball_vel_per_frame = diff / @as(@Vector(2, f32), @splat(tdiff / @as(f32, @floatCast(anywhere.util.fpsToMspf(60)))));
+            }
+        } else {
+            const diff = ev.pos.? - state.prev_mouse_pos.?;
+            // currently dragging
+            state.prev2_mouse_pos = state.prev_mouse_pos;
+            state.prev2_mouse_time = state.prev_mouse_time;
+
+            state.prev_mouse_pos = ev.pos.?;
+            state.prev_mouse_time = now;
+
+            state.ball_pos_px += diff;
+        }
+
+        return .arrow;
+    }
 }
 
 const render__editor__Context = struct {

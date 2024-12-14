@@ -247,3 +247,44 @@ test AnySized {
     my_any.asPtr(u32).* += 12;
     try std.testing.expectEqual(@as(u32, 25 + 12), my_any.as(u32));
 }
+
+pub fn fpsToMspf(fps: f64) f64 {
+    return (1.0 / fps) * 1000.0;
+}
+pub const FixedTimestep = struct {
+    start_ms: f64,
+    last_update_ms: f64,
+    total_updates_applied: usize,
+    /// to change this, do fixed_timestep = .init(new_mspf);
+    target_mspf: f64,
+    pub fn init(target_mspf: f64) FixedTimestep {
+        return .{ .start_ms = 0, .last_update_ms = 0, .total_updates_applied = 0, .target_mspf = target_mspf };
+    }
+    fn reset(self: *FixedTimestep, now_ms: f64) void {
+        self.start_ms = now_ms;
+        self.last_update_ms = now_ms;
+        self.total_updates_applied = 0;
+    }
+    pub fn advance(self: *FixedTimestep, now_ms: f64) usize {
+        self.last_update_ms = now_ms;
+
+        const expected_update_count = @floor((self.last_update_ms - self.start_ms) / self.target_mspf);
+        const actual_update_count: f64 = @floatFromInt(self.total_updates_applied);
+
+        const expected_vs_actual_diff = expected_update_count - actual_update_count;
+
+        if (expected_vs_actual_diff < 0) {
+            // went backwards in time
+            self.reset(now_ms);
+            return 1;
+        }
+        if (expected_vs_actual_diff > 4) {
+            // lagging or behind for more than four frames
+            self.reset(now_ms);
+            return 1;
+        }
+        const result: usize = @intFromFloat(expected_vs_actual_diff);
+        self.total_updates_applied += result;
+        return result;
+    }
+};
