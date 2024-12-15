@@ -237,8 +237,9 @@ pub const Beui2 = struct {
             }
         } else {
             // else, give it to whoever can see it:
-            // TODO and should also give the event to the item which most recently recieved a move_while_up event
-            //          so that it can know the mouse moved out of its range.
+            // TODO: any item which recieved a move_while_up event last frame but did not this frame should
+            // get a move_while_up event with mpos=null
+            // TODO: the cursor needs to be preserved even if the mouse didn't move
             for (self.persistent.last_frame_mouse2_events.items) |item| {
                 if (pointInRect(mpos, item.pos, item.size)) {
                     if (item.cfg.onMouseEvent) |onMouseEventFn| {
