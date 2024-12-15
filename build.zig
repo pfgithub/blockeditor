@@ -13,25 +13,9 @@ pub fn build(b: *std.Build) void {
 
     const fmt_all = b.addFmt(.{
         .paths = &.{
-            // zig fmt: off
-            "packages/anywhere/src", "packages/anywhere/build.zig",
-            "packages/beui/src", "packages/beui/build.zig", "packages/beui/build.zig.zon",
-            "packages/beui_app/src", "packages/beui_app/build.zig", "packages/beui_app/build.zig.zon",
-            "packages/beui_impl_android/src", "packages/beui_impl_android/build.zig", "packages/beui_impl_android/build.zig.zon",
-            "packages/beui_impl_glfw_wgpu/src", "packages/beui_impl_glfw_wgpu/build.zig", "packages/beui_impl_glfw_wgpu/build.zig.zon",
-            "packages/beui_impl_web/src", "packages/beui_impl_web/build.zig", "packages/beui_impl_web/build.zig.zon",
-            "packages/blockeditor/src", "packages/blockeditor/build.zig", "packages/blockeditor/build.zig.zon",
-            "packages/blocks/src", "packages/blocks/build.zig", "packages/blocks/build.zig.zon",
-            "packages/blocks_net/src", "packages/blocks_net/build.zig", "packages/blocks_net/build.zig.zon",
-            "packages/loadimage/src", "packages/loadimage/build.zig", "packages/blocks_net/build.zig.zon",
-            "packages/root/src", "packages/root/build.zig", "packages/root/build.zig.zon",
-            "packages/sheen_bidi/src", "packages/sheen_bidi/build.zig", "packages/blocks_net/build.zig.zon",
-            "packages/texteditor/src", "packages/texteditor/build.zig", "packages/blocks_net/build.zig.zon",
-            "packages/tracy/src", "packages/tracy/build.zig", "packages/blocks_net/build.zig.zon",
-            "packages/tree_sitter/src", "packages/tree_sitter/build.zig", "packages/blocks_net/build.zig.zon",
-            "packages/unicode_segmentation/src", "packages/unicode_segmentation/build.zig", "packages/blocks_net/build.zig.zon",
-            "build.zig","build.zig.zon",
-            // zig fmt: on
+            "packages",
+            "build.zig",
+            "build.zig.zon",
         },
         .check = b.option(bool, "ci", "") orelse false,
     });
@@ -43,6 +27,7 @@ pub fn build(b: *std.Build) void {
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize, .tracy = opts.tracy });
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
     const loadimage_dep = b.dependency("loadimage", .{ .target = target, .optimize = optimize });
+    const minigamer_3ds_dep = b.dependency("minigamer_3ds", .{ .optimize = optimize });
     // const root_dep = b.dependency("root", .{ .target = target, .optimize = optimize });
     const sheen_bidi_dep = b.dependency("sheen_bidi", .{ .target = target, .optimize = optimize });
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
@@ -52,6 +37,7 @@ pub fn build(b: *std.Build) void {
     const blockeditor_app = deps.beui_app.app(blockeditor_dep, "blockeditor");
     const blockeditor_app_install = deps.beui_app.installApp(b, blockeditor_app);
     b.installArtifact(blocks_net_dep.artifact("server"));
+    b.getInstallStep().dependOn(&b.addInstallBinFile(minigamer_3ds_dep.namedLazyPath("minigamer.3dsx"), "mingamer.3dsx").step);
     // b.installDirectory(.{
     //     .install_dir = .lib,
     //     .install_subdir = "blockeditor-docs",

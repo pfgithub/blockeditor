@@ -1,0 +1,13 @@
+.{
+    .name = "emulators/3ds",
+    .version = "0.1.0",
+    .paths = .{""},
+    .dependencies = .{
+        .zig3ds = .{
+            .url = "https://github.com/pfgithub/zig3ds/archive/79838976607bf774154623a773bce36b55066254.tar.gz",
+            .hash = "1220d6973bd2c08850a6cf1b2573b95a8a0370ab355815e6776fc85667006dabaa92",
+        },
+        .emulator = .{ .path = "../emulator" },
+        .sponge = .{ .path = "../sponge" },
+    },
+}
