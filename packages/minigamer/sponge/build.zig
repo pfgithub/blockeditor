@@ -61,7 +61,7 @@ fn createAssets(b: *std.Build, tools_exe: *std.Build.Step.Compile, path: std.Bui
     const run_artifact = b.addRunArtifact(tools_exe);
     run_artifact.addArg("makeassets");
     const mod_root = run_artifact.addOutputFileArg("assets.zig");
-    var game_assets_dir = try std.fs.cwd().openDir(path.getPath(b), .{});
+    var game_assets_dir = try std.fs.cwd().openDir(path.getPath(b), .{ .iterate = true });
     defer game_assets_dir.close();
     var walker = try game_assets_dir.walk(b.allocator);
     defer walker.deinit();
