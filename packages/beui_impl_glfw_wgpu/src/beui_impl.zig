@@ -392,18 +392,14 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
     };
     defer back_buffer_view.release();
 
-    // TODO: load draw_list vertices and indices into vertex and index buffers
-    // TODO: draw them
-    // TODO: size them to array_list.capacity, remake if array_list.capacity changes
-
-    if (demo.vertex_buffer_len != draw_list.vertices.capacity) {
+    if (demo.vertex_buffer_len < draw_list.vertices.capacity) {
         const b2ft1 = tracy.traceNamed(@src(), "delete vertex buffer");
         defer b2ft1.end();
         if (demo.vertex_buffer != null) gctx.releaseResource(demo.vertex_buffer.?);
         demo.vertex_buffer = null;
         demo.vertex_buffer_len = 0;
     }
-    if (demo.index_buffer_len != draw_list.indices.capacity) {
+    if (demo.index_buffer_len < draw_list.indices.capacity) {
         const b2ft1 = tracy.traceNamed(@src(), "delete index buffer");
         defer b2ft1.end();
         if (demo.index_buffer != null) gctx.releaseResource(demo.index_buffer.?);
@@ -434,6 +430,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
         });
 
         demo.index_buffer = index_buffer;
+        demo.index_buffer_len = draw_list.indices.capacity;
     }
 
     {
