@@ -1428,9 +1428,9 @@ const WindowIkey = struct {
     ikey: ID, // recommended ID.unique()
     interaction_model: WindowIkeyInteractionModel,
 };
-const WindowIkeyInteractionModel = union(enum) {
+pub const WindowIkeyInteractionModel = union(enum) {
     raise: struct { window: FloatingContainerID },
-    resize: struct { window: FloatingContainerID, sides: Sides },
+    resize: struct { window: FloatingContainerID, sides: Sides, cursor: Beui.Cursor = .arrow },
     ignore,
 };
 pub const WindowManager = struct {
@@ -1663,6 +1663,35 @@ pub const WindowManager = struct {
 
         window.position = .{ left, top };
         window.size = .{ right - left, bottom - top };
+    }
+    pub const MEI = struct {
+        wm: *WindowManager,
+        value: WindowIkeyInteractionModel,
+    };
+    pub fn makeWindowEventInfo(self: *WindowManager, val: WindowIkeyInteractionModel) *MEI {
+        const res = self.b2.frame.arena.create(MEI) catch @panic("oom");
+        res.* = .{ .wm = self, .value = val };
+        return res;
+    }
+    pub fn handleWindowEvent(info: *MEI, b2: *Beui2, mev: MouseEvent) ?Beui.Cursor {
+        const self = info.wm;
+        switch (info.value) {
+            .raise => |raise| {
+                if (mev.action == .down) {
+                    self.bringToFrontWindow(raise.window);
+                }
+                return null; // allow event to pass through
+            },
+            .resize => |resize| {
+                if (mev.action == .move_while_down or mev.action == .up) {
+                    self.dragWindow(resize.window, b2.persistent.beui1.frame.mouse_offset, resize.sides);
+                }
+                return resize.cursor; // capture
+            },
+            .ignore => {
+                return .arrow; // capture
+            },
+        }
     }
     fn isInFront(self: *WindowManager, window_id: FloatingContainerID) bool {
         return self.floating_containers.items[self.floating_containers.items.len - 1].id == window_id;

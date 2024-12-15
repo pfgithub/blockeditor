@@ -21,6 +21,11 @@ gpa: std.mem.Allocator,
 core: Core,
 selecting: bool = false,
 _layout_temp_al: std.ArrayList(u8),
+mouse_info: struct {
+    mouse_pos: @Vector(2, f32) = .{ -10, -10 },
+    mouse_left_pressed_down_this_frame: bool = false,
+    mouse_left_held: bool = false,
+} = .{},
 
 config: struct {
     syntax_highlighting: bool = true,
@@ -252,9 +257,9 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     }
 
     const user_state_id = ui.id.sub(@src());
-    const click_id = ui.id.sub(@src());
-    const click_info = b2.mouseCaptureResults(click_id);
     const last_frame_state = b2.getPrevFrameDrawListState(user_state_id);
+
+    const click_info = &self.mouse_info;
 
     var click_target: ?Core.Position = null;
     if (last_frame_state) |lfs| {
@@ -392,9 +397,26 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     // background
     rdl.place(res.rdl, .{});
     rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg, .rounding = .{ .corners = .all, .radius = 6.0 } });
-    rdl.addMouseEventCapture(click_id, .{ 0, 0 }, content_region_size, .{ .capture_click = .text_input });
+    rdl.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, content_region_size, .{
+        .onMouseEvent = .from(self, handleMouseEvent),
+    });
+    self.mouse_info.mouse_left_pressed_down_this_frame = false;
     rdl.addUserState(user_state_id, std.ArrayList(B2.ID), posted_state_ids_al);
     return .{ .rdl = rdl, .size = content_region_size };
+}
+
+fn handleMouseEvent(self: *EditorView, b2: *B2.Beui2, mev: B2.MouseEvent) ?Beui.Cursor {
+    // TODO: handle the click in the event handler
+    self.mouse_info.mouse_pos = (mev.pos orelse @Vector(2, f32){ -10, -10 }) - mev.capture_pos;
+    if (mev.action == .down) {
+        self.mouse_info.mouse_left_pressed_down_this_frame = true;
+        self.mouse_info.mouse_left_held = true;
+    }
+    if (mev.action == .up) {
+        self.mouse_info.mouse_left_held = false;
+    }
+    _ = b2;
+    return .text_input;
 }
 
 const LineCharState = struct {
