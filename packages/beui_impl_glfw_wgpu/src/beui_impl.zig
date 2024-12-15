@@ -338,11 +338,16 @@ fn update(demo: *DemoState) void {
 }
 
 fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beui.Texpack) void {
+    const b2ft = tracy.traceNamed(@src(), "draw & wait");
+    defer b2ft.end();
+
     const gctx = demo.gctx;
     const fb_width = gctx.swapchain_descriptor.width;
     const fb_height = gctx.swapchain_descriptor.height;
 
     if (demo.texture_2 == null) {
+        const b2ft1 = tracy.traceNamed(@src(), "create texture_2");
+        defer b2ft1.end();
         texture_2_src.modified = true;
 
         demo.texture_2 = gctx.createTexture(.{
@@ -360,9 +365,13 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
         });
     }
     if (demo.texture_view_2 == null) {
+        const b2ft1 = tracy.traceNamed(@src(), "create texture_view_2");
+        defer b2ft1.end();
         demo.texture_view_2 = gctx.createTextureView(demo.texture_2.?, .{});
     }
     if (texture_2_src.modified) {
+        const b2ft1 = tracy.traceNamed(@src(), "write texture_2");
+        defer b2ft1.end();
         gctx.queue.writeTexture(
             .{ .texture = gctx.lookupResource(demo.texture_2.?).? },
             .{
@@ -376,7 +385,11 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
         texture_2_src.modified = false;
     }
 
-    const back_buffer_view = gctx.swapchain.getCurrentTextureView();
+    const back_buffer_view = blk: {
+        const b2ft1 = tracy.traceNamed(@src(), "wait for texture view");
+        defer b2ft1.end();
+        break :blk gctx.swapchain.getCurrentTextureView();
+    };
     defer back_buffer_view.release();
 
     // TODO: load draw_list vertices and indices into vertex and index buffers
@@ -384,17 +397,23 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
     // TODO: size them to array_list.capacity, remake if array_list.capacity changes
 
     if (demo.vertex_buffer_len != draw_list.vertices.capacity) {
+        const b2ft1 = tracy.traceNamed(@src(), "delete vertex buffer");
+        defer b2ft1.end();
         if (demo.vertex_buffer != null) gctx.releaseResource(demo.vertex_buffer.?);
         demo.vertex_buffer = null;
         demo.vertex_buffer_len = 0;
     }
     if (demo.index_buffer_len != draw_list.indices.capacity) {
+        const b2ft1 = tracy.traceNamed(@src(), "delete index buffer");
+        defer b2ft1.end();
         if (demo.index_buffer != null) gctx.releaseResource(demo.index_buffer.?);
         demo.index_buffer = null;
         demo.index_buffer_len = 0;
     }
 
     if (demo.vertex_buffer == null) {
+        const b2ft1 = tracy.traceNamed(@src(), "create vertex buffer");
+        defer b2ft1.end();
         // Create a vertex buffer.
         const vertex_buffer = gctx.createBuffer(.{
             .usage = .{ .copy_dst = true, .vertex = true },
@@ -406,6 +425,8 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
     }
 
     if (demo.index_buffer == null) {
+        const b2ft1 = tracy.traceNamed(@src(), "create index buffer");
+        defer b2ft1.end();
         // Create an index buffer.
         const index_buffer = gctx.createBuffer(.{
             .usage = .{ .copy_dst = true, .index = true },
@@ -415,11 +436,17 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
         demo.index_buffer = index_buffer;
     }
 
-    gctx.queue.writeBuffer(gctx.lookupResource(demo.vertex_buffer.?).?, 0, Genres.Vertex, draw_list.vertices.items);
-    if (draw_lists.RenderListIndex == u16 and draw_list.indices.items.len % 2 == 1) draw_list.indices.append(0) catch @panic("oom"); // using a u16 index array it has to be aligned to 4 bytes still
-    gctx.queue.writeBuffer(gctx.lookupResource(demo.index_buffer.?).?, 0, draw_lists.RenderListIndex, draw_list.indices.items);
+    {
+        const b2ft1 = tracy.traceNamed(@src(), "write buffers");
+        defer b2ft1.end();
+        gctx.queue.writeBuffer(gctx.lookupResource(demo.vertex_buffer.?).?, 0, Genres.Vertex, draw_list.vertices.items);
+        if (draw_lists.RenderListIndex == u16 and draw_list.indices.items.len % 2 == 1) draw_list.indices.append(0) catch @panic("oom"); // using a u16 index array it has to be aligned to 4 bytes still
+        gctx.queue.writeBuffer(gctx.lookupResource(demo.index_buffer.?).?, 0, draw_lists.RenderListIndex, draw_list.indices.items);
+    }
 
     const commands = commands: {
+        const b2ft1 = tracy.traceNamed(@src(), "write commands");
+        defer b2ft1.end();
         const encoder = gctx.device.createCommandEncoder(null);
         defer encoder.release();
 
@@ -501,9 +528,17 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
     };
     defer commands.release();
 
-    gctx.submit(&.{commands});
+    {
+        const b2ft1 = tracy.traceNamed(@src(), "submit commands");
+        defer b2ft1.end();
+        gctx.submit(&.{commands});
+    }
     // TODO mapAsync the resulting drawn frame & show it in tracy
-    _ = gctx.present();
+    {
+        const b2ft1 = tracy.traceNamed(@src(), "present frame");
+        defer b2ft1.end();
+        _ = gctx.present();
+    }
 }
 
 fn zglfwKeyToBeuiKey(key: zglfw.Key) ?Beui.Key {
@@ -771,7 +806,12 @@ pub fn main() !void {
         _ = arena_state.reset(.retain_capacity);
         draw_list.clear();
 
-        if (reduce_input_latency > 0) std.time.sleep(@intCast(reduce_input_latency));
+        if (reduce_input_latency > 0) {
+            const b2ft = tracy.traceNamed(@src(), "reduce latency");
+            defer b2ft.end();
+
+            std.time.sleep(@intCast(reduce_input_latency));
+        }
         timer.reset();
         // ^ this has a positive impact but:
         //    - we need to make sure to wait for the last frame to render before starting

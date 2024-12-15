@@ -106,11 +106,18 @@ pub fn standardAppOptions(b: *std.Build) AppOpts {
         target = b.standardTargetOptions(.{});
     }
 
+    const tracy = b.option(bool, "tracy", "[glfw-wgpu] Use tracy?") orelse false;
+    var optimize = b.standardOptimizeOption(.{});
+    if (tracy and optimize == .Debug) {
+        std.log.warn("-Dtracy must have -Doptimize set to a release mode. Setting to ReleaseSafe.", .{});
+        optimize = .ReleaseSafe;
+    }
+
     return .{
         .target_hack = putTargetHack(b, target),
-        .optimize = b.standardOptimizeOption(.{}),
+        .optimize = optimize,
         .platform = platform,
-        .tracy = b.option(bool, "tracy", "[glfw-wgpu] Use tracy?") orelse false,
+        .tracy = tracy,
         .port = b.option(u16, "port", "[web] Port to serve from?") orelse 3556,
     };
 }
