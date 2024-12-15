@@ -337,7 +337,7 @@ fn update(demo: *DemoState) void {
     _ = zgui.DockSpaceOverViewport(0, zgui.getMainViewport(), .{ .passthru_central_node = true });
 }
 
-fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beui.Texpack) void {
+fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beui.Texpack, frame_timer: *std.time.Timer, last_frame_time: *u64, add_us: u64) void {
     const b2ft = tracy.traceNamed(@src(), "draw & wait");
     defer b2ft.end();
 
@@ -388,7 +388,10 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
     const back_buffer_view = blk: {
         const b2ft1 = tracy.traceNamed(@src(), "wait for texture view");
         defer b2ft1.end();
-        break :blk gctx.swapchain.getCurrentTextureView();
+        last_frame_time.* = add_us + frame_timer.read();
+        const res = gctx.swapchain.getCurrentTextureView();
+        frame_timer.reset();
+        break :blk res;
     };
     defer back_buffer_view.release();
 
@@ -792,31 +795,29 @@ pub fn main() !void {
     var draw_list = draw_lists.RenderList.init(gpa);
     defer draw_list.deinit();
 
-    var timer = try std.time.Timer.start();
-
     var frame_num: u64 = 0;
-    var reduce_input_latency: i32 = 0;
+    var reduce_latency: bool = true;
+
+    var frame_timer = try std.time.Timer.start();
+    var last_frame_time: u64 = 0;
 
     while (!window.shouldClose()) {
-        tracy.frameMark();
-
-        _ = arena_state.reset(.retain_capacity);
-        draw_list.clear();
-
+        var add_us: u64 = 0;
+        const target_mspf: u64 = 16666666;
+        const reduce_input_latency: usize = if (reduce_latency) (target_mspf -| last_frame_time) -| (1 * std.time.ns_per_ms) else 0;
         if (reduce_input_latency > 0) {
             const b2ft = tracy.traceNamed(@src(), "reduce latency");
             defer b2ft.end();
 
-            std.time.sleep(@intCast(reduce_input_latency));
+            add_us = frame_timer.read();
+            std.time.sleep(reduce_input_latency);
+            frame_timer.reset();
         }
-        timer.reset();
-        // ^ this has a positive impact but:
-        //    - we need to make sure to wait for the last frame to render before starting
-        //      the next one
-        //      - if the last frame can't render in time, that's okay, we can have it go async
-        //        but max 1 frame of that
-        //    - we need to calculate the value automatically based on:
-        //      - (render time of last frame) + (compute time of last frame)
+
+        tracy.frameMark();
+
+        _ = arena_state.reset(.retain_capacity);
+        draw_list.clear();
 
         var beui_vtable: BeuiVtable = .{ .window = window };
         beui.newFrame(.{
@@ -917,7 +918,6 @@ pub fn main() !void {
         zgui.setNextWindowPos(.{ .x = 20.0, .y = 20.0, .cond = .first_use_ever });
         zgui.setNextWindowSize(.{ .w = -1.0, .h = -1.0, .cond = .first_use_ever });
 
-        const frame_prepare_ns = timer.read();
         if (zgui.begin("Demo Settings", .{})) {
             zgui.text(
                 "Average : {d:.3} ms/frame ({d:.1} fps)",
@@ -925,18 +925,14 @@ pub fn main() !void {
             );
             zgui.text("draw_list items: {d} / {d}", .{ draw_list.vertices.items.len, draw_list.indices.items.len });
             zgui.text("click_count: {d}", .{beui.leftMouseClickedCount()});
-            zgui.text("frame prepare time: {d}", .{std.fmt.fmtDuration(frame_prepare_ns)});
-            zgui.text("ns per vertex: {d:0.3}", .{@as(f64, @floatFromInt(frame_prepare_ns)) / @as(f64, @floatFromInt(draw_list.vertices.items.len))});
-            _ = zgui.sliderInt("reduce_latency", .{
-                .v = &reduce_input_latency,
-                .min = 0,
-                .max = 33 * std.time.ns_per_ms,
-                // .flags = .{ .logarithmic = true },
-            });
+            zgui.text("frame non-wait time: {d}", .{std.fmt.fmtDuration(last_frame_time)});
+            zgui.text("ns per vertex: {d:0.3}", .{@as(f64, @floatFromInt(last_frame_time)) / @as(f64, @floatFromInt(draw_list.vertices.items.len))});
+            zgui.text("reduce latency: {d}", .{std.fmt.fmtDuration(reduce_input_latency)});
+            _ = zgui.checkbox("Reduce latency", .{ .v = &reduce_latency });
         }
         zgui.end();
 
-        draw(demo, &draw_list, &b2.persistent.layout_cache.glyphs);
+        draw(demo, &draw_list, &b2.persistent.layout_cache.glyphs, &frame_timer, &last_frame_time, add_us);
         frame_num += 1;
     }
 }
