@@ -164,13 +164,15 @@ const BounceBallState = struct {
     prev_mouse_time: f64 = 0.0,
     prev2_mouse_pos: ?@Vector(2, f32) = null,
     prev2_mouse_time: f64 = 0.0,
+    prev3_mouse_pos: ?@Vector(2, f32) = null,
+    prev3_mouse_time: f64 = 0.0,
 
     pub fn init(self: *BounceBallState, whole_size: @Vector(2, f32)) void {
         self.* = .{
             .ball_pos_px = whole_size / @Vector(2, f32){ 2.0, 2.0 },
             .ball_vel_per_frame = .{ 0, 0 },
             .ball_dragging = false,
-            .fixed_timestep_manager = .init(anywhere.util.fpsToMspf(60.0)),
+            .fixed_timestep_manager = .init(anywhere.util.fpsToMspf(120.0)),
         };
     }
     pub fn deinit(_: *BounceBallState) void {}
@@ -191,12 +193,12 @@ fn render__bounceBall(_: *void, call_info: B2.StandardCallInfo, _: void) *B2.Rep
     state.ball_pos_px = @min(state.ball_pos_px, whole_size - ball_size_half);
 
     // to update this to variable timestep:
-    // - change gravity to `+= 1 * dt`
+    // - change gravity to `+= 0.5 * dt`
     // - change air resistance to ` *= @splat( std.math.pow(f64, dt, 0.99) )`
     // where 16.6666 ms = 1.0 dt
     for (0..state.fixed_timestep_manager.advance(@floatFromInt(b2.persistent.beui1.frame.frame_cfg.?.now_ms))) |_| {
         // gravity
-        if (!state.ball_dragging) state.ball_vel_per_frame[1] += 1;
+        if (!state.ball_dragging) state.ball_vel_per_frame[1] += 0.5;
 
         // move
         state.ball_pos_px += state.ball_vel_per_frame;
@@ -262,6 +264,8 @@ fn render__bounceBall__onMouseEvent(state: *BounceBallState, b2: *B2.Beui2, ev: 
                 state.prev_mouse_time = now;
                 state.prev2_mouse_pos = ev.pos.?;
                 state.prev2_mouse_time = now;
+                state.prev3_mouse_pos = ev.pos.?;
+                state.prev3_mouse_time = now;
             }
             return .arrow;
         } else {
@@ -270,21 +274,22 @@ fn render__bounceBall__onMouseEvent(state: *BounceBallState, b2: *B2.Beui2, ev: 
         }
     } else {
         if (ev.action == .up) {
-            const diff = ev.pos.? - state.prev2_mouse_pos.?;
-            const tdiff: f32 = @floatCast(now - state.prev2_mouse_time);
+            const diff = ev.pos.? - state.prev3_mouse_pos.?;
+            const tdiff: f32 = @floatCast(now - state.prev3_mouse_time);
 
             state.ball_dragging = false;
-            // TODO: average velocity over a short time period (like 50ms or so)
-            // (currently, it averages over one frame)
             if (tdiff < 1) {
                 // std.log.info("throw failed; missing average", .{});
             } else {
                 // std.log.info("throwing {d} over {d}ms", .{ diff, tdiff });
-                state.ball_vel_per_frame = diff / @as(@Vector(2, f32), @splat(tdiff / @as(f32, @floatCast(anywhere.util.fpsToMspf(60)))));
+                state.ball_vel_per_frame = diff / @as(@Vector(2, f32), @splat(tdiff / @as(f32, @floatCast(anywhere.util.fpsToMspf(120)))));
             }
         } else {
             const diff = ev.pos.? - state.prev_mouse_pos.?;
             // currently dragging
+            state.prev3_mouse_pos = state.prev2_mouse_pos;
+            state.prev3_mouse_time = state.prev2_mouse_time;
+
             state.prev2_mouse_pos = state.prev_mouse_pos;
             state.prev2_mouse_time = state.prev_mouse_time;
 
