@@ -80,7 +80,7 @@ const Beui2Persistent = struct {
     prev_frame_draw_list_states: IdMap(GenericDrawListState),
     this_frame_ids: IdMap(void),
     click_target: ?ID = null,
-    state_storage: IdArrayMap(StateValue),
+    state2_storage: IdArrayMap(Beui2.StateInfo),
 
     frame_num: u64 = 0,
 
@@ -126,7 +126,7 @@ pub const Beui2 = struct {
                 .prev_frame_mouse_event_to_offset = .init(gpa),
                 .prev_frame_draw_list_states = .init(gpa),
                 .this_frame_ids = .init(gpa),
-                .state_storage = .init(gpa),
+                .state2_storage = .init(gpa),
 
                 .verdana_ttf = verdana_ttf,
                 .layout_cache = .init(gpa, font),
@@ -137,8 +137,16 @@ pub const Beui2 = struct {
         };
     }
     pub fn deinit(self: *Beui2) void {
-        for (self.persistent.state_storage.values()) |*v| v.deinit(self.persistent.gpa);
-        self.persistent.state_storage.deinit();
+        {
+            // loop in reverse so we don't invalidate a pointer early
+            const a = self.persistent.state2_storage.values();
+            var i = a.len;
+            while (i > 0) {
+                i -= 1;
+                a[i].deinit(self); // only gpa is used so it's ok to pass self in here
+            }
+        }
+        self.persistent.state2_storage.deinit();
         self.persistent.wm.deinit();
         self.persistent.prev_frame_draw_list_states.deinit();
         self.persistent.layout_cache.deinit();
@@ -324,9 +332,22 @@ pub const Beui2 = struct {
             self.persistent.click_target = null;
         }
 
-        // state: refresh ids & TODO delete unused
-        for (self.persistent.state_storage.keys()) |*k| {
-            k.* = k.refresh();
+        // state2: refresh ids & delete unused
+        // (we shouldn't have to refresh ids; we can make them OwnedIDs and skip that mess)
+        {
+            const a = self.persistent.state2_storage.keys();
+            const b = self.persistent.state2_storage.values();
+            var i = a.len;
+            while (i > 0) {
+                i -= 1;
+                a[i] = a[i].refresh();
+                if (b[i].referenced_frame != self.persistent.frame_num) {
+                    std.log.info("discarding state", .{});
+                    // looping in reverse so this is ok
+                    b[i].deinit(self);
+                    self.persistent.state2_storage.orderedRemoveAt(i);
+                }
+            }
         }
 
         for (self.persistent.draw_lists.items) |pdl| if (!pdl.placed) @panic("not all draw lists were placed last frame.");
@@ -402,28 +423,56 @@ pub const Beui2 = struct {
         }
         return .{ 0, 0 };
     }
-    pub fn state(self: *Beui2, self_id: ID, comptime StateType: type) StateResult(StateType) {
-        const gpres = self.persistent.state_storage.getOrPut(self_id) catch @panic("oom");
+    /// - to preserve state while not rendering a child, eg in a details element, call
+    ///   beui2.preserveStateTree(root_id). must preserve identifiers! use a PersistedID
+    ///   rather than a regular ID within state, otherwise if your component gets hidden for
+    ///   a few frames, when it returns all its IDs will be invalid.
+    /// - your state's context pointer must stay the same for the whole time the state is alive.
+    /// - if you invalidate your state's context pointer, you must stop posting the state immediately
+    ///   so it can be deleted.
+    /// (how do we make sure state destroy()s get called in the right order so if one feeds into another
+    ///  the outer ctx isn't destroyed before the inner ctx? maybe just go in reverse order and that is enough?)
+    pub fn state2(self: *Beui2, self_id: ID, init_ctx: anytype, comptime StateType: type) *StateType {
+        const helper = struct {
+            fn destroy(value: *anyopaque, b2: *Beui2) void {
+                const state_val: *StateType = @ptrCast(@alignCast(value));
+                state_val.deinit();
+                b2.persistent.gpa.destroy(state_val);
+            }
+            const fns: StateVtable = .{
+                .destroy = &destroy,
+            };
+        };
+
+        const gpres = self.persistent.state2_storage.getOrPut(self_id) catch @panic("oom");
         if (!gpres.found_existing) {
-            gpres.value_ptr.* = .initUndefined(self.persistent.gpa, StateType);
-            return .{ .initialized = false, .value = gpres.value_ptr.cast(StateType) };
+            const state_val = self.persistent.gpa.create(StateType) catch @panic("oom");
+            state_val.init(init_ctx);
+            gpres.value_ptr.* = .{
+                .vtable = &helper.fns,
+                .state = @ptrCast(@alignCast(state_val)),
+                .referenced_frame = undefined,
+            };
         }
-        return .{ .initialized = true, .value = gpres.value_ptr.cast(StateType) };
+        gpres.value_ptr.referenced_frame = self.persistent.frame_num;
+
+        return @ptrCast(@alignCast(gpres.value_ptr.state));
     }
+    const StateInfo = struct {
+        vtable: *const StateVtable,
+        state: *anyopaque,
+        referenced_frame: u64,
+
+        fn deinit(self: *StateInfo, b2: *Beui2) void {
+            self.vtable.destroy(self.state, b2);
+            self.state = undefined;
+        }
+    };
+    const StateVtable = struct {
+        destroy: *const fn (value: *anyopaque, b2: *Beui2) void,
+    };
     fn StateResult(comptime StateType: type) type {
         return struct { initialized: bool, value: *StateType };
-    }
-
-    // if we need to pass context, it's fine as long as it's arena allocated. because deinit fn will be called
-    // update is called every frame the context is alive <- maybe don't do this. if we need to store IDs, we can clone them and deinit them.
-    // state will be deleted if the id is not around for one frame.
-    // - to preserve state, call beui2.preserveStateTree(root_id). only call this if you're not going to render the item.
-    //   ie: {const showhide_state = .sub(@src()); if(show) {renderItem(showhide_state)} else {preserveStateTree(showhide_state)}
-    pub fn state2(self: *Beui2, self_id: ID, comptime StateType: type, comptime initFn: fn () StateType, comptime deinitFn: fn (child: StateType) void) StateType {
-        _ = self;
-        _ = self_id;
-        _ = deinitFn;
-        return initFn();
     }
 
     pub fn getPrevFrameDrawListState(self: *Beui2, state_id: ID) ?*const GenericDrawListState {
@@ -875,7 +924,11 @@ pub const RepositionableDrawList = struct {
         self.content.append(.{ .mouse = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
     }
     pub const MouseEventCapture2Config = struct {
-        onMouseEvent: ?BetweenFrameCallback(*Beui2, MouseEvent, ?Beui.Cursor),
+        // lifetimes:
+        // - this is called between frames. so if something gets destroyed on frame 1,
+        //   don't add a betweenframecallback for it.
+        onMouseEvent: ?BetweenFrameCallback(*Beui2, MouseEvent, ?Beui.Cursor) = null,
+        onScrollEvent: ?BetweenFrameCallback(*Beui2, ScrollEvent, bool) = null,
     };
     pub fn addMouseEventCapture2(self: *RepositionableDrawList, id: ID, pos: @Vector(2, f32), size: @Vector(2, f32), cfg: MouseEventCapture2Config) void {
         self.content.append(.{ .mouse2 = .{ .pos = pos, .size = size, .id = id, .cfg = cfg } }) catch @panic("oom");
@@ -1116,6 +1169,12 @@ pub const MouseEvent = struct {
     pos: ?@Vector(2, f32),
     action: enum { down, up, move_while_down, move_while_up },
 };
+pub const ScrollEvent = struct {
+    capture_pos: @Vector(2, f32),
+    capture_size: @Vector(2, f32),
+    pos: ?@Vector(2, f32),
+    scroll: @Vector(2, f32),
+};
 fn button__onMouseEvent(st: *ButtonState, b2: *Beui2, ev: MouseEvent) ?Beui.Cursor {
     if (ev.action == .move_while_up) return .arrow;
     st.active = pointInRect(ev.pos, ev.capture_pos, ev.capture_size);
@@ -1138,6 +1197,10 @@ fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component
 const ScrollState = struct {
     offset: f32,
     anchor: util.AnySized(IDSegment.IDSegmentSize, 8),
+    pub fn init(self: *ScrollState, ctx: util.AnySized(IDSegment.IDSegmentSize, 8)) void {
+        self.* = .{ .offset = 0, .anchor = ctx };
+    }
+    pub fn deinit(_: *ScrollState) void {}
 };
 
 var _scroll_state: ?ScrollState = null;
@@ -1166,11 +1229,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
     const scroll_ev_capture_id = ui.id.sub(@src());
     const scroll_by = ui.id.b2.scrollCaptureResults(scroll_ev_capture_id);
 
-    const scroll_state = blk: {
-        const scroll_state = ui.id.b2.state(ui.id.sub(@src()), ScrollState);
-        if (!scroll_state.initialized) scroll_state.value.* = .{ .offset = 0, .anchor = .from(Index, .first(context)) };
-        break :blk scroll_state.value;
-    };
+    const scroll_state = ui.id.b2.state2(ui.id.sub(@src()), util.AnySized(IDSegment.IDSegmentSize, 8).from(Index, .first(context)), ScrollState);
 
     scroll_state.offset += scroll_by[1];
 
@@ -1669,3 +1728,58 @@ pub const WindowManager = struct {
 // we would like to say Button(Text("hello"))
 // but what needs to happen is pushButton() Text() popButton()
 // stack-capturing macros are the solution :/ but they're dead
+
+test "state2" {
+    const gpa = std.testing.allocator;
+
+    const BeuiVtable = struct {
+        fn setClipboard(_: *const Beui.FrameCfg, _: [:0]const u8) void {
+            std.log.info("TODO setClipboard", .{});
+        }
+        fn getClipboard(_: *const Beui.FrameCfg, _: *std.ArrayList(u8)) void {
+            std.log.info("TODO getClipboard", .{});
+        }
+        pub const vtable: *const Beui.FrameCfgVtable = &.{
+            .type_id = @typeName(@This()),
+            .set_clipboard = &setClipboard,
+            .get_clipboard = &getClipboard,
+        };
+    };
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
+    var b1: Beui = .{};
+
+    var b2: Beui2 = undefined;
+    b2.init(&b1, gpa);
+    defer b2.deinit();
+
+    var draw_list: Beui.draw_lists.RenderList = .init(gpa);
+    defer draw_list.deinit();
+
+    {
+        draw_list.clear();
+        _ = arena_state.reset(.retain_capacity);
+        const arena = arena_state.allocator();
+
+        var beui_vtable: BeuiVtable = .{};
+        b1.newFrame(.{
+            .arena = arena,
+            .now_ms = std.time.milliTimestamp(),
+            .user_data = @ptrCast(@alignCast(&beui_vtable)),
+            .vtable = BeuiVtable.vtable,
+        });
+        defer b1.endFrame();
+
+        const id = b2.newFrame(.{ .size = .{ 1000, 500 } });
+        {
+            const root_id = id.sub(@src());
+            _ = root_id;
+        }
+        b2.endFrame(&draw_list);
+    }
+
+    // TODO: test state2
+    // TODO: clean up beui setup, what a mess!
+}

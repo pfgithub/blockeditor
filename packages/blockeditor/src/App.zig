@@ -31,6 +31,8 @@ current_tab: usize,
 
 tree: FsTree2,
 
+enable_bouncing_ball: bool,
+
 pub fn init(self: *App, gpa: std.mem.Allocator) void {
     return self.initWithCfg(gpa, .{});
 }
@@ -50,6 +52,8 @@ pub fn initWithCfg(self: *App, gpa: std.mem.Allocator, cfg: struct { enable_db_s
 
     self.zig_language = Beui.EditorView.Core.highlighters_zig.HlZig.init(gpa);
     self.markdown_language = Beui.EditorView.Core.highlighters_markdown.HlMd.init();
+
+    self.enable_bouncing_ball = true;
 
     self.tabs = .init(gpa);
     self.current_tab = 0;
@@ -138,7 +142,16 @@ pub fn render(self: *App, call_id: B2.ID) void {
         id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Editor View.zig", .from(&render__editor__Context{ .self = self, .tab = tab }, render__editor));
     }
     id.b2.persistent.wm.addWindow(id.sub(@src()), "File Tree", .from(self, render__tree));
-    id.b2.persistent.wm.addFullscreenOverlay(id.sub(@src()), .from(@as(*void, undefined), render__bounceBall));
+    if (zgui.beginWindow("Bouncing Ball", .{})) {
+        defer zgui.endWindow();
+
+        zgui.checkbox("Enable", &self.enable_bouncing_ball);
+    }
+    if (self.enable_bouncing_ball) {
+        id.b2.persistent.wm.addFullscreenOverlay(id.sub(@src()), .from(@as(*void, undefined), render__bounceBall));
+    } else {
+        // todo preserve state tree
+    }
 }
 
 const BounceBallState = struct {
@@ -151,6 +164,16 @@ const BounceBallState = struct {
     prev_mouse_time: f64 = 0.0,
     prev2_mouse_pos: ?@Vector(2, f32) = null,
     prev2_mouse_time: f64 = 0.0,
+
+    pub fn init(self: *BounceBallState, whole_size: @Vector(2, f32)) void {
+        self.* = .{
+            .ball_pos_px = whole_size / @Vector(2, f32){ 2.0, 2.0 },
+            .ball_vel_per_frame = .{ 0, 0 },
+            .ball_dragging = false,
+            .fixed_timestep_manager = .init(anywhere.util.fpsToMspf(60.0)),
+        };
+    }
+    pub fn deinit(_: *BounceBallState) void {}
 };
 const ball_diameter: f32 = 80.0;
 const ball_size: @Vector(2, f32) = @splat(ball_diameter);
@@ -161,14 +184,7 @@ fn render__bounceBall(_: *void, call_info: B2.StandardCallInfo, _: void) *B2.Rep
     const ui = call_info.ui(@src());
     const b2 = ui.id.b2;
 
-    const state_res = b2.state(ui.id.sub(@src()), BounceBallState);
-    if (!state_res.initialized) state_res.value.* = .{
-        .ball_pos_px = whole_size / @Vector(2, f32){ 2.0, 2.0 },
-        .ball_vel_per_frame = .{ 0, 0 },
-        .ball_dragging = false,
-        .fixed_timestep_manager = .init(anywhere.util.fpsToMspf(60.0)),
-    };
-    const state = state_res.value;
+    const state = b2.state2(ui.id.sub(@src()), whole_size, BounceBallState);
 
     // correct if the window was resized
     state.ball_pos_px = @max(state.ball_pos_px, ball_size_half);
