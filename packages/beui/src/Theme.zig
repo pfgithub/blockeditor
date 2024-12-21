@@ -164,14 +164,14 @@ pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *B2.FloatingWindow) voi
     captureResize(rdl, wm, id.sub(@src()), .{ .raise = .{ .window = win.id } }, whole_pos_incl_resize, whole_size_incl_resize);
 
     // add the resize captures
-    captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom else .top, .cursor = .resize_ns } }, .{ win_pos[0], win_pos[1] + -resize_width }, .{ win_size[0], resize_width });
-    captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom_right else .top_right, .cursor = .resize_ne_sw } }, .{ win_pos[0] + win_size[0], win_pos[1] - resize_width }, .{ resize_width, resize_width });
+    if (!win.contents.collapsed) captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top, .cursor = .resize_ns } }, .{ win_pos[0], win_pos[1] + -resize_width }, .{ win_size[0], resize_width });
+    if (!win.contents.collapsed) captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top_right, .cursor = .resize_ne_sw } }, .{ win_pos[0] + win_size[0], win_pos[1] - resize_width }, .{ resize_width, resize_width });
     captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .right, .cursor = .resize_ew } }, .{ win_pos[0] + win_size[0], win_pos[1] }, .{ resize_width, win_size[1] });
-    captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom_right else .bottom_right, .cursor = .resize_nw_se } }, .{ win_pos[0] + win_size[0], win_pos[1] + win_size[1] }, .{ resize_width, resize_width });
-    captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom else .bottom, .cursor = .resize_ns } }, .{ win_pos[0], win_pos[1] + win_size[1] }, .{ win_size[0], resize_width });
-    captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom_left else .bottom_left, .cursor = .resize_ne_sw } }, .{ win_pos[0] - resize_width, win_pos[1] + win_size[1] }, .{ resize_width, resize_width });
+    if (!win.contents.collapsed) captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .bottom_right, .cursor = .resize_nw_se } }, .{ win_pos[0] + win_size[0], win_pos[1] + win_size[1] }, .{ resize_width, resize_width });
+    if (!win.contents.collapsed) captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .bottom, .cursor = .resize_ns } }, .{ win_pos[0], win_pos[1] + win_size[1] }, .{ win_size[0], resize_width });
+    if (!win.contents.collapsed) captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .bottom_left, .cursor = .resize_ne_sw } }, .{ win_pos[0] - resize_width, win_pos[1] + win_size[1] }, .{ resize_width, resize_width });
     captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .left, .cursor = .resize_ew } }, .{ win_pos[0] - resize_width, win_pos[1] }, .{ resize_width, win_size[1] });
-    captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = if (win.contents.collapsed) .top_bottom_left else .top_left, .cursor = .resize_nw_se } }, .{ win_pos[0] - resize_width, win_pos[1] - resize_width }, .{ resize_width, resize_width });
+    if (!win.contents.collapsed) captureResize(rdl, wm, id.sub(@src()), .{ .resize = .{ .window = win.id, .sides = .top_left, .cursor = .resize_nw_se } }, .{ win_pos[0] - resize_width, win_pos[1] - resize_width }, .{ resize_width, resize_width });
 
     // render the children
     drawWindowNode(win.id, wm, &win.contents, win_pos, win_size, .{ .parent_is_tabs = false });
@@ -185,7 +185,7 @@ pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *B2.FloatingWindow) voi
     });
 
     // add the fallthrough capture so events don't fall through the black rectangle
-    captureResize(rdl, wm, id.sub(@src()), .ignore, whole_pos, whole_size);
+    captureResize(rdl, wm, id.sub(@src()), .ignore, whole_pos_incl_resize, whole_size_incl_resize);
     // TODO need to capture scroll events so they don't fall through. specifically, using a capture mode no_scroll so
     // it won't try to lock a touch event into scrolling when it could tap.
 }
