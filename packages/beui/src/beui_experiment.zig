@@ -18,6 +18,17 @@ pub fn IdMap(comptime V: type) type {
     };
     return std.HashMap(ID, V, IDContext, std.hash_map.default_max_load_percentage);
 }
+pub fn IdMapUnmanaged(comptime V: type) type {
+    const IDContext = struct {
+        pub fn hash(_: @This(), id: ID) u64 {
+            return id.hash();
+        }
+        pub fn eql(_: @This(), a: ID, b: ID) bool {
+            return a.eql(b);
+        }
+    };
+    return std.HashMapUnmanaged(ID, V, IDContext, std.hash_map.default_max_load_percentage);
+}
 pub fn IdArrayMap(comptime V: type) type {
     const IDContext = struct {
         pub fn hash(_: @This(), id: ID) u32 {
@@ -28,7 +39,21 @@ pub fn IdArrayMap(comptime V: type) type {
         }
     };
     // store_hash is set to false. eql is just `std.mem.eql()` but for long strings that could take longer than we want?
+    // shouldn't store_hash be true?
     return std.ArrayHashMap(ID, V, IDContext, false);
+}
+pub fn IdArrayMapUnmanaged(comptime V: type) type {
+    const IDContext = struct {
+        pub fn hash(_: @This(), id: ID) u32 {
+            return @truncate(id.hash());
+        }
+        pub fn eql(_: @This(), a: ID, b: ID, _: usize) bool {
+            return a.eql(b);
+        }
+    };
+    // store_hash is set to false. eql is just `std.mem.eql()` but for long strings that could take longer than we want?
+    // shouldn't store_hash be true?
+    return std.ArrayHashMapUnmanaged(ID, V, IDContext, false);
 }
 
 const Beui2FrameCfg = struct {
@@ -82,7 +107,7 @@ const Beui2Persistent = struct {
     click_target: ?ID = null,
     state2_storage: IdArrayMap(Beui2.StateInfo),
 
-    frame_num: u64 = 0,
+    frame_num: u64 = 10,
 
     verdana_ttf: ?[]const u8,
     layout_cache: LayoutCache,
@@ -513,7 +538,7 @@ const IDSegment = struct {
     }
     value: [IDSegmentSize]u8,
     tag: Tag,
-    const Tag = enum { src, loop, loop_child, unique };
+    const Tag = enum { src, loop, loop_child, unique, str };
     const SrcStruct = struct {
         filename: [*:0]const u8,
         fn_name: [*:0]const u8,
@@ -526,6 +551,9 @@ const IDSegment = struct {
 
     pub fn fromSrc(src: std.builtin.SourceLocation) IDSegment {
         return .fromTagValue(.src, SrcStruct, .{ .filename = src.file.ptr, .fn_name = src.fn_name.ptr, .line = src.line, .col = src.column });
+    }
+    pub fn fromStr(str: []const u8) IDSegment {
+        return .fromTagSlice(.str, str);
     }
     fn fromTagValue(tag: Tag, comptime VT: type, value: VT) IDSegment {
         comptime std.debug.assert(@sizeOf(VT) <= IDSegmentSize);
@@ -570,11 +598,30 @@ pub const ID = struct {
     const duplicate_id_safety = std.debug.runtime_safety;
 
     pub fn format(value: ID, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("<ID:{d}>", .{value.hash()});
+        // const seen_srcs_for_fmt = struct {
+        //     var seen_srcs_for_fmt = std.StringArrayHashMapUnmanaged(usize);
+        // };
+
+        value.assertValid();
+        try writer.print("%", .{});
+        for (value.str) |seg| {
+            if (seg.tag == .str) {
+                try writer.print(".\"{}\"", .{std.zig.fmtEscapes(std.mem.trimRight(u8, &seg.value, &.{0}))});
+            } else if (seg.tag == .src) {
+                const dec: IDSegment.SrcStruct = std.mem.bytesAsValue(IDSegment.SrcStruct, seg.value[0..@sizeOf(IDSegment.SrcStruct)]).*;
+                try writer.print(".\"{}\"@{d}:{d}", .{ std.zig.fmtEscapes(std.mem.span(dec.filename)), dec.line, dec.col });
+            } else {
+                try writer.print(".{s}", .{@tagName(seg.tag)});
+            }
+        }
+        // var hres: [16]u8 = undefined;
+        // const hstr = std.fmt.bufPrint(&hres, "{X:0>16}", .{value.hash()}) catch unreachable;
+        // std.debug.assert(hstr.len == hres.len);
+        // try writer.print("{s}", .{hres[0..4]});
     }
 
     pub fn assertValid(self: ID) void {
-        std.debug.assert(self.frame == self.b2.persistent.frame_num or self.frame + 1 == self.b2.persistent.frame_num);
+        std.debug.assert(self.frame == 0 or self.frame == self.b2.persistent.frame_num or self.frame + 1 == self.b2.persistent.frame_num);
     }
     pub fn hash(self: ID) u64 {
         self.assertValid();
@@ -592,8 +639,19 @@ pub const ID = struct {
     }
     pub fn refresh(self: ID) ID {
         self.assertValid();
+        std.debug.assert(self.frame != 0);
         const self_cp = self.b2.frame.arena.dupe(IDSegment, self.str) catch @panic("oom");
         return .{ .b2 = self.b2, .frame = self.b2.persistent.frame_num, .str = self_cp };
+    }
+
+    pub fn dupeToOwned(self: ID, gpa: std.mem.Allocator) ID {
+        const self_cp = gpa.dupe(IDSegment, self.str) catch @panic("oom");
+        return .{ .b2 = self.b2, .frame = 0, .str = self_cp };
+    }
+    pub fn deinitOwned(self: *ID, gpa: std.mem.Allocator) void {
+        std.debug.assert(self.frame == 0);
+        gpa.free(self.str);
+        self.frame = 1;
     }
 
     fn _addInternal(self: ID, items: []const IDSegment) ID {
@@ -647,6 +705,9 @@ pub const ID = struct {
 
     pub fn sub(self: ID, src: std.builtin.SourceLocation) ID {
         return self._addInternal(&.{.fromSrc(src)});
+    }
+    pub fn subStr(self: ID, str: []const u8) ID {
+        return self._addInternal(&.{.fromStr(str)});
     }
 };
 
@@ -1759,8 +1820,15 @@ pub const WindowManager = struct {
 // but what needs to happen is pushButton() Text() popButton()
 // stack-capturing macros are the solution :/ but they're dead
 
-test "state2" {
-    const gpa = std.testing.allocator;
+pub const B2Tester = struct {
+    // this is way overcomplicated! we need to:
+    // - merge b1 into b2
+    // - simplify b2 initialization and usage
+    arena: std.heap.ArenaAllocator,
+    b1: Beui,
+    b2: Beui2,
+    draw_list: Beui.draw_lists.RenderList,
+    vtable: BeuiVtable,
 
     const BeuiVtable = struct {
         fn setClipboard(_: *const Beui.FrameCfg, _: [:0]const u8) void {
@@ -1775,41 +1843,51 @@ test "state2" {
             .get_clipboard = &getClipboard,
         };
     };
+    pub fn init(self: *B2Tester, gpa: std.mem.Allocator) void {
+        self.arena = std.heap.ArenaAllocator.init(gpa);
+        self.b1 = .{};
+        self.b2.init(&self.b1, gpa);
+        self.draw_list = .init(gpa);
+        self.vtable = .{};
+    }
+    pub fn deinit(self: *B2Tester) void {
+        self.draw_list.deinit();
+        self.b2.deinit();
+        self.arena.deinit();
+    }
 
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
-
-    var b1: Beui = .{};
-
-    var b2: Beui2 = undefined;
-    b2.init(&b1, gpa);
-    defer b2.deinit();
-
-    var draw_list: Beui.draw_lists.RenderList = .init(gpa);
-    defer draw_list.deinit();
-
-    {
-        draw_list.clear();
-        _ = arena_state.reset(.retain_capacity);
-        const arena = arena_state.allocator();
-
-        var beui_vtable: BeuiVtable = .{};
-        b1.newFrame(.{
-            .arena = arena,
-            .now_ms = std.time.milliTimestamp(),
-            .user_data = @ptrCast(@alignCast(&beui_vtable)),
+    pub fn startFrame(self: *B2Tester, now: i64, size: @Vector(2, f32)) ID {
+        self.draw_list.clear();
+        _ = self.arena.reset(.retain_capacity);
+        self.b1.newFrame(.{
+            .arena = self.arena.allocator(),
+            .now_ms = now,
+            .user_data = @ptrCast(@alignCast(&self.vtable)),
             .vtable = BeuiVtable.vtable,
         });
-        defer b1.endFrame();
-
-        const id = b2.newFrame(.{ .size = .{ 1000, 500 } });
-        {
-            const root_id = id.sub(@src());
-            _ = root_id;
-        }
-        b2.endFrame(&draw_list);
+        const id = self.b2.newFrame(.{ .size = size });
+        return id;
     }
+    pub fn endFrame(self: *B2Tester) void {
+        self.b2.endFrame(&self.draw_list);
+        self.b1.endFrame();
+    }
+};
+
+test "state2" {
+    const gpa = std.testing.allocator;
+
+    var tester: B2Tester = undefined;
+    tester.init(gpa);
+    defer tester.deinit();
+
+    _ = tester.startFrame(1000, .{ 1000, 500 });
+    tester.endFrame();
 
     // TODO: test state2
     // TODO: clean up beui setup, what a mess!
+}
+
+test {
+    _ = @import("wm2.zig");
 }
