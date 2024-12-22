@@ -863,6 +863,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         // why does this have to be so long? it's equivalent to @0"\x00" which is 8 bytes but instead it's 32 bytes
         pub const default = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
         pub fn serialize(self: *const Doc, out: *bi.AlignedArrayList) void {
+            // TODO: convert to combined count, serialize, deserialize fn
+            // https://gist.github.com/pfgithub/2818e467c25b87579ce714fceb3e61cc
+
             // format: [u64 aligned_length] [bytes] [length, id] [end]
             const writer = out.writer();
 
