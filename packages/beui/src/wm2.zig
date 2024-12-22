@@ -513,6 +513,7 @@ test WM {
 //   - move & resize top level
 //   - resize split boundaries
 // - alwaysonbottom items
+// - fullscreen_overlay items
 // - bring to front
 // - collapsing: have to decide what can be collapsed? eg all but one of a split window
 // - dragging window from top level to tab, then dragging out from tab back to top level should preserve size.
