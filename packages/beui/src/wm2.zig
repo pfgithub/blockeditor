@@ -156,7 +156,15 @@ pub const WM = struct {
         const parent_frame = self.getFrame(parent);
         switch (parent_frame.self) {
             .tabbed => @panic("TODO onRemoveChild(tabbed)"),
-            .split => @panic("TODO onRemovedChild(split)"),
+            .split => |*sv| {
+                _ = sv.children.orderedRemove(std.mem.indexOfScalar(FrameID, sv.children.items, child) orelse unreachable);
+                if (sv.children.items.len == 0) unreachable;
+                if (sv.children.items.len == 1) {
+                    self.getFrame(sv.children.items[0]).parent = .not_set;
+                    self._replaceChild(parent_frame.parent, parent, sv.children.items[0]);
+                    self._removeNode(parent);
+                }
+            },
             .final => unreachable, // has no children
             .window => |win| {
                 // the window must be removed
@@ -186,6 +194,14 @@ pub const WM = struct {
         const children = self.getFrame(parent).self.children();
         children[std.mem.indexOfScalar(FrameID, children, prev_child) orelse unreachable] = next_child;
         self.getFrame(next_child)._setParent(parent);
+    }
+    pub fn dropFrameNewWindow(self: *WM) void {
+        std.debug.assert(self.dragging != .not_set);
+        const child = self.getFrame(self.dragging).self.dragging.child;
+        self._tellParentChildRemoved(child);
+
+        self.getFrame(child).parent = .not_set;
+        self.addWindow(child);
     }
     pub fn dropFrameSplit(self: *WM, target: FrameID, target_dir: Dir) void {
         std.debug.assert(self.dragging != .not_set);
@@ -235,7 +251,9 @@ pub const WM = struct {
     fn _renderFrameToString(self: *WM, frame_id: FrameID, expect_parent: FrameID, out: *std.ArrayList(u8), indent: usize) !void {
         const frame = self.getFrame(frame_id);
         try std.testing.expectEqual(frame.id, frame_id);
-        if (expect_parent != frame.parent) std.debug.panic("expected parent = {}, got parent = {} for item {}", .{ expect_parent, frame.parent, frame_id });
+        if (expect_parent != frame.parent) {
+            try out.writer().print("(expected parent = {}, got parent = {} for item {})", .{ @intFromEnum(expect_parent), @intFromEnum(frame.parent), @intFromEnum(frame_id) });
+        }
 
         try out.writer().print("@{d}.{s}", .{ @intFromEnum(frame_id), @tagName(frame.self) });
         switch (frame.self) {
@@ -340,5 +358,25 @@ test WM {
         \\    @2.final
         \\    @0.final
         \\    @4.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.grabFrame(@enumFromInt(0));
+    try std.testing.expectEqualStrings(
+        \\@1.window: @3.split.x:
+        \\    @2.final
+        \\    @4.final
+        \\@5.dragging: @0.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.dropFrameNewWindow();
+    try std.testing.expectEqualStrings(
+        \\@1.window: @3.split.x:
+        \\    @2.final
+        \\    @4.final
+        \\@5.window: @0.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.grabFrame(@enumFromInt(2));
+    try std.testing.expectEqualStrings(
+        \\@1.window: @4.final
+        \\@5.window: @0.final
+        \\@3.dragging: @2.final
     , try my_wm.testingRenderToString(&buf));
 }
