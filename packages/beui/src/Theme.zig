@@ -2,7 +2,7 @@
 
 const Beui = @import("Beui.zig");
 const B2 = @import("beui_experiment.zig");
-const WM = @import("wm2.zig");
+const WM = @import("wm.zig");
 const std = @import("std");
 
 pub const window_padding: f32 = border_width * 2;

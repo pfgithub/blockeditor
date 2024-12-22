@@ -6,7 +6,7 @@ const tracy = @import("anywhere").tracy;
 const util = @import("anywhere").util;
 const LayoutCache = @import("LayoutCache.zig");
 pub const Theme = @import("Theme.zig");
-pub const WM = @import("wm2.zig");
+pub const WM = @import("wm.zig");
 
 pub fn IdMap(comptime V: type) type {
     const IDContext = struct {
@@ -1473,5 +1473,5 @@ test "state2" {
 }
 
 test {
-    _ = @import("wm2.zig");
+    _ = @import("wm.zig");
 }
