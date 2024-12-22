@@ -255,6 +255,26 @@ pub const WM = struct {
         };
         self.getFrame(tabbed).self.tabbed.children.insert(self.gpa, offset + target_dir.idx(), child) catch @panic("oom");
     }
+    pub fn bringToFront(self: *WM, target: FrameID) void {
+        // find parent
+        const parentmost = self.findRoot(target);
+        switch (self.getFrame(parentmost).self) {
+            .window => {
+                const idx = std.mem.indexOfScalar(FrameID, self.top_level_windows.items, parentmost) orelse unreachable;
+                _ = self.top_level_windows.orderedRemove(idx);
+                self.top_level_windows.appendAssumeCapacity(parentmost);
+            },
+            else => unreachable,
+        }
+    }
+    pub fn findRoot(self: *WM, target: FrameID) FrameID {
+        var parentmost: FrameID = target;
+        while (self.getFrame(parentmost).parent != .top_level) {
+            parentmost = self.getFrame(parentmost).parent;
+        }
+        std.debug.assert(self.getFrame(parentmost).parent == .top_level);
+        return parentmost;
+    }
 
     fn testingRenderToString(self: *WM, buf: *std.ArrayList(u8)) ![]const u8 {
         buf.clearAndFree();
@@ -503,6 +523,31 @@ test WM {
     my_wm.removeFrame(@enumFromInt(3));
     try std.testing.expectEqualStrings(
         \\@7.window: @6.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
+    try std.testing.expectEqualStrings(
+        \\@7.window: @6.final
+        \\@4.window: @3.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.bringToFront(@enumFromInt(7));
+    try std.testing.expectEqualStrings(
+        \\@4.window: @3.final
+        \\@7.window: @6.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.bringToFront(@enumFromInt(6));
+    try std.testing.expectEqualStrings(
+        \\@4.window: @3.final
+        \\@7.window: @6.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.bringToFront(@enumFromInt(3));
+    try std.testing.expectEqualStrings(
+        \\@7.window: @6.final
+        \\@4.window: @3.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.bringToFront(@enumFromInt(4));
+    try std.testing.expectEqualStrings(
+        \\@7.window: @6.final
+        \\@4.window: @3.final
     , try my_wm.testingRenderToString(&buf));
 }
 
