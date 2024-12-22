@@ -139,7 +139,8 @@ pub fn render(self: *App, call_id: B2.ID) void {
     const id_loop = id.pushLoop(@src(), usize);
     for (self.tabs.items, 0..) |tab, i| {
         const id_sub = id_loop.pushLoopValue(@src(), i);
-        id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Editor View.zig", .from(&render__editor__Context{ .self = self, .tab = tab }, render__editor));
+        const tmpdata = id.b2.frame.arena.dupe(render__editor__Context, &.{.{ .self = self, .tab = tab }}) catch @panic("oom");
+        id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Editor View.zig", .from(&tmpdata[0], render__editor));
     }
     id.b2.persistent.wm.addWindow(id.sub(@src()), "File Tree", .from(self, render__tree));
     if (zgui.beginWindow("Bouncing Ball", .{})) {
@@ -307,7 +308,7 @@ const render__editor__Context = struct {
     self: *App,
     tab: *EditorTab,
 };
-fn render__editor(ctx: *const render__editor__Context, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+fn render__editor(ctx: *const render__editor__Context, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
     const tab = ctx.tab;
 
     const tctx = tracy.traceNamed(@src(), "App editor");
@@ -315,7 +316,8 @@ fn render__editor(ctx: *const render__editor__Context, call_info: B2.StandardCal
 
     const ui = call_info.ui(@src());
 
-    return tab.editor_view.gui(ui.sub(@src()), ui.id.b2.persistent.beui1);
+    const res = tab.editor_view.gui(ui.sub(@src()), ui.id.b2.persistent.beui1);
+    return res.rdl;
 }
 
 const RenderTreeIndex = struct {
@@ -336,7 +338,7 @@ const RenderTreeIndex = struct {
         return .{ .i = itm.i + 1 };
     }
 };
-fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
     const ui = call_info.ui(@src());
     const rdl = ui.id.b2.draw();
     // TODO should be scrollable, vertical and horizontal
@@ -360,9 +362,9 @@ fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) B2.Sta
         .tint = B2.Theme.colors.window_bg,
         .rounding = .{ .corners = .all, .radius = 6.0 },
     });
-    return .{ .rdl = rdl, .size = .{ 2048, 2048 } };
+    return rdl;
 }
-fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) B2.StandardChild {
+fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
     const ui = call_info.ui(@src());
 
     const rdl = ui.id.b2.draw();
@@ -374,7 +376,7 @@ fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) B2.Standard
         .tint = B2.Theme.colors.window_bg,
         .rounding = .{ .corners = .all, .radius = 6.0 },
     });
-    return .{ .rdl = rdl, .size = chres.size };
+    return rdl;
 }
 fn render__tree__child(self: *App, call_info: B2.StandardCallInfo, index: FsTree2.Index) B2.StandardChild {
     const tctx = tracy.trace(@src());

@@ -1,5 +1,6 @@
 const std = @import("std");
 const B2 = @import("beui_experiment.zig");
+const Theme = @import("Theme.zig");
 
 // this is the backing wm
 // but the caller will manage:
@@ -31,7 +32,7 @@ pub const Dir = enum {
     }
 };
 pub const WM = struct {
-    const FrameID = packed struct(u64) {
+    pub const FrameID = packed struct(u64) {
         gen: u32,
         ptr: enum(u32) {
             not_set = std.math.maxInt(u32) - 1,
@@ -48,11 +49,12 @@ pub const WM = struct {
             return .{ .gen = a, .ptr = @enumFromInt(b) };
         }
     };
-    const Frame = struct {
+    pub const Frame = struct {
         gen: u32,
         parent: FrameID,
         id: FrameID,
         self: FrameContent,
+        collapsed: bool = false,
         fn _setParent(self: *Frame, parent: FrameID) void {
             std.debug.assert(self.parent == FrameID.not_set);
             std.debug.assert(parent != FrameID.not_set);
@@ -148,6 +150,10 @@ pub const WM = struct {
         const window_id = self.addFrame(.{ .window = .{ .child = child } });
         self.top_level_windows.append(self.gpa, window_id) catch @panic("oom");
         self.getFrame(window_id).parent = .top_level;
+    }
+    fn existsFrame(self: *WM, frame: FrameID) bool {
+        const res = &self.frames.items[@intFromEnum(frame.ptr)];
+        return res.gen == frame.gen;
     }
     fn getFrame(self: *WM, frame: FrameID) *Frame {
         const res = &self.frames.items[@intFromEnum(frame.ptr)];
@@ -352,26 +358,6 @@ pub const WM = struct {
         }
     }
 };
-const Manager = struct {
-    id_to_frame_map: B2.IdArrayMapUnmanaged(WM.FrameID),
-    frame_to_id_map: std.AutoArrayHashMap(WM.FrameID, B2.ID),
-
-    // deinit ids
-    // for (self.id_to_frame_map.keys()) |*id| {
-    //     id.deinitOwned(self.gpa);
-    // }
-
-    pub fn getOrAddFrameForID(self: *WM, id: B2.ID) void {
-        const gpres = self.id_to_frame_map.getOrPut(self.gpa, id) catch @panic("oom");
-        if (gpres.found_existing) return gpres.value_ptr.*;
-
-        gpres.key_ptr.* = id.dupeToOwned(self.gpa);
-        const frame_id = self.addFrame(.{ .final = .{ .window = gpres.key_ptr.* } });
-        gpres.value_ptr.* = frame_id;
-        _ = self.addWindow(frame_id);
-        return gpres.value_ptr.*;
-    }
-};
 
 test WM {
     var my_wm = WM.init(std.testing.allocator);
@@ -568,6 +554,209 @@ test WM {
         \\@1.4.window: @8.3.final
     , try my_wm.testingRenderToString(&buf));
 }
+
+// could make this <Manager> <addWindow /> <addWindow> <addWindow /> </addWindow> ... </Manager>
+// (rather than being a global thing managed by beui itself)
+// but that means you would have to be passing around *Manager pointers or you would need to use a context provider
+// and wm is going to handle stuff like dropdown menus, ... so basically everything needs it
+pub const Manager = struct {
+    wm: WM,
+    /// stored for both the 'window' and the item directly inside it
+    top_level_window_positions_and_sizes: std.AutoArrayHashMapUnmanaged(WM.FrameID, struct { pos: @Vector(2, f32), size: @Vector(2, f32) }),
+
+    id_to_final_map: B2.IdArrayMapUnmanaged(WM.FrameID),
+    final_to_id_map: std.AutoArrayHashMapUnmanaged(WM.FrameID, B2.ID),
+    this_frame: std.ArrayListUnmanaged(struct {
+        id_unowned: B2.ID,
+        frame_id: WM.FrameID,
+        title: []const u8,
+        cb: B2.Component(B2.StandardCallInfo, void, *B2.RepositionableDrawList),
+    }),
+
+    /// empty except inside endFrame() call
+    render_windows_ctx: RenderWindowResult,
+    final_rdl: ?*B2.RepositionableDrawList,
+
+    /// not owned
+    current_window: ?B2.ID,
+
+    active: ?FrameCfg,
+
+    pub const FrameCfg = struct {
+        size: @Vector(2, f32),
+        id: B2.ID,
+    };
+    pub const RenderWindowResult = std.AutoHashMapUnmanaged(WM.FrameID, RenderWindowCtx);
+    pub const RenderWindowCtx = struct {
+        title: []const u8,
+        result: union(enum) {
+            filled: struct {
+                size: @Vector(2, f32),
+                reservation: B2.RepositionableDrawList.Reservation,
+            },
+            empty: struct {},
+        },
+    };
+
+    pub fn init(gpa: std.mem.Allocator) Manager {
+        return .{
+            .wm = .init(gpa),
+            .top_level_window_positions_and_sizes = .empty,
+            .id_to_final_map = .empty,
+            .final_to_id_map = .empty,
+            .this_frame = .empty,
+            .render_windows_ctx = .empty,
+            .current_window = null,
+            .active = null,
+            .final_rdl = null,
+        };
+    }
+    pub fn deinit(self: *Manager) void {
+        for (self.id_to_final_map.keys()) |*id| {
+            id.deinitOwned(self.wm.gpa);
+        }
+        self.id_to_final_map.deinit(self.wm.gpa);
+        self.final_to_id_map.deinit(self.wm.gpa);
+        self.render_windows_ctx.deinit(self.wm.gpa);
+        self.this_frame.deinit(self.wm.gpa);
+        self.wm.deinit();
+    }
+
+    pub fn beginFrame(self: *Manager, cfg: FrameCfg) void {
+        std.debug.assert(self.active == null);
+        self.active = cfg;
+
+        // clean id_to_final / final_to_id maps of closed windows
+        {
+            var i: usize = 0;
+            const keys = self.final_to_id_map.keys();
+            const values = self.final_to_id_map.values();
+            while (i < keys.len) {
+                const final = keys[i];
+                if (!self.wm.existsFrame(final)) {
+                    // delete
+                    std.debug.assert(self.id_to_final_map.swapRemove(values[i]));
+                    self.final_to_id_map.swapRemoveAt(i);
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        // clean top_level_window_positions_and_sizes of closed windows
+        {
+            var i: usize = 0;
+            const keys = self.top_level_window_positions_and_sizes.keys();
+            while (i < keys.len) {
+                const final = keys[i];
+                if (!self.wm.existsFrame(final)) {
+                    self.top_level_window_positions_and_sizes.swapRemoveAt(i);
+                } else {
+                    i += 1;
+                }
+            }
+        }
+
+        self.final_rdl = cfg.id.b2.draw();
+    }
+    pub fn endFrame(self: *Manager) *B2.RepositionableDrawList {
+        std.debug.assert(self.active != null);
+        const cfg = self.active.?;
+        self.active = null;
+
+        // at end of frame vs during frame:
+        // - during frame:
+        //   - 0 frame delay for closing windows because that is handled between frames
+        //   - 1 frame delay for a window closed by an if statement, but only if it is a subframe of a frame with another frame
+        //     - must make sure to call requiresRerender in this case
+        //   - Theme provides a function to render a given root frame
+        //   - window may be rendered inside of another window's callback
+        //     - but collapsing the outer window will close the inner window. and uncollapsing the outer window will spawn
+        //       a new inner window with reset size & position. so this seems like odd behaviour.
+        //   - callback is run during the addWindow function call, which is expected
+        // - at end of frame:
+        //   - 0 frame delay for closing windows, including windows closed by an if statement
+        //   - Theme provides a function to render an entire WM instance
+        //     - excluding fullscreen overlays, dropdown menus, and some other things
+        //   - callback must only point to frame-allocated memory, not stack-allocated. this is unusual, as typically component
+        //     callbacks are called immediately
+        //   - windows may not be rendered inside another window's callback. dropdown menus and other overlays will be
+        //     handled by a different fn. dropdowns can't be handled by the Theme render.
+
+        // 1. update wm:
+        //     - remove closed windows
+        //       - ideally most windows are closed between frames rather than during a frame. a window
+        //         that is closed during a frame could have been closed by an if statement, which is weird.
+        //     - save titles
+        std.debug.assert(self.render_windows_ctx.count() == 0);
+        defer self.render_windows_ctx.clearRetainingCapacity();
+        for (self.this_frame.items) |item| {
+            self.render_windows_ctx.putNoClobber(self.wm.gpa, item.frame_id, .{
+                .title = item.title,
+                .result = .empty,
+            }) catch @panic("oom");
+            // TODO notice closed windows, etc
+        }
+
+        // 2. call Theme.renderWindows();
+        const rdl = Theme.renderWindows(cfg.id.sub(@src()), cfg.size, &self.wm, &self.render_windows_ctx);
+
+        // 3. loop over this_frame.items, call callbacks, and fill reservations
+        for (self.this_frame.items) |item| {
+            // 4. get the final_window_slot for the final frame id
+            const window_ctx = self.render_windows_ctx.get(item.frame_id).?;
+            const filled = switch (window_ctx.result) {
+                .filled => |f| f,
+                .empty => continue, // window is collapsed
+            };
+
+            // 5. call cb() using the size and fill the reservation with the result
+            const cb_res = blk: {
+                std.debug.assert(self.current_window == null);
+                self.current_window = item.id_unowned;
+                defer self.current_window = null;
+                break :blk item.cb.call(.{ .caller_id = item.id_unowned, .constraints = .{ .available_size = .{ .w = filled.size[0], .h = filled.size[1] } } }, {});
+            };
+            filled.reservation.for_draw_list.fill(filled.reservation, cb_res, .{});
+        }
+
+        self.this_frame.clearRetainingCapacity();
+
+        self.final_rdl.?.place(rdl, .{});
+        defer self.final_rdl = null;
+        return self.final_rdl.?;
+    }
+
+    /// callback will be called at the end of the frame! callback data ptr must be allocated by the frame arena! no stack data!
+    pub fn addWindow(self: *Manager, id_unowned: B2.ID, title: []const u8, cb: B2.Component(B2.StandardCallInfo, void, *B2.RepositionableDrawList)) void {
+        std.debug.assert(self.active != null);
+
+        // 1. get the final frame id for the passed in id_unowned
+        //    - not found? create a new frame
+        const frame_id_gpres = self.id_to_final_map.getOrPut(self.wm.gpa, id_unowned) catch @panic("oom");
+        if (!frame_id_gpres.found_existing) {
+            frame_id_gpres.key_ptr.* = id_unowned.dupeToOwned(self.wm.gpa);
+            const frame_id = self.wm.addFrame(.{ .final = .{} });
+            self.wm.addWindow(frame_id);
+            frame_id_gpres.value_ptr.* = frame_id;
+            self.final_to_id_map.putNoClobber(self.wm.gpa, frame_id_gpres.value_ptr.*, frame_id_gpres.key_ptr.*) catch @panic("oom");
+        }
+        const frame_id = frame_id_gpres.value_ptr.*;
+
+        self.this_frame.append(self.wm.gpa, .{
+            .id_unowned = id_unowned,
+            .frame_id = frame_id,
+            .title = id_unowned.b2.frame.arena.dupe(u8, title) catch @panic("oom"),
+            .cb = cb,
+        }) catch @panic("oom");
+    }
+
+    pub fn addFullscreenOverlay(self: *Manager, id_unowned: B2.ID, cb: B2.Component(B2.StandardCallInfo, void, *B2.RepositionableDrawList)) void {
+        std.debug.assert(self.active != null);
+        std.debug.assert(self.current_window == null);
+        const result = cb.call(.{ .caller_id = id_unowned.sub(@src()), .constraints = .{ .available_size = .{ .w = self.active.?.size[0], .h = self.active.?.size[1] } } }, {});
+        self.final_rdl.?.place(result, .{});
+    }
+};
 
 // next todo:
 // - information:

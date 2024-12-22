@@ -6,6 +6,7 @@ const tracy = @import("anywhere").tracy;
 const util = @import("anywhere").util;
 const LayoutCache = @import("LayoutCache.zig");
 pub const Theme = @import("Theme.zig");
+pub const WM = @import("wm2.zig");
 
 pub fn IdMap(comptime V: type) type {
     const IDContext = struct {
@@ -111,7 +112,7 @@ const Beui2Persistent = struct {
 
     verdana_ttf: ?[]const u8,
     layout_cache: LayoutCache,
-    wm: WindowManager,
+    wm: WM.Manager,
 
     beui1: *Beui,
 
@@ -155,7 +156,7 @@ pub const Beui2 = struct {
 
                 .verdana_ttf = verdana_ttf,
                 .layout_cache = .init(gpa, font),
-                .wm = .init(self, gpa),
+                .wm = .init(gpa),
 
                 .beui1 = beui1,
             },
@@ -397,13 +398,13 @@ pub const Beui2 = struct {
             .frame = self.persistent.frame_num,
             .str = &.{},
         };
-        self.persistent.wm.beginFrame(res_id.sub(@src()));
+        self.persistent.wm.beginFrame(.{ .id = res_id.sub(@src()), .size = frame_cfg.size });
 
         return res_id;
     }
     pub fn endFrame(self: *Beui2, renderlist: ?*render_list.RenderList) void {
         self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
-        const result = self.persistent.wm.render();
+        const result = self.persistent.wm.endFrame();
         result.placed = true;
         result.finalize(.{
             .out_list = renderlist,
@@ -774,7 +775,7 @@ const Sides = packed struct(u4) {
     }
 };
 pub const RepositionableDrawList = struct {
-    const Reservation = struct {
+    pub const Reservation = struct {
         index: usize,
         frame: u64,
         for_draw_list: *RepositionableDrawList,
@@ -1402,423 +1403,6 @@ fn scrollDemo_0_3(my_list: *const []const []const []const u8, caller_id: Standar
 
     return defaultTextButton(ui.sub(@src()), res_str, null);
 }
-
-const FinalWindowInfo = struct {
-    slot: RepositionableDrawList.Reservation,
-    is_filled: bool = false,
-    position: @Vector(2, f32),
-    size: @Vector(2, f32),
-};
-
-// windows:
-// - let's allow their resize to be delayed by one frame. that's kind of required unfortunately.
-//   - unless what if we could in this order:
-//     - at the beginning of the frame, handle window movement from last frame
-//       - we can do this by passing in ikeys to Theme.windowChrome, and handling window movement
-//         in a `tick()` fn or on the first `addWindow` call
-//     - then, add windows. they have accurate positions already and will be rendered the right size
-//     - I think that makes sense
-
-const WindowListInfo = struct {
-    start_percent: f32, // first in the list is 0. next is 33%. next is 66%. end.
-    child_node: WindowTreeNode,
-};
-pub const WindowTreeNodeUnion = union(enum) {
-    tabs: struct {
-        selected_tab: WindowTreeNodeID,
-        items: std.ArrayList(WindowTreeNode),
-    },
-    list: struct {
-        direction: enum { x, y },
-        items: std.ArrayList(WindowListInfo),
-    },
-    final: ID,
-};
-pub const WindowTreeNode = struct {
-    id: WindowTreeNodeID,
-    value: WindowTreeNodeUnion,
-    collapsed: bool,
-    fn deinit(self: *WindowTreeNode) void {
-        switch (self.value) {
-            .final => {},
-            .tabs => |*t| {
-                for (t.items.items) |*it| it.deinit();
-                t.items.deinit();
-            },
-            .list => |*l| {
-                for (l.items.items) |*it| it.child_node.deinit();
-                l.items.deinit();
-            },
-        }
-    }
-};
-pub const WindowTreeNodeID = enum(u64) {
-    _,
-    var current: u64 = 0;
-    pub fn next() WindowTreeNodeID {
-        current += 1;
-        return @enumFromInt(current);
-    }
-};
-pub const FloatingContainerID = enum(u64) {
-    _,
-    var current: u64 = 0;
-    pub fn next() FloatingContainerID {
-        current += 1;
-        return @enumFromInt(current);
-    }
-};
-pub const FullscreenOverlayID = enum(u64) {
-    _,
-    var current: u64 = 0;
-    pub fn next() FullscreenOverlayID {
-        current += 1;
-        return @enumFromInt(current);
-    }
-};
-pub const FloatingWindow = struct {
-    id: FloatingContainerID,
-    position: @Vector(2, f32),
-    size: @Vector(2, f32),
-    contents: WindowTreeNode,
-};
-pub const FullscreenOverlay = struct {
-    id: FullscreenOverlayID,
-    contents: ID,
-};
-const WindowIkey = struct {
-    ikey: ID, // recommended ID.unique()
-    interaction_model: WindowIkeyInteractionModel,
-};
-pub const WindowIkeyInteractionModel = union(enum) {
-    raise: struct { window: FloatingContainerID },
-    resize: struct { window: FloatingContainerID, sides: Sides, cursor: Beui.Cursor = .arrow },
-    ignore,
-};
-pub const WindowManager = struct {
-    // TARGET:
-    // - windows have titles and collapse buttons / close buttons
-    // - window chrome is provided by a child component, not default to addWindow
-    // - windows support docking. you can dock a window to another window to make it tabbed,
-    //   and you can dock a tabbed window to another window to have two layers of tabs
-
-    // currently, WindowManager styles the windows. Ideally, the user would be able to style the
-    // windows however they want, maybe with a special WindowCallInfo arg and WindowChild return
-    // type. The theme window then has to handle all the styling stuff about the window:
-    // - tabs, borders, resizing, ... . Or maybe that isn't possible. And even more ideally,
-    //   beui2 exports an unstyled component for the window so it can be styled however you
-    //   want without having to reimplement the whole interaction model.
-
-    // future:
-    // - eventually this will manage overlay windows too, like context menus
-    //   - fn addContextMenu(anchor_pos: RdlPoint, .bottom_right, child: Component())
-    //     - child recieves max_width and max_height as the size of the viewport
-    //     - then, when rendering, we place it near anchor_pos in the specified direction
-    // - if we want the ability to hover over a window to see a preview:
-    //   - while hovering, ask for the window to render this frame
-    //   - rather than posting the draw list for the hovered window, instead render it
-    //     to a small image and save it in the image cache. then render that as the preview.
-    //   - that's fun
-
-    b2: *Beui2,
-    /// 'dependency injection' so child components can see if they're focused
-    current_window: ?ID,
-
-    /// holds pointers so we can store a pointer for <1 frame in WindowIkeyInteractionModel
-    floating_containers: std.ArrayList(FloatingWindow),
-    fullscreen_overlays: std.ArrayList(FullscreenOverlay),
-    windows: IdArrayMap(?FinalWindowInfo),
-    this_frame_rdl: ?*RepositionableDrawList,
-
-    ikeys: std.ArrayList(WindowIkey),
-    floating_container_ids: ?ID,
-    fullscreen_overlay_ids: ?ID,
-    window_tree_node_ids: ?ID,
-
-    pub fn init(b2: *Beui2, gpa: std.mem.Allocator) WindowManager {
-        // b2 is not initialized yet, so b2.persistent.gpa is undefined
-        return .{
-            .b2 = b2,
-            .windows = .init(gpa),
-            .current_window = null,
-            .fullscreen_overlays = .init(gpa),
-            .floating_containers = .init(gpa),
-            .ikeys = .init(gpa),
-            .this_frame_rdl = null,
-            .floating_container_ids = null,
-            .fullscreen_overlay_ids = null,
-            .window_tree_node_ids = null,
-        };
-    }
-    pub fn deinit(self: *WindowManager) void {
-        self.ikeys.deinit();
-        self.fullscreen_overlays.deinit();
-        for (self.floating_containers.items) |*item| item.contents.deinit();
-        self.floating_containers.deinit();
-        self.windows.deinit();
-    }
-
-    pub fn idForFloatingContainer(self: *WindowManager, src: std.builtin.SourceLocation, fc: FloatingContainerID) ID {
-        return self.floating_container_ids.?.pushLoopValue(src, fc);
-    }
-    pub fn idForFullscreenOverlay(self: *WindowManager, src: std.builtin.SourceLocation, fc: FullscreenOverlayID) ID {
-        return self.fullscreen_overlay_ids.?.pushLoopValue(src, fc);
-    }
-    pub fn idForWindowTreeNode(self: *WindowManager, src: std.builtin.SourceLocation, fc: WindowTreeNodeID) ID {
-        return self.window_tree_node_ids.?.pushLoopValue(src, fc);
-    }
-    pub fn addIkey(self: *WindowManager, id: ID, model: WindowIkeyInteractionModel) ID {
-        self.ikeys.append(.{ .ikey = id, .interaction_model = model }) catch @panic("oom");
-        return id;
-    }
-
-    fn dealWithItem(self: *WindowManager, item: *WindowTreeNode) void {
-        _ = self;
-        switch (item.value) {
-            .final => |*id| id.* = id.refresh(),
-            else => @panic("TODO dealWithItem"),
-        }
-    }
-
-    // 1. at the start of the frame:
-    fn beginFrame(self: *WindowManager, root_id: ID) void {
-        self.this_frame_rdl = self.b2.draw();
-        self.floating_container_ids = root_id.pushLoop(@src(), FloatingContainerID);
-        self.fullscreen_overlay_ids = root_id.pushLoop(@src(), FullscreenOverlayID);
-        self.window_tree_node_ids = root_id.pushLoop(@src(), WindowTreeNodeID);
-
-        // 1a. handle interactions from the previous frame
-        const b2 = self.b2;
-        for (self.ikeys.items) |ikey| {
-            switch (ikey.interaction_model) {
-                .raise => |im| {
-                    if (b2.mouseCaptureResults(ikey.ikey).observed_mouse_down) {
-                        self.bringToFrontWindow(im.window);
-                    }
-                },
-                .resize => |im| {
-                    if (b2.mouseCaptureResults(ikey.ikey).mouse_left_held) {
-                        self.dragWindow(im.window, b2.persistent.beui1.frame.mouse_offset, im.sides);
-                    }
-                },
-                .ignore => {},
-            }
-        }
-        self.ikeys.clearRetainingCapacity();
-
-        // 1b.
-        // 1b.i: close windows
-        for (self.windows.values()) |*win| {
-            if (win.* == null) continue;
-            if (win.*.?.is_filled) continue;
-            @panic("TODO close window");
-        }
-        // 1b.ii: unrequest all windows
-        for (self.windows.values()) |*win| win.* = null;
-        // 1b.iii: refresh ids on all windows
-        for (self.windows.keys()) |*k| k.* = k.refresh();
-        for (self.fullscreen_overlays.items) |*fc| fc.contents = fc.contents.refresh();
-        for (self.floating_containers.items) |*fc| self.dealWithItem(&fc.contents);
-
-        // 1d. fullscreen overlats
-        var fsoverlay_i: usize = self.fullscreen_overlays.items.len;
-        while (fsoverlay_i > 0) {
-            fsoverlay_i -= 1;
-            const fc = &self.fullscreen_overlays.items[fsoverlay_i];
-            Theme.drawFullscreenOverlay(self, fc);
-        }
-
-        // 1c. loop over every window node and draw it using Theme.drawFloatingContainer
-        //      (loops in reverse because the last item in floating_containers is the topmost window)
-        var container_i: usize = self.floating_containers.items.len;
-        while (container_i > 0) {
-            container_i -= 1;
-            const fc = &self.floating_containers.items[container_i];
-            Theme.drawFloatingContainer(self, fc);
-        }
-    }
-
-    pub fn addFullscreenOverlay(self: *WindowManager, window_id: ID, child: Component(StandardCallInfo, void, *RepositionableDrawList)) void {
-        const gpres = self.windows.getOrPut(window_id) catch @panic("oom");
-        if (!gpres.found_existing) {
-            gpres.value_ptr.* = null;
-            self.fullscreen_overlays.append(.{ .id = .next(), .contents = window_id }) catch @panic("oom");
-            Theme.drawFullscreenOverlay(self, &self.fullscreen_overlays.items[self.fullscreen_overlays.items.len - 1]);
-        }
-        if (gpres.value_ptr.* == null) return; // window isn't wanted this frame
-
-        if (gpres.value_ptr.*.?.is_filled) @panic("trying to fill the same window id twice");
-        gpres.value_ptr.*.?.is_filled = true;
-
-        const slot: RepositionableDrawList.Reservation = gpres.value_ptr.*.?.slot;
-
-        const prev_window = self.current_window;
-        self.current_window = window_id;
-        defer self.current_window = prev_window;
-
-        const child_res = child.call(.{
-            .caller_id = window_id.sub(@src()),
-            .constraints = .{ .available_size = .{ .w = window_id.b2.frame.frame_cfg.size[0], .h = window_id.b2.frame.frame_cfg.size[1] } },
-        }, {});
-        // child.call() invalidates gpres
-        self.this_frame_rdl.?.fill(slot, child_res, .{ .offset = .{ 0, 0 } });
-    }
-
-    // 2. during the frame (fn addWindow)
-    pub fn addWindow(self: *WindowManager, window_id: ID, title: []const u8, child: Component(StandardCallInfo, void, StandardChild)) void {
-        _ = title;
-        // 2a. get the window from the map
-        const gpres = self.windows.getOrPut(window_id) catch @panic("oom");
-        if (!gpres.found_existing) {
-            // - oops! this will add to the back of the list! and then it will show up in front next frame. maybe each floating
-            //   container gets an rdl and then we order them at the end of the frame.
-            gpres.value_ptr.* = null;
-            self.floating_containers.append(.{
-                .id = .next(),
-                .position = .{ 50, 50 },
-                .size = .{ 400, 300 },
-                .contents = .{
-                    .id = .next(),
-                    .value = .{ .final = window_id },
-                    .collapsed = false,
-                },
-            }) catch @panic("oom");
-            Theme.drawFloatingContainer(self, &self.floating_containers.items[self.floating_containers.items.len - 1]);
-        }
-
-        // 2b. if it has no slot, skip it. ie its parent is collapsed
-        if (gpres.value_ptr.* == null) return; // window isn't wanted this frame
-
-        // 2c. render it and put the resulting rdl in the map
-        if (gpres.value_ptr.*.?.is_filled) @panic("trying to fill the same window id twice");
-        gpres.value_ptr.*.?.is_filled = true;
-
-        const slot: RepositionableDrawList.Reservation = gpres.value_ptr.*.?.slot;
-        const pos = gpres.value_ptr.*.?.position;
-        const size = gpres.value_ptr.*.?.size;
-
-        const prev_window = self.current_window;
-        self.current_window = window_id;
-        defer self.current_window = prev_window;
-
-        const child_res = child.call(.{
-            .caller_id = window_id.sub(@src()),
-            .constraints = .{ .available_size = .{ .w = size[0], .h = size[1] } },
-        }, {});
-        // child.call() invalidates gpres
-        self.this_frame_rdl.?.fill(slot, child_res.rdl, .{ .offset = pos });
-    }
-    fn dragWindow(self: *WindowManager, window_id: FloatingContainerID, offset: @Vector(2, f32), anchors: Sides) void {
-        if (@reduce(.And, offset == @Vector(2, f32){ 0, 0 })) return;
-        const idx = self.floatingContainerIndex(window_id);
-        const window = &self.floating_containers.items[idx];
-
-        var top = window.position[1]; // var left, var top = window.position;
-        var left = window.position[0];
-        var bottom = window.position[1] + window.size[1]; // var right, var bottom = window.position + window.size;
-        var right = window.position[0] + window.size[0];
-
-        if (anchors._top) top += offset[1];
-        if (anchors._left) left += offset[0];
-        if (anchors._bottom) bottom += offset[1];
-        if (anchors._right) right += offset[0];
-
-        window.position = .{ left, top };
-        window.size = .{ right - left, bottom - top };
-    }
-    pub const MEI = struct {
-        wm: *WindowManager,
-        value: WindowIkeyInteractionModel,
-    };
-    pub fn makeWindowEventInfo(self: *WindowManager, val: WindowIkeyInteractionModel) *MEI {
-        const res = self.b2.frame.arena.create(MEI) catch @panic("oom");
-        res.* = .{ .wm = self, .value = val };
-        return res;
-    }
-    pub fn handleWindowEvent(info: *MEI, b2: *Beui2, mev: MouseEvent) ?Beui.Cursor {
-        const self = info.wm;
-        switch (info.value) {
-            .raise => |raise| {
-                if (mev.action == .down) {
-                    self.bringToFrontWindow(raise.window);
-                }
-                return null; // allow event to pass through
-            },
-            .resize => |resize| {
-                if (mev.action == .move_while_down or mev.action == .up) {
-                    self.dragWindow(resize.window, b2.persistent.beui1.frame.mouse_offset, resize.sides);
-                }
-                return resize.cursor; // capture
-            },
-            .ignore => {
-                return .arrow; // capture
-            },
-        }
-    }
-    fn isInFront(self: *WindowManager, window_id: FloatingContainerID) bool {
-        return self.floating_containers.items[self.floating_containers.items.len - 1].id == window_id;
-    }
-    fn bringToFrontWindow(self: *WindowManager, window_id: FloatingContainerID) void {
-        if (self.isInFront(window_id)) return;
-        const idx = self.floatingContainerIndex(window_id);
-        const floating_container = self.floating_containers.orderedRemove(idx);
-        self.floating_containers.appendAssumeCapacity(floating_container);
-    }
-
-    fn floatingContainerIndex(self: *WindowManager, id: FloatingContainerID) usize {
-        for (self.floating_containers.items, 0..) |itm, i| {
-            if (itm.id == id) return i;
-        }
-        unreachable;
-    }
-
-    fn render(self: *WindowManager) *RepositionableDrawList {
-        defer self.floating_container_ids = null;
-        defer self.fullscreen_overlay_ids = null;
-        defer self.this_frame_rdl = null;
-        self.this_frame_rdl.?.addRect(.{
-            .pos = .{ 0, 0 },
-            .size = self.b2.frame.frame_cfg.size,
-            .tint = .fromHexRgb(0x2e2e2e),
-        });
-        return self.this_frame_rdl.?;
-    }
-};
-
-// so for a button:
-// - we want to render the button as small as possible in the
-
-// and then here's the question: do we want to allow interaction tokens above the button itself
-// like var itkn = Button.InteractionToken.init(b2.id(@src()));
-// then Button.begin(itkn)
-// that way we can see if the button is clicked before even calling .begin()
-// - do we care?
-//   - a component wrapping Button() needs to see if the button is clicked so it can return
-//     the clicked state. so yes we care :/
-
-// for rendering a button, we would like to support:
-// oh eew
-
-// you know a hack? Button(.begin(b2.callerID(@src()))), null, constraints, child);
-
-// btn: {
-//     const btn = Button.begin(b2.callerID(@src()), null, constraints);
-//     break :btn btn.end( bg: {
-//         const bg = BG.begin(b2.callerID(@src()), .fromHexRgb(0x0000FF));
-//         break :bg bg.end(Text( b2.callerID(@src()), btn.constraints, "hello", .fromHexRgb(0xFFFF00) ))
-//     } );
-// }
-// might as well put id in there too. BG.begin(btn.id.sub(@src())), bg.end(Text(bg.id.sub(@src())))
-// we need stack capturing macro so badly
-
-// if(Button.begin( b2.callerID(@src()) )) |btn| {
-//     btn.end( Text("hello world") );
-// }
-
-// so a problem is. yeah that if. eew.
-// we would like to say Button(Text("hello"))
-// but what needs to happen is pushButton() Text() popButton()
-// stack-capturing macros are the solution :/ but they're dead
 
 pub const B2Tester = struct {
     // this is way overcomplicated! we need to:

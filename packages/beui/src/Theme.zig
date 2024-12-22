@@ -2,6 +2,8 @@
 
 const Beui = @import("Beui.zig");
 const B2 = @import("beui_experiment.zig");
+const WM = @import("wm2.zig");
+const std = @import("std");
 
 pub const window_padding: f32 = border_width * 2;
 const border_width: f32 = 6.0;
@@ -188,4 +190,21 @@ pub fn drawFloatingContainer(wm: *B2.WindowManager, win: *B2.FloatingWindow) voi
     captureResize(rdl, wm, id.sub(@src()), .ignore, whole_pos_incl_resize, whole_size_incl_resize);
     // TODO need to capture scroll events so they don't fall through. specifically, using a capture mode no_scroll so
     // it won't try to lock a touch event into scrolling when it could tap.
+}
+
+pub fn renderWindows(id_in: B2.ID, size: @Vector(2, f32), wm: *WM.WM, result: *WM.Manager.RenderWindowResult) *B2.RepositionableDrawList {
+    const id = id_in.sub(@src());
+    _ = size;
+    const res = id.b2.draw();
+    // loop in reverse because first item = backmost
+    var i: usize = wm.top_level_windows.items.len;
+    while (i > 0) {
+        i -= 1;
+        const win = wm.top_level_windows.items[i];
+
+        _ = win;
+        _ = result;
+    }
+
+    return res;
 }
