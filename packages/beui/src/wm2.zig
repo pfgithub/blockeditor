@@ -4,7 +4,26 @@ const B2 = @import("beui_experiment.zig");
 // this is the backing wm
 // but the caller will manage:
 // - remove windows by id that no longer exist
-const WM = struct {
+pub const XY = enum { x, y };
+pub const Dir = enum {
+    left,
+    top,
+    right,
+    bottom,
+    fn toXY(self: Dir) XY {
+        return switch (self) {
+            .left, .right => .x,
+            .top, .bottom => .y,
+        };
+    }
+    fn idx(self: Dir) u1 {
+        return switch (self) {
+            .left, .top => 0,
+            .right, .bottom => 1,
+        };
+    }
+};
+pub const WM = struct {
     const FrameID = enum(usize) {
         not_set = std.math.maxInt(usize) - 1,
         top_level = std.math.maxInt(usize),
@@ -19,12 +38,13 @@ const WM = struct {
             std.debug.assert(parent != .not_set);
             self.parent = parent;
         }
-        pub const none: Frame = if (std.debug.runtime_safety) .{ .parent = .not_set, .id = .not_set, .self = .none } else undefined;
+        pub const none: Frame = .{ .parent = .not_set, .id = .not_set, .self = .none };
     };
     const FrameContent = union(enum) {
         tabbed: struct {},
         split: struct {
-            direction: enum { x, y },
+            direction: XY,
+            children: std.ArrayListUnmanaged(FrameID),
         },
         final: struct {
             // window: B2.ID,
@@ -37,14 +57,22 @@ const WM = struct {
         },
         /// unreachable
         none,
-        pub fn children(self: *const FrameContent) []const FrameID {
+        pub fn children(self: *FrameContent) []FrameID {
             switch (self.*) {
                 .tabbed => return &.{},
-                .split => return &.{},
+                .split => |s| return s.children.items,
                 .final => return &.{},
-                .window => |w| return @as(*const [1]FrameID, &w.child),
-                .dragging => |w| return @as(*const [1]FrameID, &w.child),
+                .window => |*w| return @as(*[1]FrameID, &w.child),
+                .dragging => |*w| return @as(*[1]FrameID, &w.child),
                 .none => unreachable,
+            }
+        }
+        pub fn deinit(self: *FrameContent, gpa: std.mem.Allocator) void {
+            switch (self.*) {
+                .split => |*s| {
+                    s.children.deinit(gpa);
+                },
+                else => {},
             }
         }
     };
@@ -64,6 +92,10 @@ const WM = struct {
         };
     }
     pub fn deinit(self: *WM) void {
+        for (self.frames.items) |*f| {
+            // if we swith to a memorypool, this will have to change
+            if (f.self != .none) f.self.deinit(self.gpa);
+        }
 
         // deinit things
         self.unused_frames.deinit(self.gpa);
@@ -102,6 +134,7 @@ const WM = struct {
     fn _removeNode(self: *WM, frame_id: FrameID) void {
         const pval = self.getFrame(frame_id);
         std.debug.assert(pval.self != .none);
+        pval.self.deinit(self.gpa);
         pval.* = .none;
         self.unused_frames.append(self.gpa, frame_id) catch @panic("oom");
     }
@@ -113,31 +146,30 @@ const WM = struct {
         self._removeNode(frame_id);
     }
     pub fn removeFrame(self: *WM, frame_id: FrameID) void {
-        {
-            const frame = self.getFrame(frame_id);
-            if (frame.self == .window) return self.removeFrame(frame.self.window.child);
-        }
-        self._onRemoveChild(self.getFrame(frame_id).parent, frame_id);
+        self._tellParentChildRemoved(frame_id);
         self._removeTree(frame_id);
     }
-    fn _onRemoveChild(self: *WM, frame_id: FrameID, child: FrameID) void {
-        const frame = self.getFrame(frame_id);
-        switch (frame.self) {
+    fn _tellParentChildRemoved(self: *WM, child: FrameID) void {
+        const child_frame = self.getFrame(child);
+        const parent = child_frame.parent;
+        if (parent == .top_level) unreachable; // not allowed
+        const parent_frame = self.getFrame(parent);
+        switch (parent_frame.self) {
             .tabbed => @panic("TODO onRemoveChild(tabbed)"),
             .split => @panic("TODO onRemovedChild(split)"),
             .final => unreachable, // has no children
             .window => |win| {
                 // the window must be removed
                 std.debug.assert(win.child == child);
-                self._removeNode(frame_id);
-                const idx = std.mem.indexOfScalar(FrameID, self.top_level_windows.items, frame_id) orelse unreachable;
+                self._removeNode(parent);
+                const idx = std.mem.indexOfScalar(FrameID, self.top_level_windows.items, parent) orelse unreachable;
                 _ = self.top_level_windows.orderedRemove(idx);
             },
             .dragging => |win| {
                 // ungrab
                 std.debug.assert(win.child == child);
-                self._removeNode(frame_id);
-                std.debug.assert(self.dragging == frame_id);
+                self._removeNode(parent);
+                std.debug.assert(self.dragging == parent);
                 self.dragging = .not_set;
             },
             .none => unreachable,
@@ -145,49 +177,86 @@ const WM = struct {
     }
     pub fn grabFrame(self: *WM, frame_id: FrameID) void {
         std.debug.assert(self.dragging == .not_set);
-        self._onRemoveChild(self.getFrame(frame_id).parent, frame_id);
+        self._tellParentChildRemoved(frame_id);
         self.getFrame(frame_id).parent = .not_set;
         self.dragging = self.addFrame(.{ .dragging = .{ .child = frame_id } });
         self.getFrame(self.dragging).parent = .top_level;
+    }
+    fn _replaceChild(self: *WM, parent: FrameID, prev_child: FrameID, next_child: FrameID) void {
+        const children = self.getFrame(parent).self.children();
+        children[std.mem.indexOfScalar(FrameID, children, prev_child) orelse unreachable] = next_child;
+        self.getFrame(next_child)._setParent(parent);
+    }
+    pub fn dropFrameSplit(self: *WM, target: FrameID, target_dir: Dir) void {
+        std.debug.assert(self.dragging != .not_set);
+        const child = self.getFrame(self.dragging).self.dragging.child;
+        self._tellParentChildRemoved(child);
+
+        const target_parent = self.getFrame(target).parent;
+        const offset: usize, const split: FrameID = if (self.getFrame(target_parent).self == .split and self.getFrame(target_parent).self.split.direction == target_dir.toXY()) blk: {
+            const idxof = std.mem.indexOfScalar(FrameID, self.getFrame(target_parent).self.split.children.items, target) orelse unreachable;
+            self.getFrame(child).parent = .not_set;
+            self.getFrame(child)._setParent(target_parent);
+            break :blk .{ idxof, target_parent };
+        } else blk: {
+            const split = self.addFrame(.{ .split = .{
+                .direction = target_dir.toXY(),
+                .children = .empty,
+            } });
+            self.getFrame(split).self.split.children.append(self.gpa, target) catch @panic("oom");
+            self._replaceChild(target_parent, target, split);
+            self.getFrame(target).parent = .not_set;
+            self.getFrame(target)._setParent(split);
+            break :blk .{ 0, split };
+        };
+        self.getFrame(split).self.split.children.insert(self.gpa, offset + target_dir.idx(), child) catch @panic("oom");
     }
 
     fn testingRenderToString(self: *WM, buf: *std.ArrayList(u8)) ![]const u8 {
         buf.clearAndFree();
 
         for (self.top_level_windows.items) |tlw| {
-            try self._renderFrameToString(tlw, .top_level, buf);
+            try self._renderFrameToString(tlw, .top_level, buf, 1);
             try buf.appendSlice("\n");
         }
 
         if (self.dragging != .not_set) {
-            try self._renderFrameToString(self.dragging, .top_level, buf);
+            try self._renderFrameToString(self.dragging, .top_level, buf, 1);
             try buf.appendSlice("\n");
         }
 
         if (std.mem.endsWith(u8, buf.items, "\n")) return buf.items[0 .. buf.items.len - 1];
         return buf.items;
     }
-    fn _renderFrameToString(self: *WM, frame_id: FrameID, expect_parent: FrameID, out: *std.ArrayList(u8)) !void {
+    fn _printIndent(out: *std.ArrayList(u8), indent: usize) !void {
+        try out.append('\n');
+        try out.appendNTimes(' ', indent * 4);
+    }
+    fn _renderFrameToString(self: *WM, frame_id: FrameID, expect_parent: FrameID, out: *std.ArrayList(u8), indent: usize) !void {
         const frame = self.getFrame(frame_id);
-        std.debug.assert(frame.parent == expect_parent);
-        std.debug.assert(frame_id == frame.id);
+        try std.testing.expectEqual(frame.id, frame_id);
+        if (expect_parent != frame.parent) std.debug.panic("expected parent = {}, got parent = {} for item {}", .{ expect_parent, frame.parent, frame_id });
 
         try out.writer().print("@{d}.{s}", .{ @intFromEnum(frame_id), @tagName(frame.self) });
         switch (frame.self) {
             .tabbed => |_| {
                 try out.appendSlice(": %todo_tabbed%");
             },
-            .split => {
-                try out.appendSlice(": %todo_tabbed%");
+            .split => |s| {
+                try out.writer().print(".{s}:", .{@tagName(s.direction)});
+                for (s.children.items) |child| {
+                    try _printIndent(out, indent);
+                    try self._renderFrameToString(child, frame_id, out, indent + 1);
+                }
             },
             .final => {},
             .window => |w| {
                 try out.appendSlice(": ");
-                try self._renderFrameToString(w.child, frame_id, out);
+                try self._renderFrameToString(w.child, frame_id, out, indent);
             },
             .dragging => |d| {
                 try out.appendSlice(": ");
-                try self._renderFrameToString(d.child, frame_id, out);
+                try self._renderFrameToString(d.child, frame_id, out, indent);
             },
             .none => unreachable,
         }
@@ -235,7 +304,7 @@ test WM {
     try std.testing.expectEqualStrings(
         \\@3.window: @2.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.removeFrame(@enumFromInt(3));
+    my_wm.removeFrame(@enumFromInt(2));
     try std.testing.expectEqualStrings(
         \\
     , try my_wm.testingRenderToString(&buf));
@@ -250,5 +319,26 @@ test WM {
     try std.testing.expectEqualStrings(
         \\@1.window: @0.final
         \\@3.dragging: @2.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.dropFrameSplit(@enumFromInt(0), .left);
+    try std.testing.expectEqualStrings(
+        \\@1.window: @3.split.x:
+        \\    @2.final
+        \\    @0.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
+    try std.testing.expectEqualStrings(
+        \\@1.window: @3.split.x:
+        \\    @2.final
+        \\    @0.final
+        \\@5.window: @4.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.grabFrame(@enumFromInt(4));
+    my_wm.dropFrameSplit(@enumFromInt(0), .right);
+    try std.testing.expectEqualStrings(
+        \\@1.window: @3.split.x:
+        \\    @2.final
+        \\    @0.final
+        \\    @4.final
     , try my_wm.testingRenderToString(&buf));
 }
