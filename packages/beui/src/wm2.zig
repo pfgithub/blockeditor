@@ -464,4 +464,57 @@ test WM {
         \\        @0.final
         \\        @4.final
     , try my_wm.testingRenderToString(&buf));
+    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
+    try std.testing.expectEqualStrings(
+        \\@5.window: @1.split.y:
+        \\    @2.final
+        \\    @3.split.x:
+        \\        @0.final
+        \\        @4.final
+        \\@7.window: @6.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.grabFrame(@enumFromInt(1));
+    try std.testing.expectEqualStrings(
+        \\@7.window: @6.final
+        \\@5.dragging: @1.split.y:
+        \\    @2.final
+        \\    @3.split.x:
+        \\        @0.final
+        \\        @4.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.dropFrameTab(@enumFromInt(6), .right);
+    try std.testing.expectEqualStrings(
+        \\@7.window: @5.tabbed:
+        \\    @6.final
+        \\    @1.split.y:
+        \\        @2.final
+        \\        @3.split.x:
+        \\            @0.final
+        \\            @4.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.removeFrame(@enumFromInt(2));
+    try std.testing.expectEqualStrings(
+        \\@7.window: @5.tabbed:
+        \\    @6.final
+        \\    @3.split.x:
+        \\        @0.final
+        \\        @4.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.removeFrame(@enumFromInt(3));
+    try std.testing.expectEqualStrings(
+        \\@7.window: @6.final
+    , try my_wm.testingRenderToString(&buf));
 }
+
+// next todo:
+// - information:
+//   - top level window has position, size
+//   - split has percentages (or absolute sizes for all but one?) for each child
+//   - move & resize top level
+//   - resize split boundaries
+// - alwaysonbottom items
+// - bring to front
+// - collapsing: have to decide what can be collapsed? eg all but one of a split window
+// - dragging window from top level to tab, then dragging out from tab back to top level should preserve size.
+//   - this means each 'final' window has a 'top_level_size' that is used when it becomes top level
+// - figure out what to do about preview vs commit. and how to do smooth tab reordering.
