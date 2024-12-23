@@ -442,7 +442,7 @@ pub fn renderGlyph(self: *LayoutCache, glyph_id: u32, line_height: f32) GlyphCac
     const gpres = self.glyph_cache.getOrPut(glyph_id) catch @panic("oom");
     if (gpres.found_existing) return gpres.value_ptr.*;
     const result: GlyphCacheEntry = self.renderGlyph_nocache(glyph_id, line_height) catch |e| blk: {
-        std.log.err("render glyph error: glyph={d}, err={s}", .{ glyph_id, @errorName(e) });
+        std.log.warn("render glyph error: glyph={d}, err={s}", .{ glyph_id, @errorName(e) });
         break :blk .{ .size = .{ 0, 0 }, .region = null };
     };
     gpres.value_ptr.* = result;

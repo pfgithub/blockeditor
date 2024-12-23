@@ -465,29 +465,17 @@ test "app renders" {
     app.initWithCfg(std.testing.allocator, .{ .enable_db_sync = false });
     defer app.deinit();
 
-    var arena_backing: std.heap.ArenaAllocator = .init(std.testing.allocator);
-    defer arena_backing.deinit();
-    const arena = arena_backing.allocator();
-
-    var b1: Beui = .{ .persistent = .{} };
-    var b2: B2.Beui2 = undefined;
-    b2.init(&b1, std.testing.allocator);
-    defer b2.deinit();
+    var tester: B2.B2Tester = undefined;
+    tester.init(std.testing.allocator);
+    defer tester.deinit();
 
     // render two frames
     for (0..2) |_| {
-        b1.newFrame(.{
-            .arena = arena,
-            .now_ms = 0,
-            .user_data = null,
-            .vtable = &testing_vtable,
-        });
-        const root_id = b2.newFrame(.{ .size = .{ 200, 200 } });
+        const root_id = tester.startFrame(0, .{ 200, 200 });
 
         app.render(root_id.sub(@src()));
 
-        b2.endFrame(null);
-        b1.endFrame();
+        tester.endFrame();
     }
 }
 const testing_vtable: Beui.FrameCfgVtable = .{
