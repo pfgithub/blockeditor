@@ -403,8 +403,8 @@ pub const Beui2 = struct {
         return res_id;
     }
     pub fn endFrame(self: *Beui2, renderlist: ?*render_list.RenderList) void {
-        self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
         const result = self.persistent.wm.endFrame();
+        self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
         result.placed = true;
         result.finalize(.{
             .out_list = renderlist,
@@ -743,7 +743,7 @@ pub const Corners = packed struct(u4) {
     pub const right: Corners = .{ .top_right = true, .bottom_right = true };
     pub const all: Corners = .{ .top_left = true, .top_right = true, .bottom_left = true, .bottom_right = true };
 };
-const Sides = packed struct(u4) {
+pub const Sides = packed struct(u4) {
     _top: bool = false,
     _left: bool = false,
     _bottom: bool = false,

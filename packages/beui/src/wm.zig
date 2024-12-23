@@ -66,6 +66,7 @@ pub const WM = struct {
     };
     const FrameContent = union(enum) {
         tabbed: struct {
+            current_tab: ?FrameID, // TODO manage this
             children: std.ArrayListUnmanaged(FrameID),
         },
         split: struct {
@@ -151,11 +152,11 @@ pub const WM = struct {
         self.top_level_windows.append(self.gpa, window_id) catch @panic("oom");
         self.getFrame(window_id).parent = .top_level;
     }
-    fn existsFrame(self: *WM, frame: FrameID) bool {
+    pub fn existsFrame(self: *WM, frame: FrameID) bool {
         const res = &self.frames.items[@intFromEnum(frame.ptr)];
         return res.gen == frame.gen;
     }
-    fn getFrame(self: *WM, frame: FrameID) *Frame {
+    pub fn getFrame(self: *WM, frame: FrameID) *Frame {
         const res = &self.frames.items[@intFromEnum(frame.ptr)];
         if (res.gen != frame.gen) unreachable; // consider returning null in this case
         return res;
@@ -267,6 +268,7 @@ pub const WM = struct {
             break :blk .{ idxof, target_parent };
         } else blk: {
             const tabbed = self.addFrame(.{ .tabbed = .{
+                .current_tab = null,
                 .children = .empty,
             } });
             self.getFrame(tabbed).self.tabbed.children.append(self.gpa, target) catch @panic("oom");
@@ -576,6 +578,7 @@ pub const Manager = struct {
     /// empty except inside endFrame() call
     render_windows_ctx: RenderWindowResult,
     final_rdl: ?*B2.RepositionableDrawList,
+    id_for_frame: ?B2.ID,
 
     /// not owned
     current_window: ?B2.ID,
@@ -591,6 +594,7 @@ pub const Manager = struct {
         title: []const u8,
         result: union(enum) {
             filled: struct {
+                pos: @Vector(2, f32),
                 size: @Vector(2, f32),
                 reservation: B2.RepositionableDrawList.Reservation,
             },
@@ -609,6 +613,7 @@ pub const Manager = struct {
             .current_window = null,
             .active = null,
             .final_rdl = null,
+            .id_for_frame = null,
         };
     }
     pub fn deinit(self: *Manager) void {
@@ -620,6 +625,10 @@ pub const Manager = struct {
         self.render_windows_ctx.deinit(self.wm.gpa);
         self.this_frame.deinit(self.wm.gpa);
         self.wm.deinit();
+    }
+
+    pub fn idForFrame(self: *Manager, src: std.builtin.SourceLocation, frame: WM.FrameID) B2.ID {
+        return self.id_for_frame.?.pushLoopValue(src, frame);
     }
 
     pub fn beginFrame(self: *Manager, cfg: FrameCfg) void {
@@ -657,6 +666,7 @@ pub const Manager = struct {
         }
 
         self.final_rdl = cfg.id.b2.draw();
+        self.id_for_frame = cfg.id.pushLoop(@src(), WM.FrameID);
     }
     pub fn endFrame(self: *Manager) *B2.RepositionableDrawList {
         std.debug.assert(self.active != null);
@@ -698,7 +708,7 @@ pub const Manager = struct {
         }
 
         // 2. call Theme.renderWindows();
-        const rdl = Theme.renderWindows(cfg.id.sub(@src()), cfg.size, &self.wm, &self.render_windows_ctx);
+        const rdl = Theme.renderWindows(cfg.id.b2, cfg.size, self);
 
         // 3. loop over this_frame.items, call callbacks, and fill reservations
         for (self.this_frame.items) |item| {
@@ -716,12 +726,13 @@ pub const Manager = struct {
                 defer self.current_window = null;
                 break :blk item.cb.call(.{ .caller_id = item.id_unowned, .constraints = .{ .available_size = .{ .w = filled.size[0], .h = filled.size[1] } } }, {});
             };
-            filled.reservation.for_draw_list.fill(filled.reservation, cb_res, .{});
+            filled.reservation.for_draw_list.fill(filled.reservation, cb_res, .{ .offset = filled.pos });
         }
 
         self.this_frame.clearRetainingCapacity();
 
         self.final_rdl.?.place(rdl, .{});
+        self.id_for_frame = null;
         defer self.final_rdl = null;
         return self.final_rdl.?;
     }
