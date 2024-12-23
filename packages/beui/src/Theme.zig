@@ -212,7 +212,6 @@ pub fn drawFloatingContainer(man: *WM.Manager, frame: WM.WM.FrameID, rdl: *B2.Re
 }
 
 pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2.RepositionableDrawList {
-    _ = size;
     const rdl = b2.draw();
     // loop in reverse because first item = backmost
     var i: usize = man.wm.top_level_windows.items.len;
@@ -221,6 +220,9 @@ pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2
         const win = man.wm.top_level_windows.items[i];
         drawFloatingContainer(man, win, rdl, .{ 10 + (@as(f32, @floatFromInt(i)) * 200), 10 }, .{ 200, 200 });
     }
+
+    // background
+    rdl.addRect(.{ .pos = .{ 0, 0 }, .size = size, .tint = colors.window_bg });
 
     return rdl;
 }
