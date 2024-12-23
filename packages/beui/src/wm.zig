@@ -638,13 +638,14 @@ pub const Manager = struct {
         // clean id_to_final / final_to_id maps of closed windows
         {
             var i: usize = 0;
-            const keys = self.final_to_id_map.keys();
-            const values = self.final_to_id_map.values();
-            while (i < keys.len) {
+            while (i < self.final_to_id_map.keys().len) {
+                const keys = self.final_to_id_map.keys();
+                const values = self.final_to_id_map.values();
                 const final = keys[i];
                 if (!self.wm.existsFrame(final)) {
                     // delete
                     std.debug.assert(self.id_to_final_map.swapRemove(values[i]));
+                    values[i].deinitOwned(self.wm.gpa);
                     self.final_to_id_map.swapRemoveAt(i);
                 } else {
                     i += 1;
@@ -654,8 +655,8 @@ pub const Manager = struct {
         // clean top_level_window_positions_and_sizes of closed windows
         {
             var i: usize = 0;
-            const keys = self.top_level_window_positions_and_sizes.keys();
-            while (i < keys.len) {
+            while (i < self.top_level_window_positions_and_sizes.keys().len) {
+                const keys = self.top_level_window_positions_and_sizes.keys();
                 const final = keys[i];
                 if (!self.wm.existsFrame(final)) {
                     self.top_level_window_positions_and_sizes.swapRemoveAt(i);

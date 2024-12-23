@@ -51,9 +51,33 @@ fn drawWindowFinal(man: *WM.Manager, rdl: *B2.RepositionableDrawList, window_con
         .reservation = slot,
     } };
 }
+fn drawWindowTabbed_closeButtonClicked(data: *CollapseData, _: *B2.Beui2, _: void) void {
+    if (!data.man.wm.existsFrame(data.frame)) return;
+    data.man.wm.removeFrame(data.frame);
+}
 fn drawWindowTabbed_collapseButtonClicked(data: *CollapseData, _: *B2.Beui2, _: void) void {
+    if (!data.man.wm.existsFrame(data.frame)) return;
     const frame = data.man.wm.getFrame(data.frame);
     frame.collapsed = !frame.collapsed;
+}
+fn drawWindowTabbed_closeButtonChild(_: *CollapseData, call_info: B2.StandardCallInfo, btn_state: B2.ButtonState) B2.StandardChild {
+    const ui = call_info.ui(@src());
+    const rdl = ui.id.b2.draw();
+    rdl.addVertices(null, &.{
+        // TODO x shape
+        .{ .pos = .{ 8, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        .{ .pos = .{ 18, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        .{ .pos = .{ 13, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+    }, &.{ 0, 1, 2 });
+    if (btn_state.active) {
+        rdl.addRect(.{
+            .pos = .{ 2, 2 },
+            .size = .{ titlebar_height - 4, titlebar_height - 4 },
+            .tint = colors.window_active_tab,
+            .rounding = .{ .corners = .all, .radius = 6.0 },
+        });
+    }
+    return .{ .rdl = rdl, .size = .{ titlebar_height, titlebar_height } };
 }
 fn drawWindowTabbed_collapseButtonChild(data: *CollapseData, call_info: B2.StandardCallInfo, btn_state: B2.ButtonState) B2.StandardChild {
     const ui = call_info.ui(@src());
@@ -93,6 +117,9 @@ fn drawWindowTabbed(man: *WM.Manager, rdl: *B2.RepositionableDrawList, win: WM.W
     const collapsebtn_data = &(window_id.b2.frame.arena.dupe(CollapseData, &.{
         .{ .man = man, .frame = win },
     }) catch @panic("oom"))[0];
+    const closebtn_data = &(window_id.b2.frame.arena.dupe(CollapseData, &.{
+        .{ .man = man, .frame = current_tab },
+    }) catch @panic("oom"))[0];
     const title = man.render_windows_ctx.getPtr(current_tab).?;
     const text_line_res = B2.textLine(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = offset_size[0], .h = null } } }, .{ .text = title.title });
     // we can replace the manual calculations with:
@@ -102,6 +129,9 @@ fn drawWindowTabbed(man: *WM.Manager, rdl: *B2.RepositionableDrawList, win: WM.W
     }, .from(collapsebtn_data, drawWindowTabbed_collapseButtonChild)).rdl, .{ .offset = offset_pos });
     const btn_height = titlebar_height - 4.0;
     rdl.place(text_line_res.rdl, .{ .offset = .{ offset_pos[0] + border_width * 5, offset_pos[1] + (titlebar_height - text_line_res.size[1]) / 2.0 } });
+    rdl.place(B2.button(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = null, .h = null } } }, .{
+        .onClick = .from(closebtn_data, drawWindowTabbed_closeButtonClicked),
+    }, .from(closebtn_data, drawWindowTabbed_closeButtonChild)).rdl, .{ .offset = .{ offset_pos[0] + border_width * 5 + text_line_res.size[0], offset_pos[1] } });
     rdl.addRect(.{
         .pos = .{ offset_pos[0] + border_width * 4, offset_pos[1] + (titlebar_height - btn_height) / 2.0 },
         .size = .{ text_line_res.size[0] + border_width * 2, btn_height },
