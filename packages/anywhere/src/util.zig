@@ -31,6 +31,41 @@ pub const build = struct {
         std.debug.assert(anyptr.id == @typeName(ty));
         return anyptr.to(ty).*;
     }
+
+    pub const LibcFileOptions = struct {
+        /// The directory that contains `stdlib.h`.
+        /// On POSIX-like systems, include directories be found with: `cc -E -Wp,-v -xc /dev/null`
+        include_dir: ?std.Build.LazyPath,
+        /// The system-specific include directory. May be the same as `include_dir`.
+        /// On Windows it's the directory that includes `vcruntime.h`.
+        /// On POSIX it's the directory that includes `sys/errno.h`.
+        sys_include_dir: ?std.Build.LazyPath,
+        /// The directory that contains `crt1.o` or `crt2.o`.
+        /// On POSIX, can be found with `cc -print-file-name=crt1.o`.
+        /// Not needed when targeting MacOS.
+        crt_dir: ?std.Build.LazyPath,
+        /// The directory that contains `vcruntime.lib`.
+        /// Only needed when targeting MSVC on Windows.
+        msvc_lib_dir: ?std.Build.LazyPath,
+        /// The directory that contains `kernel32.lib`.
+        /// Only needed when targeting MSVC on Windows.
+        kernel32_lib_dir: ?std.Build.LazyPath,
+        /// The directory that contains `crtbeginS.o` and `crtendS.o`
+        /// Only needed when targeting Haiku.
+        gcc_dir: ?std.Build.LazyPath,
+    };
+    pub fn genLibcFile(b: *std.Build, anywhere_dep: *std.Build.Dependency, libc_file_options: LibcFileOptions) std.Build.LazyPath {
+        const make_libc_file = b.addRunArtifact(anywhere_dep.artifact("libc_file_builder"));
+        inline for (@typeInfo(LibcFileOptions).@"struct".fields) |field| {
+            if (@field(libc_file_options, field.name)) |val| {
+                make_libc_file.addPrefixedDirectoryArg(field.name ++ "=", val);
+            } else {
+                make_libc_file.addArg(field.name ++ "=");
+            }
+        }
+        const make_libc_stdout = make_libc_file.captureStdOut();
+        return make_libc_stdout;
+    }
 };
 
 pub fn DistinctUUID(comptime Distinct: type) type {

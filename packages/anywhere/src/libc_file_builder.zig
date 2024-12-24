@@ -12,13 +12,7 @@ pub fn main() !void {
     var output = std.io.getStdOut();
 
     for (args[1..]) |arg| {
-        const eql_pos = std.mem.indexOfScalar(u8, arg, '=') orelse return error.InvalidOrMissingKey;
-        const key = arg[0..eql_pos];
-        const value = arg[eql_pos + 1 ..];
-
-        try output.writeAll(key);
-        try output.writeAll("=");
-        try output.writeAll(value);
+        try output.writeAll(arg);
         try output.writeAll("\n");
     }
 }

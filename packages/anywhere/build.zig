@@ -23,6 +23,14 @@ pub fn build(b: *std.Build) !void {
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(&run_block_tests.step);
+
+    const libc_file_builder = b.addExecutable(.{
+        .name = "libc_file_builder",
+        .target = b.resolveTargetQuery(.{}), // native
+        .optimize = .Debug,
+        .root_source_file = b.path("src/libc_file_builder.zig"),
+    });
+    b.installArtifact(libc_file_builder);
 }
 
 pub const lib = @import("src/anywhere.zig");

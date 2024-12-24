@@ -171,21 +171,15 @@ pub fn build(b: *std.Build) !void {
     const target_info = target_map.get(opts.CMAKE_ANDROID_ARCH_ABI.?) orelse @panic("TODO support android arch abi");
     const SYS_INCLUDE_DIR = b.fmt("{s}/{s}", .{ opts.INCLUDE_DIR.?, target_info.dir });
 
-    const libc_file_builder = b.addExecutable(.{
-        .name = "libc_file_builder",
-        .target = b.resolveTargetQuery(.{}), // native
-        .optimize = .Debug,
-        .root_source_file = b.path("src/libc_file_builder.zig"),
+    const anywhere_dep = b.dependency("anywhere", .{});
+    const make_libc_stdout = anywhere.util.build.genLibcFile(b, anywhere_dep, .{
+        .include_dir = .{ .cwd_relative = opts.INCLUDE_DIR.? },
+        .sys_include_dir = .{ .cwd_relative = SYS_INCLUDE_DIR },
+        .crt_dir = .{ .cwd_relative = opts.CRT1_PATH.? },
+        .msvc_lib_dir = null,
+        .kernel32_lib_dir = null,
+        .gcc_dir = null,
     });
-
-    const make_libc_file = b.addRunArtifact(libc_file_builder);
-    make_libc_file.addPrefixedDirectoryArg("include_dir=", .{ .cwd_relative = opts.INCLUDE_DIR.? });
-    make_libc_file.addPrefixedDirectoryArg("sys_include_dir=", .{ .cwd_relative = SYS_INCLUDE_DIR });
-    make_libc_file.addPrefixedDirectoryArg("crt_dir=", .{ .cwd_relative = opts.CRT1_PATH.? });
-    make_libc_file.addArg("msvc_lib_dir=");
-    make_libc_file.addArg("kernel32_lib_dir=");
-    make_libc_file.addArg("gcc_dir=");
-    const make_libc_stdout = make_libc_file.captureStdOut();
 
     if (_fix_android_libc != null) @panic("android libc twice!!! uh oh  oh oh");
     _fix_android_libc = make_libc_stdout;
