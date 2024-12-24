@@ -1,0 +1,16 @@
+.{
+    .name = "",
+    .version = "0.0.0",
+
+    .dependencies = .{
+        .zig3ds = .{
+            // Run `zig fetch --save git+https://github.com/pfgithub/zig3ds#main`
+            // in your project to replace this.
+            .path = "..",
+        },
+    },
+
+    .paths = .{
+        "",
+    },
+}
