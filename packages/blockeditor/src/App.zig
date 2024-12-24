@@ -9,6 +9,12 @@ const tracy = anywhere.tracy;
 const zgui = anywhere.zgui;
 const B2 = Beui.beui_experiment;
 
+pub const std_options = std.Options{
+    .log_scope_levels = &.{
+        .{ .scope = .emu, .level = .err },
+    },
+};
+
 const App = @This();
 
 const EditorTab = struct {
@@ -143,6 +149,7 @@ pub fn render(self: *App, call_id: B2.ID) void {
         id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Editor View.zig", .from(&tmpdata[0], render__editor));
     }
     id.b2.persistent.wm.addWindow(id.sub(@src()), "File Tree", .from(self, render__tree));
+    id.b2.persistent.wm.addWindow(id.sub(@src()), "Minigamer", .from(&{}, @import("mini.zig").render));
     if (zgui.beginWindow("Bouncing Ball", .{})) {
         defer zgui.endWindow();
 

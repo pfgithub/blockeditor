@@ -368,6 +368,14 @@ pub const Color = struct {
             0xFF,
         } };
     }
+    pub fn fromHexArgb(hex: u32) Color {
+        return .{ .value = .{
+            @truncate(hex >> 16),
+            @truncate(hex >> 8),
+            @truncate(hex >> 0),
+            @truncate(hex >> 24),
+        } };
+    }
 
     pub fn toVec4f(self: Color) @Vector(4, f32) {
         var res: @Vector(4, f32) = @floatFromInt(self.value);

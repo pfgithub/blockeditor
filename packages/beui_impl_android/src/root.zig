@@ -8,7 +8,11 @@ const c = @cImport({
 const Beui = @import("beui").Beui;
 const B2 = Beui.beui_experiment.Beui2;
 const std = @import("std");
-pub const std_options = std.Options{ .logFn = androidLog };
+pub const std_options = blk: {
+    var res: std.Options = if (@hasDecl(App, "std_options")) App.std_options else .{};
+    res.logFn = androidLog;
+    break :blk res;
+};
 pub fn androidLog(
     comptime message_level: std.log.Level,
     comptime scope: @Type(.enum_literal),

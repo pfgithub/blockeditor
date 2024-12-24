@@ -13,6 +13,11 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&format_step.step);
 
+    const emu_mod = b.createModule(.{
+        .root_source_file = b.dependency("minigamer_emulator", .{}).path("src/emu.zig"),
+    });
+    const sponge_mod = b.createModule(.{ .root_source_file = b.dependency("minigamer_sponge", .{ .optimize = .ReleaseFast }).artifact("sponge.cart").getEmittedBin() });
+
     const anywhere_mod = b.dependency("anywhere", .{}).module("anywhere");
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
@@ -27,6 +32,8 @@ pub fn build(b: *std.Build) !void {
             .{ .name = "blocks", .module = blocks_dep.module("blocks") },
             .{ .name = "blocks_net", .module = blocks_net_dep.module("client") },
             .{ .name = "beui", .module = beui_dep.module("beui") },
+            .{ .name = "minigamer", .module = emu_mod },
+            .{ .name = "sponge.cart", .module = sponge_mod },
         },
     });
 
@@ -39,6 +46,8 @@ pub fn build(b: *std.Build) !void {
     app_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
     app_test.root_module.addImport("blocks_net", blocks_net_dep.module("client"));
     app_test.root_module.addImport("beui", beui_dep.module("beui"));
+    app_test.root_module.addImport("minigamer", emu_mod);
+    app_test.root_module.addImport("sponge.cart", sponge_mod);
     if (opts.platform != .android) b.installArtifact(app_test);
 
     const app_test_run = b.addRunArtifact(app_test);

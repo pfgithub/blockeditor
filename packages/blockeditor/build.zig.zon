@@ -10,5 +10,8 @@
         .beui = .{ .path = "../beui" },
         .beui_app = .{ .path = "../beui_app" },
         .anywhere = .{ .path = "../anywhere" },
+
+        .minigamer_emulator = .{ .path = "../minigamer/emulator" },
+        .minigamer_sponge = .{ .path = "../minigamer/sponge" },
     },
 }

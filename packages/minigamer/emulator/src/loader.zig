@@ -3,6 +3,8 @@ const util = @import("util.zig");
 
 const rvemu = @import("rvemu.zig");
 
+const log = std.log.scoped(.emu);
+
 // based on std.DynLib (ElfDynLib)
 // since we're emitting an exe, we'll need to find the start address
 // which is different than what ElfDynLib does
@@ -20,8 +22,8 @@ pub fn loadElf(file: []align(@alignOf(u128)) const u8, mem_out: []align(@alignOf
 
     if (!std.mem.eql(u8, eh.e_ident[0..4], std.elf.MAGIC)) return error.NotElfFile;
     if (eh.e_machine != .RISCV) return error.BadMachine;
-    std.log.info("eh_ident: `{s}`", .{eh.e_ident});
-    std.log.info("eh: {any}", .{eh.*});
+    log.info("eh_ident: `{s}`", .{eh.e_ident});
+    log.info("eh: {any}", .{eh.*});
 
     // var maybe_phdr: ?*const std.elf.Elf32_Phdr = null;
     var virt_addr_start: u32 = std.math.maxInt(u32);
@@ -69,17 +71,17 @@ pub fn loadElf(file: []align(@alignOf(u128)) const u8, mem_out: []align(@alignOf
                 "PT_HIPROC",
             }) |pt| {
                 if (ph.p_type == @field(std.elf, pt)) {
-                    std.log.info("pt: {s}", .{pt});
+                    log.info("pt: {s}", .{pt});
                     break;
                 }
             } else {
-                std.log.info("pt: {d}", .{ph.p_type});
+                log.info("pt: {d}", .{ph.p_type});
             }
         }
     }
     if (virt_addr_end > mem_out.len) return error.ElfTooBig;
-    std.log.info("virt addr space: {d} / {d}", .{ virt_addr_start, virt_addr_end });
-    std.log.info("start addr: {d}", .{eh.e_entry});
+    log.info("virt addr space: {d} / {d}", .{ virt_addr_start, virt_addr_end });
+    log.info("start addr: {d}", .{eh.e_entry});
 
     // load the data
     {
@@ -103,7 +105,7 @@ pub fn loadElf(file: []align(@alignOf(u128)) const u8, mem_out: []align(@alignOf
 
                     const bytes = file[ph.p_offset..][0..file_size];
                     if (ph.p_vaddr + mem_size > mem_out.len) return error.LoadOutOfRange;
-                    std.log.info("load bytes: {d}/{d} -> {d}/{d}", .{ ph.p_offset, file_size, ph.p_vaddr, file_size });
+                    log.info("load bytes: {d}/{d} -> {d}/{d}", .{ ph.p_offset, file_size, ph.p_vaddr, file_size });
                     @memcpy(mem_out[ph.p_vaddr..][0..file_size], bytes);
                     for (file_size..mem_size) |ii| {
                         if (mem_out[ph.p_vaddr + ii] != 0) return error.Neq0;
@@ -116,7 +118,7 @@ pub fn loadElf(file: []align(@alignOf(u128)) const u8, mem_out: []align(@alignOf
             }
         }
     }
-    std.log.info("load success!", .{});
+    log.info("load success!", .{});
 
     return .{
         .main_ptr = eh.e_entry,

@@ -20,6 +20,8 @@ const wgpu = zgpu.wgpu;
 const zgui = @import("zgui");
 const zm = @import("zmath");
 
+pub const std_options = if (@hasDecl(App, "std_options")) App.std_options else std.Options{};
+
 /// TODO: allow skipping frames. to do this we need to:
 /// - disable zgui, it dosen't like it
 /// - figure out why it takes 7 frames for the first render?

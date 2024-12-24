@@ -8,7 +8,11 @@ extern fn @"web:console.error"(msg: [*]const u8, len: usize) void;
 const Beui = @import("beui").Beui;
 const B2 = Beui.beui_experiment.Beui2;
 const std = @import("std");
-pub const std_options = std.Options{ .logFn = webLog };
+pub const std_options = blk: {
+    var res: std.Options = if (@hasDecl(App, "std_options")) App.std_options else .{};
+    res.logFn = webLog;
+    break :blk res;
+};
 pub fn webLog(
     comptime message_level: std.log.Level,
     comptime scope: @Type(.enum_literal),
