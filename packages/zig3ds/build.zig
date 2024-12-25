@@ -188,26 +188,19 @@ pub fn build(b: *std.Build) !void {
     });
 
     // newlib (libc)
-    const crt1 = b.addObject(.{
-        .name = "crt1",
-        .target = target_3ds,
-        .optimize = optimize,
-    });
-    libc_includer.applyTo(&crt1.root_module);
-    crt1.addCSourceFiles(.{
-        .root = newlib_dep.path("newlib/libc"),
-        .files = newlib_libc_files,
-        .flags = build_helper.cflags,
-    });
-    crt1.addAssemblyFile(crtls_dep.path("3dsx_crt0.s"));
-    crt1.addObject(libgloss_libsysbase);
-
     const libc = b.addStaticLibrary(.{
         .name = "c",
         .target = target_3ds,
         .optimize = optimize,
     });
-    libc.addObject(crt1);
+    libc_includer.applyTo(&libc.root_module);
+    libc.addCSourceFiles(.{
+        .root = newlib_dep.path("newlib/libc"),
+        .files = newlib_libc_files,
+        .flags = build_helper.cflags,
+    });
+    libc.addAssemblyFile(crtls_dep.path("3dsx_crt0.s"));
+    libc.addObject(libgloss_libsysbase);
     b.installArtifact(libc);
 
     const libc_file: std.Build.LazyPath = anywhere.util.build.genLibCFile(b, anywhere_dep, .{
@@ -1299,7 +1292,7 @@ const newlib_libc_files = &[_][]const u8{
     "stdio/vfprintf.c",
     // "stdio/vfscanf.c",
     "stdio/vfwprintf.c",
-    "stdio/vfwscanf.c",
+    // "stdio/vfwscanf.c",
     "stdio/viprintf.c",
     // "stdio/viscanf.c",
     "stdio/vprintf.c",

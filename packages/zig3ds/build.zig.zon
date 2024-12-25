@@ -3,7 +3,7 @@
     .version = "0.0.0",
 
     .dependencies = .{
-        .anywhere = .{.path = "../anywhere"},
+        .anywhere = .{ .path = "../anywhere" },
 
         .@"3dstools" = .{
             .url = "https://github.com/devkitPro/3dstools/archive/718d6f2330dbef9dd5726573392425dcbd451677.tar.gz",
