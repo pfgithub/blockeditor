@@ -1,4 +1,5 @@
 // https://github.com/hexops/mach/blob/8eb2da1044678d84a0a96fd92e5b72e51958dfd8/src/gfx/atlas/Atlas.zig
+// LOCAL EDITS MADE! wrapped in <LOCAL-EDIT /> re-apply them after updating this code if needed
 
 const Atlas = @This();
 
@@ -71,23 +72,17 @@ pub const Region = extern struct {
     height: u32,
 
     pub const UV = extern struct {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
+        pos: @Vector(2, f32),
+        size: @Vector(2, f32),
     };
 
     pub inline fn calculateUV(r: Region, size: u32) UV {
         var uv = UV{
-            .x = @floatFromInt(r.x),
-            .y = @floatFromInt(r.y),
-            .width = @floatFromInt(r.width),
-            .height = @floatFromInt(r.height),
+            .pos = .{ @floatFromInt(r.x), @floatFromInt(r.y) },
+            .size = .{ @floatFromInt(r.width), @floatFromInt(r.height) },
         };
-        uv.x /= @floatFromInt(size);
-        uv.y /= @floatFromInt(size);
-        uv.width /= @floatFromInt(size);
-        uv.height /= @floatFromInt(size);
+        uv.pos /= @splat(@floatFromInt(size));
+        uv.size /= @splat(@floatFromInt(size));
         return uv;
     }
 };
@@ -128,7 +123,9 @@ pub fn reserve(self: *Atlas, alloc: Allocator, width: u32, height: u32) !Region 
     // If our width/height are 0, then we return the region as-is. This
     // may seem like an error case but it simplifies downstream callers who
     // might be trying to write empty data.
-    if (width == 0 and height == 0) return region;
+    // <LOCAL-EDIT> 'and' changed to 'or'
+    if (width == 0 or height == 0) return region;
+    // </LOCAL-EDIT>
 
     // Find the location in our nodes list to insert the new node for this region.
     const best_idx: usize = best_idx: {

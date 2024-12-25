@@ -14,8 +14,9 @@ const Beui = @import("Beui.zig");
 // probably saves on some bytes, who knows if it's faster though.
 
 pub const RenderListImage = enum(u64) {
-    beui_font,
-    editor_view_glyphs,
+    grayscale,
+    rgb,
+    rgba,
     _,
 };
 pub const RenderListIndex = u16;

@@ -22,27 +22,27 @@ pub const Image = struct {
     modified: bool,
     pub const Format = enum {
         grayscale,
-        rgb,
+        // rgb,
         rgba,
         fn nchannels(format: Format) usize {
             return switch (format) {
                 .grayscale => 1,
-                .rgb => 3,
+                // .rgb => 3,
                 .rgba => 4,
             };
         }
     };
 
     /// must fill image.mutate() after creating the image! otherwise it's uninitialized!
-    pub fn create(b2: *B2.Beui2, size: @Vector(2, u16), format: Format) *Image {
+    pub fn create(gpa: std.mem.Allocator, size: @Vector(2, u16), format: Format) *Image {
         const npx = @as(usize, size[0]) * @as(usize, size[1]) * format.nchannels();
-        const image = b2.persistent.gpa.create(Image) catch @panic("oom");
+        const image = gpa.create(Image) catch @panic("oom");
         _image_id += 1;
         image.* = .{
             ._image_id = @enumFromInt(_image_id),
             .size = size,
             .format = format,
-            .contents = b2.persistent.gpa.alignedAlloc(u8, @alignOf(u32), npx) catch @panic("oom"),
+            .contents = gpa.alignedAlloc(u8, @alignOf(u32), npx) catch @panic("oom"),
         };
         return image;
     }
@@ -50,34 +50,91 @@ pub const Image = struct {
         self.modified = true;
         return @constCast(self.contents);
     }
-    pub fn destroy(self: *Image, b2: *B2.Beui2) void {
-        b2.persistent.gpa.free(self.contents);
-        b2.persistent.gpa.destroy(self);
+    pub fn destroy(self: *Image, gpa: std.mem.Allocator) void {
+        gpa.free(self.contents);
+        gpa.destroy(self);
     }
 };
 
-// here's how it works:
-// - store your image in a state - Image.create(width, height), Image.fill(value), ...
-// - add the item to an rdl containing your image
-// - at rdl expansion time:
-//   - here, we add the images to the cache
-//   - if we run out of space in the cache, flag the cache for regeneration next frame
-
 pub const Cache = struct {
     caches: std.EnumArray(Image.Format, OneFormatCache),
+
+    pub fn init(gpa: std.mem.Allocator) Cache {
+        return .{
+            .caches = .init(.{
+                .grayscale = .init(gpa, .grayscale),
+                // .rgb = .init(gpa, .rgb),
+                .rgba = .init(gpa, .rgba),
+            }),
+        };
+    }
+    pub fn deinit(self: *Cache) void {
+        for (&self.caches.values) |*v| v.deinit();
+    }
+
+    pub fn notifyFrameStart(self: *Cache) void {
+        for (&self.caches.values) |*v| v.notifyFrameStart();
+    }
+    pub fn getImageUVOnRenderFromRdl(self: *Cache, image: *Image) Texpack.Region.UV {
+        return self.caches.getPtr(image.format).getImageUVOnRenderFromRdl(image);
+    }
 };
 pub const OneFormatCache = struct {
+    gpa: std.mem.Allocator,
     texpack: Texpack,
     image_id_to_region_map: std.AutoArrayHashMapUnmanaged(Image.ID, Texpack.Region),
-    // ^ can't use *Image as the key because image destroy() doesn't notify the cache
+    full_last_frame: bool,
 
     pub fn init(gpa: std.mem.Allocator, format: Image.Format) OneFormatCache {
         return .{
+            .gpa = gpa,
             .texpack = Texpack.init(gpa, 2048, switch (format) {
                 .grayscale => .greyscale,
-                .rgb => .rgb,
+                // .rgb => .rgb,
                 .rgba => .rgba,
-            }),
+            }) catch @panic("oom"),
+            .image_id_to_region_map = .empty,
+            .full_last_frame = false,
         };
+    }
+    pub fn deinit(self: *OneFormatCache) void {
+        self.texpack.deinit(self.gpa);
+        self.image_id_to_region_map.deinit(self.gpa);
+    }
+
+    pub fn notifyFrameStart(self: *OneFormatCache) void {
+        if (self.full_last_frame) {
+            std.log.warn("clearing oneformatcache", .{});
+            self.texpack.clear();
+            self.image_id_to_region_map.clearRetainingCapacity();
+        }
+    }
+    fn _reserve(self: *OneFormatCache, image: *Image) ?Texpack.Region {
+        // reserve the image
+        const reservation = self.texpack.reserve(self.gpa, image.size[0], image.size[1]) catch return null;
+        // save
+        self.image_id_to_region_map.put(self.gpa, image.id, reservation);
+        return reservation;
+    }
+    const none_uv = Texpack.Region.UV{ .size = .{ 0, 0 }, .pos = .{ -1, -1 } };
+    pub fn getImageUVOnRenderFromRdl(self: *OneFormatCache, image: *Image) Texpack.Region.UV {
+        if (@reduce(.Or, image.size > @as(@Vector(2, u16), @splat(@intCast(self.texpack.size / 2))))) return none_uv; // don't even try;
+        if (@reduce(.Or, image.size == @as(@Vector(2, u16), @splat(0)))) return none_uv;
+        if (self.image_id_to_region_map.getPtr(image.id)) |*region| {
+            if (image.modified) {
+                self.texpack.set(region.*, image.contents);
+                image.modified = false;
+            }
+            return region.calculateUV(self.texpack.size);
+        } else {
+            const reservation = self._reserve(image) orelse {
+                // failed to reserve
+                self.full_last_frame = true;
+                return none_uv;
+            };
+            self.texpack.set(reservation, image.contents);
+            image.modified = false;
+            return reservation.calculateUV(self.texpack.size);
+        }
     }
 };

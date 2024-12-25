@@ -361,7 +361,7 @@ fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) *B2.Re
         .size = .{ 2048, 2048 },
         .uv_pos = .{ 0, 0 },
         .uv_size = .{ 1, 1 },
-        .image = .editor_view_glyphs,
+        .image = .grayscale,
     });
     rdl.addRect(.{
         .pos = .{ 0, 0 },

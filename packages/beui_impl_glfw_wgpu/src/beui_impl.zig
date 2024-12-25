@@ -6,6 +6,7 @@ const anywhere = @import("anywhere");
 const tracy = anywhere.tracy;
 const build_options = @import("build_options");
 const App = @import("app");
+const ImageCache = B2.ImageCache;
 const using_zgui = true;
 
 // TODO:
@@ -169,6 +170,10 @@ const UniformsRes = genUniforms(extern struct {
     screen_size: @Vector(2, f32),
 });
 
+const TextureAndView = struct {
+    texture: zgpu.TextureHandle,
+    view: zgpu.TextureViewHandle,
+};
 const DemoState = struct {
     gctx: *zgpu.GraphicsContext,
 
@@ -181,11 +186,11 @@ const DemoState = struct {
 
     bind_group_layout: zgpu.BindGroupLayoutHandle,
 
-    texture_2: ?zgpu.TextureHandle = null,
-    texture_view_2: ?zgpu.TextureViewHandle = null,
-
-    texture: zgpu.TextureHandle,
-    texture_view: zgpu.TextureViewHandle,
+    images: std.EnumArray(ImageCache.Image.Format, ?TextureAndView) = .init(.{
+        .grayscale = null,
+        // .rgb = null,
+        .rgba = null,
+    }),
     sampler: zgpu.SamplerHandle,
 };
 
@@ -207,10 +212,6 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
     );
     errdefer gctx.destroy(gpa);
 
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
     const bind_group_layout = gctx.createBindGroupLayout(&.{
         zgpu.bufferEntry(0, .{ .vertex = true, .fragment = true }, .uniform, true, 0),
         zgpu.textureEntry(1, .{ .fragment = true }, .float, .tvdim_2d, false),
@@ -218,37 +219,6 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
     });
     errdefer gctx.releaseResource(bind_group_layout);
 
-    const image = default_image;
-    const imgw = 256;
-    const imgh = 256;
-    const imgc = 1;
-
-    // Create a texture.
-    const texture = gctx.createTexture(.{
-        .usage = .{ .texture_binding = true, .copy_dst = true },
-        .size = .{
-            .width = imgw,
-            .height = imgh,
-            .depth_or_array_layers = 1,
-        },
-        .format = .r8_unorm,
-        // not implemented for r8_unorm
-        // .mip_level_count = math.log2_int(u32, @max(imgw, imgh)) + 1,
-    });
-    const texture_view = gctx.createTextureView(texture, .{});
-
-    gctx.queue.writeTexture(
-        .{ .texture = gctx.lookupResource(texture).? },
-        .{
-            .bytes_per_row = imgw * imgc,
-            .rows_per_image = imgh,
-        },
-        .{ .width = imgw, .height = imgh },
-        u8,
-        image,
-    );
-
-    // Create a sampler.
     const sampler = gctx.createSampler(.{});
 
     const demo = try gpa.create(DemoState);
@@ -256,23 +226,9 @@ fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         .gctx = gctx,
         .vertex_buffer = null,
         .index_buffer = null,
-        .texture = texture,
-        .texture_view = texture_view,
         .bind_group_layout = bind_group_layout,
         .sampler = sampler,
     };
-
-    // Generate mipmaps on the GPU.
-    const commands = commands: {
-        const encoder = gctx.device.createCommandEncoder(null);
-        defer encoder.release();
-
-        gctx.generateMipmaps(arena, encoder, demo.texture);
-
-        break :commands encoder.finish(null);
-    };
-    defer commands.release();
-    gctx.submit(&.{commands});
 
     // (Async) Create a render pipeline.
     {
@@ -339,7 +295,7 @@ fn update(demo: *DemoState) void {
     _ = zgui.DockSpaceOverViewport(0, zgui.getMainViewport(), .{ .passthru_central_node = true });
 }
 
-fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beui.Texpack, frame_timer: *std.time.Timer, last_frame_time: *u64, add_us: u64) void {
+fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, b2: *B2.Beui2, frame_timer: *std.time.Timer, last_frame_time: *u64, add_us: u64) void {
     const b2ft = tracy.traceNamed(@src(), "draw & wait");
     defer b2ft.end();
 
@@ -347,44 +303,53 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
     const fb_width = gctx.swapchain_descriptor.width;
     const fb_height = gctx.swapchain_descriptor.height;
 
-    if (demo.texture_2 == null) {
-        const b2ft1 = tracy.traceNamed(@src(), "create texture_2");
-        defer b2ft1.end();
-        texture_2_src.modified = true;
+    for (&demo.images.values, &b2.persistent.image_cache.caches.values) |*value, *oneformatcache| {
+        if (value.* == null) {
+            const b2ft1 = tracy.traceNamed(@src(), "create texture");
+            defer b2ft1.end();
+            const texpack = &oneformatcache.texpack;
+            texpack.modified = true;
 
-        demo.texture_2 = gctx.createTexture(.{
-            .usage = .{ .texture_binding = true, .copy_dst = true },
-            .size = .{
-                .width = texture_2_src.size,
-                .height = texture_2_src.size,
-                .depth_or_array_layers = texture_2_src.format.depth(),
-            },
-            .format = switch (texture_2_src.format) {
-                .greyscale => .r8_unorm,
-                .rgb => @panic("TODO rgb"),
-                .rgba => .rgba8_unorm,
-            },
-        });
+            const tex = gctx.createTexture(.{
+                .usage = .{ .texture_binding = true, .copy_dst = true },
+                .size = .{
+                    .width = texpack.size,
+                    .height = texpack.size,
+                    .depth_or_array_layers = texpack.format.depth(),
+                },
+                .format = switch (texpack.format) {
+                    .greyscale => .r8_unorm,
+                    .rgb => @panic("maybe rgb isn't real?"),
+                    .rgba => .rgba8_unorm,
+                },
+            });
+            const view = gctx.createTextureView(tex, .{});
+
+            value.* = .{
+                .texture = tex,
+                .view = view,
+            };
+        }
     }
-    if (demo.texture_view_2 == null) {
-        const b2ft1 = tracy.traceNamed(@src(), "create texture_view_2");
+    for (&demo.images.values, &b2.persistent.image_cache.caches.values) |*value_in, *oneformatcache| {
+        const value = &value_in.*.?;
+        const b2ft1 = tracy.traceNamed(@src(), "write texture");
         defer b2ft1.end();
-        demo.texture_view_2 = gctx.createTextureView(demo.texture_2.?, .{});
-    }
-    if (texture_2_src.modified) {
-        const b2ft1 = tracy.traceNamed(@src(), "write texture_2");
-        defer b2ft1.end();
-        gctx.queue.writeTexture(
-            .{ .texture = gctx.lookupResource(demo.texture_2.?).? },
-            .{
-                .bytes_per_row = texture_2_src.size * texture_2_src.format.depth(),
-                .rows_per_image = texture_2_src.size,
-            },
-            .{ .width = texture_2_src.size, .height = texture_2_src.size },
-            u8,
-            texture_2_src.data,
-        );
-        texture_2_src.modified = false;
+        const texpack = &oneformatcache.texpack;
+
+        if (texpack.modified) {
+            texpack.modified = false;
+            gctx.queue.writeTexture(
+                .{ .texture = gctx.lookupResource(value.texture).? },
+                .{
+                    .bytes_per_row = texpack.size * texpack.format.depth(),
+                    .rows_per_image = texpack.size,
+                },
+                .{ .width = texpack.size, .height = texpack.size },
+                u8,
+                texpack.data,
+            );
+        }
     }
 
     const back_buffer_view = blk: {
@@ -490,11 +455,14 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, texture_2_src: *Beu
             for (draw_list.commands.items) |command| {
                 const bind_group_handle = gctx.createBindGroup(demo.bind_group_layout, &.{
                     .{ .binding = 0, .buffer_handle = gctx.uniforms.buffer, .offset = 0, .size = 256 },
-                    .{ .binding = 1, .texture_view_handle = switch (command.image orelse .beui_font) {
-                        .beui_font => demo.texture_view,
-                        .editor_view_glyphs => demo.texture_view_2.?,
-                        else => demo.texture_view,
-                    } },
+                    .{
+                        .binding = 1,
+                        .texture_view_handle = switch (command.image orelse .grayscale) {
+                            // .rgb => demo.images.getPtr(.rgb).*.?.view,
+                            .rgba => demo.images.getPtr(.rgba).*.?.view,
+                            else => demo.images.getPtr(.grayscale).*.?.view,
+                        },
+                    },
                     .{ .binding = 2, .sampler_handle = demo.sampler },
                 });
                 defer demo.gctx.releaseResource(bind_group_handle);
@@ -935,7 +903,7 @@ pub fn main() !void {
         }
         zgui.end();
 
-        draw(demo, &draw_list, &b2.persistent.layout_cache.glyphs, &frame_timer, &last_frame_time, add_us);
+        draw(demo, &draw_list, &b2, &frame_timer, &last_frame_time, add_us);
         frame_num += 1;
     }
 }

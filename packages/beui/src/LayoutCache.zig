@@ -265,10 +265,10 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
             const br = ul + glyph_size;
 
             const uv = region.calculateUV(self.glyphs.size);
-            const uv_ul: @Vector(2, f32) = .{ uv.x, uv.y };
-            const uv_ur: @Vector(2, f32) = .{ uv.x + uv.width, uv.y };
-            const uv_bl: @Vector(2, f32) = .{ uv.x, uv.y + uv.height };
-            const uv_br: @Vector(2, f32) = .{ uv.x + uv.width, uv.y + uv.height };
+            const uv_ul: @Vector(2, f32) = .{ uv.pos[0], uv.pos[1] };
+            const uv_ur: @Vector(2, f32) = .{ uv.pos[0] + uv.size[0], uv.pos[1] };
+            const uv_bl: @Vector(2, f32) = .{ uv.pos[0], uv.pos[1] + uv.size[1] };
+            const uv_br: @Vector(2, f32) = .{ uv.pos[0] + uv.size[0], uv.pos[1] + uv.size[1] };
 
             const tint: Beui.Color = .fromHexRgb(0xFFFFFF);
 
@@ -314,7 +314,7 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
     const is_multiline = cursor_pos[1] != 0.0;
 
     return .{
-        .image = .editor_view_glyphs,
+        .image = .grayscale,
         .vertices = vertices.toOwnedSlice() catch @panic("oom"),
         .indices = indices.toOwnedSlice() catch @panic("oom"),
         .cursor_positions = line_state,

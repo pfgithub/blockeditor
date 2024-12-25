@@ -529,7 +529,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
                         .pos = cursor_pos + item_offset + glyph_offset,
                         .size = glyph_size,
                         .region = region,
-                        .image = .editor_view_glyphs,
+                        .image = .grayscale,
                         .image_size = layout_cache.glyphs.size,
                         .tint = tint,
                     });
@@ -549,7 +549,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
                     .pos = cursor_pos + item_offset + glyph_offset,
                     .size = glyph_size,
                     .region = region,
-                    .image = .editor_view_glyphs,
+                    .image = .grayscale,
                     .image_size = layout_cache.glyphs.size,
                     .tint = DefaultTheme.synHlColor(tint),
                 });

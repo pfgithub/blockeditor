@@ -7,6 +7,7 @@ const util = @import("anywhere").util;
 const LayoutCache = @import("LayoutCache.zig");
 pub const Theme = @import("Theme.zig");
 pub const WM = @import("wm.zig");
+pub const ImageCache = @import("ImageCache.zig");
 
 pub fn IdMap(comptime V: type) type {
     const IDContext = struct {
@@ -107,6 +108,7 @@ const Beui2Persistent = struct {
     this_frame_ids: IdMap(void),
     click_target: ?ID = null,
     state2_storage: IdArrayMap(Beui2.StateInfo),
+    image_cache: ImageCache.Cache,
 
     frame_num: u64 = 10,
 
@@ -153,6 +155,7 @@ pub const Beui2 = struct {
                 .prev_frame_draw_list_states = .init(gpa),
                 .this_frame_ids = .init(gpa),
                 .state2_storage = .init(gpa),
+                .image_cache = .init(gpa),
 
                 .verdana_ttf = verdana_ttf,
                 .layout_cache = .init(gpa, font),
@@ -172,6 +175,7 @@ pub const Beui2 = struct {
                 a[i].deinit(self); // only gpa is used so it's ok to pass self in here
             }
         }
+        self.persistent.image_cache.deinit();
         self.persistent.state2_storage.deinit();
         self.persistent.wm.deinit();
         self.persistent.prev_frame_draw_list_states.deinit();
@@ -381,6 +385,8 @@ pub const Beui2 = struct {
         self.persistent.draw_lists.clearRetainingCapacity();
         if (self.persistent.id_scopes.items.len != 0) @panic("not all scopes were popped last frame. maybe missing popScope()?");
         self.persistent.last_frame_mouse_events.clearRetainingCapacity();
+
+        self.persistent.image_cache.notifyFrameStart();
 
         self.persistent.this_frame_ids.clearRetainingCapacity();
         self.persistent.current_arena +%= 1;
@@ -843,10 +849,18 @@ pub const RepositionableDrawList = struct {
             .type_id = @typeName(StateT),
         } }) catch @panic("oom");
     }
+    //  if (image) |img| {
+    //     const image_uv = self.b2.persistent.image_cache.getImageUVOnRenderFromRdl(img);
+    //     for (vertices_dupe) |*vertex| {
+    //         vertex.uv = vertex.uv / image_uv.size + image_uv.pos;
+    //     }
+    // }
     pub fn addVertices(self: *RepositionableDrawList, image: ?render_list.RenderListImage, vertices: []const render_list.RenderListVertex, indices: []const render_list.RenderListIndex) void {
+        const vertices_dupe = self.b2.frame.arena.dupe(render_list.RenderListVertex, vertices) catch @panic("oom");
+
         self.content.append(.{
             .geometry = .{
-                .vertices = self.b2.frame.arena.dupe(render_list.RenderListVertex, vertices) catch @panic("oom"),
+                .vertices = vertices_dupe,
                 .indices = self.b2.frame.arena.dupe(render_list.RenderListIndex, indices) catch @panic("oom"),
                 .image = image,
             },
@@ -864,8 +878,8 @@ pub const RepositionableDrawList = struct {
         return self.addRect(.{
             .pos = opts.pos,
             .size = opts.size,
-            .uv_pos = .{ uv.x, uv.y },
-            .uv_size = .{ uv.width, uv.height },
+            .uv_pos = .{ uv.pos[0], uv.pos[1] },
+            .uv_size = .{ uv.size[0], uv.size[1] },
             .image = opts.image,
             .tint = opts.tint,
         });
