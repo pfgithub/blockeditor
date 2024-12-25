@@ -290,7 +290,8 @@ pub const Beui2 = struct {
 
     pub fn newFrame(self: *Beui2, frame_cfg: Beui2FrameCfg) ID {
         const beui = self.persistent.beui1;
-        self.persistent.layout_cache.tick(beui);
+        self.persistent.image_cache.notifyFrameStart();
+        self.persistent.layout_cache.tick(self);
         self.commitMouseMoveEvents();
         self.persistent.last_frame_mouse2_events.clearRetainingCapacity();
         if (self.persistent.mouse_focus) |*mf| mf.* = mf.refresh();
@@ -385,8 +386,6 @@ pub const Beui2 = struct {
         self.persistent.draw_lists.clearRetainingCapacity();
         if (self.persistent.id_scopes.items.len != 0) @panic("not all scopes were popped last frame. maybe missing popScope()?");
         self.persistent.last_frame_mouse_events.clearRetainingCapacity();
-
-        self.persistent.image_cache.notifyFrameStart();
 
         self.persistent.this_frame_ids.clearRetainingCapacity();
         self.persistent.current_arena +%= 1;

@@ -84,6 +84,7 @@ pub const OneFormatCache = struct {
     texpack: Texpack,
     image_id_to_region_map: std.AutoArrayHashMapUnmanaged(Image.ID, Texpack.Region),
     full_last_frame: bool,
+    just_cleared: bool = false,
 
     pub fn init(gpa: std.mem.Allocator, format: Image.Format) OneFormatCache {
         return .{
@@ -103,10 +104,14 @@ pub const OneFormatCache = struct {
     }
 
     pub fn notifyFrameStart(self: *OneFormatCache) void {
+        self.just_cleared = false;
         if (self.full_last_frame) {
             std.log.warn("clearing oneformatcache", .{});
             self.texpack.clear();
             self.image_id_to_region_map.clearRetainingCapacity();
+            self.just_cleared = true;
+            // TODO: add a cooldown for the next time it's allowed to clear
+            // because otherwise it will lag really bad
         }
     }
     fn _reserve(self: *OneFormatCache, image: *Image) ?Texpack.Region {

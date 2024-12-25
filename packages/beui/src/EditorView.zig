@@ -93,7 +93,7 @@ pub fn deinit(self: *EditorView) void {
     self.core.deinit();
 }
 
-fn layoutLine(self: *EditorView, beui: *Beui, layout_cache: *LayoutCache, line_middle: Core.Position) LayoutCache.LayoutInfo {
+fn layoutLine(self: *EditorView, b2: *B2.Beui2, layout_cache: *LayoutCache, line_middle: Core.Position) LayoutCache.LayoutInfo {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
@@ -111,7 +111,7 @@ fn layoutLine(self: *EditorView, beui: *Beui, layout_cache: *LayoutCache, line_m
         self.core.document.value.readSlice(line_start, self._layout_temp_al.addManyAsSlice(@intCast(line_len)) catch @panic("oom"));
     }
 
-    return layout_cache.layoutLine(beui, self._layout_temp_al.items);
+    return layout_cache.layoutLine(b2, self._layout_temp_al.items);
 }
 
 pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.StandardChild {
@@ -472,7 +472,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
     // - then, when rendering, we know where to break at without having to do any backtracking. it's still
     //   O(n) but now it's O(2n) because we loop twice.
 
-    const layout_test = self.layoutLine(ctx.beui, layout_cache, line_to_render);
+    const layout_test = self.layoutLine(ui.id.b2, layout_cache, line_to_render);
     const line_start_docbyte = block.docbyteFromPosition(line_to_render);
     const rendered_area_end_docbyte = block.docbyteFromPosition(self.core.getNextLineStart(line_to_render));
     const rendered_area_len = rendered_area_end_docbyte - line_start_docbyte;
@@ -520,7 +520,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
             if (start_docbyte_selected) {
                 const tint = DefaultTheme.synHlColor(.invisible);
 
-                const invis_glyph_info = layout_cache.renderGlyph(invis_glyph, layout_test.height);
+                const invis_glyph_info = layout_cache.renderGlyph(ui.id.b2, invis_glyph, layout_test.height);
                 if (invis_glyph_info.region) |region| {
                     const glyph_size: @Vector(2, f32) = @floatFromInt(invis_glyph_info.size);
                     const glyph_offset: @Vector(2, f32) = invis_glyph_info.offset;
@@ -530,13 +530,13 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
                         .size = glyph_size,
                         .region = region,
                         .image = .grayscale,
-                        .image_size = layout_cache.glyphs.size,
+                        .image_size = LayoutCache.getGlyphs(ui.id.b2).texpack.size,
                         .tint = tint,
                     });
                 }
             }
         } else {
-            const glyph_info = layout_cache.renderGlyph(item.glyph_id, layout_test.height);
+            const glyph_info = layout_cache.renderGlyph(ui.id.b2, item.glyph_id, layout_test.height);
             if (glyph_info.region) |region| {
                 const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
                 const glyph_offset: @Vector(2, f32) = glyph_info.offset;
@@ -550,7 +550,7 @@ fn gui_renderLine(ctx: *GuiRenderLineCtx, call_info: B2.StandardCallInfo, index:
                     .size = glyph_size,
                     .region = region,
                     .image = .grayscale,
-                    .image_size = layout_cache.glyphs.size,
+                    .image_size = LayoutCache.getGlyphs(ui.id.b2).texpack.size,
                     .tint = DefaultTheme.synHlColor(tint),
                 });
             }

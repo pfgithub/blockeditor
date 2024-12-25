@@ -31,9 +31,7 @@ rendered_line_cache: std.ArrayHashMap(RenderedLineKey, TextLine, RenderedLineCon
 layout_cache: std.StringArrayHashMap(LayoutInfo),
 font: Font,
 gpa: std.mem.Allocator,
-glyphs: Beui.Texpack,
 glyph_cache: std.AutoHashMap(u32, GlyphCacheEntry),
-glyphs_cache_full: bool,
 
 pub fn init(gpa: std.mem.Allocator, font: Font) LayoutCache {
     return .{
@@ -41,9 +39,7 @@ pub fn init(gpa: std.mem.Allocator, font: Font) LayoutCache {
         .layout_cache = .init(gpa),
         .font = font,
         .gpa = gpa,
-        .glyphs = Beui.Texpack.init(gpa, 2048, .greyscale) catch @panic("oom"),
         .glyph_cache = .init(gpa),
-        .glyphs_cache_full = false,
     };
 }
 pub fn deinit(self: *LayoutCache) void {
@@ -54,7 +50,6 @@ pub fn deinit(self: *LayoutCache) void {
     for (self.layout_cache.values()) |v| self.gpa.free(v.items);
     self.layout_cache.deinit();
     self.glyph_cache.deinit();
-    self.glyphs.deinit(self.gpa);
     self.font.deinit();
 }
 
@@ -124,22 +119,21 @@ pub const Font = struct {
 // - or from screen position -> bufbyte
 // - and it will always give us access to total scroll height
 
-pub fn tick(self: *LayoutCache, beui: *Beui) void {
+pub fn getGlyphs(b2: *Beui.beui_experiment.Beui2) *@import("ImageCache.zig").OneFormatCache {
+    return b2.persistent.image_cache.caches.getPtr(.grayscale);
+}
+pub fn tick(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2) void {
+    const beui = b2.persistent.beui1;
     const max_time = 10_000;
     const last_valid_time = beui.frame.frame_cfg.?.now_ms - max_time;
 
-    if (self.glyphs_cache_full) {
-        std.log.info("recreating glyph cache", .{});
-        self.glyphs.clear();
-        self.glyph_cache.clearRetainingCapacity();
-        self.glyphs_cache_full = false;
+    if (getGlyphs(b2).just_cleared) {
+        std.log.info("clearing rendered_line_cache because uvs changed", .{});
 
         // rendered_line_cache contains vertices which depend on these uvs
         for (self.rendered_line_cache.keys()) |v| self.gpa.free(v.text);
         for (self.rendered_line_cache.values()) |*v| v.deinit(self.gpa);
         self.rendered_line_cache.clearRetainingCapacity();
-
-        // TODO if it's full two frames in a row, give up for a little while
     }
 
     var i: usize = 0;
@@ -207,8 +201,8 @@ pub fn renderLine(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, line: Lin
         }
     }
     // couldn't find in cache, have to rerender
-    const layout = self.layoutLine(b2.persistent.beui1, line.text);
-    var render_result = renderLine_nocache(self, layout, line);
+    const layout = self.layoutLine(b2, line.text);
+    var render_result = renderLine_nocache(self, b2, layout, line);
     render_result.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
     if (exists_max_width_0 and !render_result.multiline) {
         // oops! we aren't wrapping yet.
@@ -222,7 +216,7 @@ pub fn renderLine(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, line: Lin
     }, render_result) catch @panic("oom");
     return render_result;
 }
-fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLine {
+fn renderLine_nocache(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, layout: LayoutInfo, line: Line) TextLine {
     // TODO: this function should not reference 'docbyte's, those are a concept unique to TextDocument and are meaningless here.
     const tctx = tracy.trace(@src());
     defer tctx.end();
@@ -253,7 +247,7 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
         }
         const item_offset = @round(item.offset);
 
-        const glyph_info = self.renderGlyph(item.glyph_id, layout.height);
+        const glyph_info = self.renderGlyph(b2, item.glyph_id, layout.height);
         if (glyph_info.region) |region| {
             const glyph_size: @Vector(2, f32) = @floatFromInt(glyph_info.size);
             const glyph_offset: @Vector(2, f32) = glyph_info.offset;
@@ -264,7 +258,7 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
             const bl = ul + @Vector(2, f32){ 0, glyph_size[1] };
             const br = ul + glyph_size;
 
-            const uv = region.calculateUV(self.glyphs.size);
+            const uv = region.calculateUV(getGlyphs(b2).texpack.size);
             const uv_ul: @Vector(2, f32) = .{ uv.pos[0], uv.pos[1] };
             const uv_ur: @Vector(2, f32) = .{ uv.pos[0] + uv.size[0], uv.pos[1] };
             const uv_bl: @Vector(2, f32) = .{ uv.pos[0], uv.pos[1] + uv.size[1] };
@@ -326,13 +320,13 @@ fn renderLine_nocache(self: *LayoutCache, layout: LayoutInfo, line: Line) TextLi
 }
 
 /// result pointer is valid until next layoutLine() call
-pub fn layoutLine(self: *LayoutCache, beui: *Beui, line_text: []const u8) LayoutInfo {
+pub fn layoutLine(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, line_text: []const u8) LayoutInfo {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
     const gpres = self.layout_cache.getOrPut(line_text) catch @panic("oom");
     if (gpres.found_existing) {
-        gpres.value_ptr.last_used = beui.frame.frame_cfg.?.now_ms;
+        gpres.value_ptr.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
         gpres.value_ptr.ticked_last_frame = true;
         return gpres.value_ptr.*;
     }
@@ -342,7 +336,7 @@ pub fn layoutLine(self: *LayoutCache, beui: *Beui, line_text: []const u8) Layout
 
     gpres.value_ptr.* = layoutLine_internal(self, line_text, &layout_result_al);
     gpres.key_ptr.* = self.gpa.dupe(u8, line_text) catch @panic("oom");
-    gpres.value_ptr.last_used = beui.frame.frame_cfg.?.now_ms;
+    gpres.value_ptr.last_used = b2.persistent.beui1.frame.frame_cfg.?.now_ms;
     gpres.value_ptr.ticked_last_frame = true;
     gpres.value_ptr.items = layout_result_al.toOwnedSlice() catch @panic("oom");
 
@@ -438,31 +432,31 @@ fn layoutLine_internal(self: *LayoutCache, line_text: []const u8, layout_result_
     };
 }
 
-pub fn renderGlyph(self: *LayoutCache, glyph_id: u32, line_height: f32) GlyphCacheEntry {
+pub fn renderGlyph(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, glyph_id: u32, line_height: f32) GlyphCacheEntry {
     const gpres = self.glyph_cache.getOrPut(glyph_id) catch @panic("oom");
     if (gpres.found_existing) return gpres.value_ptr.*;
-    const result: GlyphCacheEntry = self.renderGlyph_nocache(glyph_id, line_height) catch |e| blk: {
+    const result: GlyphCacheEntry = self.renderGlyph_nocache(b2, glyph_id, line_height) catch |e| blk: {
         std.log.warn("render glyph error: glyph={d}, err={s}", .{ glyph_id, @errorName(e) });
         break :blk .{ .size = .{ 0, 0 }, .region = null };
     };
     gpres.value_ptr.* = result;
     return result;
 }
-fn renderGlyph_nocache(self: *LayoutCache, glyph_id: u32, line_height: f32) !GlyphCacheEntry {
+fn renderGlyph_nocache(self: *LayoutCache, b2: *Beui.beui_experiment.Beui2, glyph_id: u32, line_height: f32) !GlyphCacheEntry {
     try self.font.ft_face.loadGlyph(glyph_id, .{ .render = true });
     const glyph = self.font.ft_face.glyph();
     const bitmap = glyph.bitmap();
 
     if (bitmap.buffer() == null) return error.NoBitmapBuffer;
 
-    const region = self.glyphs.reserve(self.gpa, bitmap.width(), bitmap.rows()) catch |e| switch (e) {
+    const region = getGlyphs(b2).texpack.reserve(self.gpa, bitmap.width(), bitmap.rows()) catch |e| switch (e) {
         error.AtlasFull => {
-            self.glyphs_cache_full = true;
+            getGlyphs(b2).full_last_frame = true;
             return .{ .size = .{ bitmap.width(), bitmap.rows() }, .region = null };
         },
         error.OutOfMemory => return error.OutOfMemory,
     };
-    self.glyphs.set(region, bitmap.buffer().?);
+    getGlyphs(b2).texpack.set(region, bitmap.buffer().?);
 
     return .{
         .offset = .{ @floatFromInt(glyph.bitmapLeft()), (line_height - 4) - @as(f32, @floatFromInt(glyph.bitmapTop())) },
