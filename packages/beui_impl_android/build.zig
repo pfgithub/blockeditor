@@ -172,7 +172,7 @@ pub fn build(b: *std.Build) !void {
     const SYS_INCLUDE_DIR = b.fmt("{s}/{s}", .{ opts.INCLUDE_DIR.?, target_info.dir });
 
     const anywhere_dep = b.dependency("anywhere", .{});
-    const make_libc_stdout = anywhere.util.build.genLibcFile(b, anywhere_dep, .{
+    const make_libc_stdout = anywhere.util.build.genLibCFile(b, anywhere_dep, .{
         .include_dir = .{ .cwd_relative = opts.INCLUDE_DIR.? },
         .sys_include_dir = .{ .cwd_relative = SYS_INCLUDE_DIR },
         .crt_dir = .{ .cwd_relative = opts.CRT1_PATH.? },

@@ -54,7 +54,7 @@ pub const build = struct {
         /// Only needed when targeting Haiku.
         gcc_dir: ?std.Build.LazyPath,
     };
-    pub fn genLibcFile(b: *std.Build, anywhere_dep: *std.Build.Dependency, libc_file_options: LibcFileOptions) std.Build.LazyPath {
+    pub fn genLibCFile(b: *std.Build, anywhere_dep: *std.Build.Dependency, libc_file_options: LibcFileOptions) std.Build.LazyPath {
         const make_libc_file = b.addRunArtifact(anywhere_dep.artifact("libc_file_builder"));
         inline for (@typeInfo(LibcFileOptions).@"struct".fields) |field| {
             if (@field(libc_file_options, field.name)) |val| {

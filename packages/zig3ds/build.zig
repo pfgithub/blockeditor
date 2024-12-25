@@ -131,6 +131,7 @@ pub fn build(b: *std.Build) !void {
     const crtls_dep = b.dependency("devkitarm-crtls", .{});
     const newlib_dep = b.dependency("newlib", .{});
     const examples_dep = b.dependency("3ds-examples", .{});
+    const anywhere_dep = b.dependency("anywhere", .{});
 
     // build_helper
     const build_helper = try b.allocator.create(T3dsBuildHelper);
@@ -163,6 +164,7 @@ pub fn build(b: *std.Build) !void {
             .{ "__3DS__", null },
         },
         .add_include_paths = &.{
+            b.path("src/newlib_defines"),
             newlib_dep.path("newlib/libc/sys/arm"),
             newlib_dep.path("newlib/libc/machine/arm"),
             newlib_dep.path("newlib/libc/include"),
@@ -171,7 +173,7 @@ pub fn build(b: *std.Build) !void {
     libc_includer.expose("c");
 
     // libgloss_libsysbase
-    const libgloss_libsysbase = b.addStaticLibrary(.{
+    const libgloss_libsysbase = b.addObject(.{
         .name = "sysbase",
         .target = target_3ds,
         .optimize = optimize,
@@ -186,20 +188,37 @@ pub fn build(b: *std.Build) !void {
     });
 
     // newlib (libc)
+    const crt1 = b.addObject(.{
+        .name = "crt1",
+        .target = target_3ds,
+        .optimize = optimize,
+    });
+    libc_includer.applyTo(&crt1.root_module);
+    crt1.addCSourceFiles(.{
+        .root = newlib_dep.path("newlib/libc"),
+        .files = newlib_libc_files,
+        .flags = build_helper.cflags,
+    });
+    crt1.addAssemblyFile(crtls_dep.path("3dsx_crt0.s"));
+    crt1.addObject(libgloss_libsysbase);
+
     const libc = b.addStaticLibrary(.{
         .name = "c",
         .target = target_3ds,
         .optimize = optimize,
     });
-    libc_includer.applyTo(&libc.root_module);
-    libc.addCSourceFiles(.{
-        .root = newlib_dep.path("newlib/libc"),
-        .files = newlib_libc_files,
-        .flags = build_helper.cflags,
-    });
-    libc.addAssemblyFile(crtls_dep.path("3dsx_crt0.s"));
-    libc.linkLibrary(libgloss_libsysbase);
+    libc.addObject(crt1);
     b.installArtifact(libc);
+
+    const libc_file: std.Build.LazyPath = anywhere.util.build.genLibCFile(b, anywhere_dep, .{
+        .include_dir = b.path("src/newlib_defines"),
+        .sys_include_dir = b.path("src/newlib_defines"),
+        .crt_dir = b.path("src/newlib_defines"),
+        .msvc_lib_dir = null,
+        .kernel32_lib_dir = null,
+        .gcc_dir = null,
+    });
+    b.addNamedLazyPath("c", libc_file);
 
     // libm
     const libm = b.addStaticLibrary(.{
@@ -291,6 +310,9 @@ pub fn build(b: *std.Build) !void {
         if (example.dependencies.c) {
             libc_includer.applyTo(&elf.root_module);
             elf.linkLibrary(libc);
+            elf.setLibCFile(libc_file);
+            libc_file.addStepDependencies(&elf.step);
+            elf.linkLibC();
         }
         if (example.dependencies.m) {
             elf.linkLibrary(libm);
@@ -919,7 +941,7 @@ const newlib_libc_files = &[_][]const u8{
     "string/strlen.c",
     "string/strlwr.c",
     "string/strncasecmp.c",
-    "string/strncasecmp_l.c",
+    // "string/strncasecmp_l.c",
     "string/strncat.c",
     "string/strncmp.c",
     "string/strncpy.c",
@@ -945,8 +967,8 @@ const newlib_libc_files = &[_][]const u8{
     "string/u_strerr.c",
     "string/wcpcpy.c",
     "string/wcpncpy.c",
-    "string/wcscasecmp.c",
-    "string/wcscasecmp_l.c",
+    // "string/wcscasecmp.c",
+    // "string/wcscasecmp_l.c",
     "string/wcscat.c",
     "string/wcschr.c",
     "string/wcscmp.c",
@@ -958,8 +980,8 @@ const newlib_libc_files = &[_][]const u8{
     "string/wcslcat.c",
     "string/wcslcpy.c",
     "string/wcslen.c",
-    "string/wcsncasecmp.c",
-    "string/wcsncasecmp_l.c",
+    // "string/wcsncasecmp.c",
+    // "string/wcsncasecmp_l.c",
     "string/wcsncat.c",
     "string/wcsncmp.c",
     "string/wcsncpy.c",
@@ -991,8 +1013,8 @@ const newlib_libc_files = &[_][]const u8{
     "stdlib/abort.c",
     "stdlib/abs.c",
     "stdlib/aligned_alloc.c",
-    "stdlib/arc4random.c",
-    "stdlib/arc4random_uniform.c",
+    // "stdlib/arc4random.c",
+    // "stdlib/arc4random_uniform.c",
     "stdlib/assert.c",
     "stdlib/atexit.c",
     "stdlib/atof.c",
@@ -1007,7 +1029,7 @@ const newlib_libc_files = &[_][]const u8{
     "stdlib/cxa_atexit.c",
     "stdlib/cxa_finalize.c",
     "stdlib/div.c",
-    "stdlib/drand48.c",
+    // "stdlib/drand48.c",
     "stdlib/dtoa.c",
     "stdlib/dtoastub.c",
     "stdlib/ecvtbuf.c",
@@ -1015,7 +1037,7 @@ const newlib_libc_files = &[_][]const u8{
     "stdlib/environ.c",
     "stdlib/envlock.c",
     "stdlib/eprintf.c",
-    "stdlib/erand48.c",
+    // "stdlib/erand48.c",
     "stdlib/exit.c",
     "stdlib/freer.c",
     "stdlib/gdtoa-dmisc.c",
@@ -1081,7 +1103,7 @@ const newlib_libc_files = &[_][]const u8{
     "stdlib/reallocarray.c",
     "stdlib/reallocf.c",
     "stdlib/reallocr.c",
-    "stdlib/rpmatch.c",
+    // "stdlib/rpmatch.c",
     "stdlib/sb_charsets.c",
     "stdlib/seed48.c",
     "stdlib/setenv.c",
@@ -1107,18 +1129,18 @@ const newlib_libc_files = &[_][]const u8{
     "stdlib/wcrtomb.c",
     "stdlib/wcsnrtombs.c",
     "stdlib/wcsrtombs.c",
-    "stdlib/wcstod.c",
-    "stdlib/wcstoimax.c",
-    "stdlib/wcstol.c",
+    // "stdlib/wcstod.c",
+    // "stdlib/wcstoimax.c",
+    // "stdlib/wcstol.c",
     // "stdlib/wcstold.c", // call to undeclared function 'strtold_l'
-    "stdlib/wcstoll.c",
+    // "stdlib/wcstoll.c",
     "stdlib/wcstoll_r.c",
     "stdlib/wcstombs.c",
     "stdlib/wcstombs_r.c",
-    "stdlib/wcstoul.c",
-    "stdlib/wcstoull.c",
+    // "stdlib/wcstoul.c",
+    // "stdlib/wcstoull.c",
     "stdlib/wcstoull_r.c",
-    "stdlib/wcstoumax.c",
+    // "stdlib/wcstoumax.c",
     "stdlib/wctob.c",
     "stdlib/wctomb.c",
     "stdlib/wctomb_r.c",
@@ -1153,7 +1175,7 @@ const newlib_libc_files = &[_][]const u8{
     "stdio/fileno_u.c",
     "stdio/findfp.c",
     "stdio/fiprintf.c",
-    "stdio/fiscanf.c",
+    // "stdio/fiscanf.c",
     "stdio/flags.c",
     "stdio/fmemopen.c",
     "stdio/fopen.c",
@@ -1171,7 +1193,7 @@ const newlib_libc_files = &[_][]const u8{
     "stdio/fread.c",
     "stdio/fread_u.c",
     "stdio/freopen.c",
-    "stdio/fscanf.c",
+    // "stdio/fscanf.c",
     "stdio/fseek.c",
     "stdio/fseeko.c",
     "stdio/fsetlocking.c",
@@ -1199,7 +1221,7 @@ const newlib_libc_files = &[_][]const u8{
     "stdio/getwchar.c",
     "stdio/getwchar_u.c",
     "stdio/iprintf.c",
-    "stdio/iscanf.c",
+    // "stdio/iscanf.c",
     "stdio/makebuf.c",
     "stdio/mktemp.c",
     // "stdio/nano-svfprintf.c", // newlib-nano-formatted-io
@@ -1228,7 +1250,7 @@ const newlib_libc_files = &[_][]const u8{
     "stdio/rename.c",
     "stdio/rewind.c",
     "stdio/rget.c",
-    "stdio/scanf.c",
+    // "stdio/scanf.c",
     "stdio/sccl.c",
     "stdio/setbuf.c",
     "stdio/setbuffer.c",
@@ -1237,12 +1259,12 @@ const newlib_libc_files = &[_][]const u8{
     "stdio/sfputs_r.c",
     "stdio/sfputws_r.c",
     "stdio/siprintf.c",
-    "stdio/siscanf.c",
+    // "stdio/siscanf.c",
     "stdio/sniprintf.c",
     "stdio/snprintf.c",
     "stdio/sprint_r.c",
     "stdio/sprintf.c",
-    "stdio/sscanf.c",
+    // "stdio/sscanf.c",
     "stdio/ssprint_r.c",
     "stdio/ssputs_r.c",
     "stdio/ssputws_r.c",
@@ -1250,11 +1272,11 @@ const newlib_libc_files = &[_][]const u8{
     "stdio/stdio.c",
     "stdio/stdio_ext.c",
     "stdio/svfiprintf.c",
-    "stdio/svfiscanf.c",
+    // "stdio/svfiscanf.c",
     "stdio/svfiwprintf.c",
     "stdio/svfiwscanf.c",
     "stdio/svfprintf.c",
-    "stdio/svfscanf.c",
+    // "stdio/svfscanf.c",
     "stdio/svfwprintf.c",
     "stdio/svfwscanf.c",
     "stdio/swprint_r.c",
@@ -1271,23 +1293,23 @@ const newlib_libc_files = &[_][]const u8{
     "stdio/vdiprintf.c",
     "stdio/vdprintf.c",
     "stdio/vfiprintf.c",
-    "stdio/vfiscanf.c",
+    // "stdio/vfiscanf.c",
     "stdio/vfiwprintf.c",
     "stdio/vfiwscanf.c",
     "stdio/vfprintf.c",
-    "stdio/vfscanf.c",
+    // "stdio/vfscanf.c",
     "stdio/vfwprintf.c",
     "stdio/vfwscanf.c",
     "stdio/viprintf.c",
-    "stdio/viscanf.c",
+    // "stdio/viscanf.c",
     "stdio/vprintf.c",
-    "stdio/vscanf.c",
+    // "stdio/vscanf.c",
     "stdio/vsiprintf.c",
-    "stdio/vsiscanf.c",
+    // "stdio/vsiscanf.c",
     "stdio/vsniprintf.c",
     "stdio/vsnprintf.c",
     "stdio/vsprintf.c",
-    "stdio/vsscanf.c",
+    // "stdio/vsscanf.c",
     "stdio/vswprintf.c",
     "stdio/vswscanf.c",
     "stdio/vwprintf.c",
@@ -1309,6 +1331,7 @@ const newlib_libc_files = &[_][]const u8{
     "signal/sig2str.c",
     "locale/locale.c",
     "locale/localeconv.c",
+    "locale/timelocal.c",
     "ctype/ctype_.c",
     "ctype/isalnum.c",
     "ctype/isalpha.c",
@@ -1322,15 +1345,19 @@ const newlib_libc_files = &[_][]const u8{
     "ctype/isxdigit.c",
     "ctype/tolower.c",
     "ctype/toupper.c",
+    "ctype/tolower_l.c",
+    "ctype/iswspace.c",
+    "ctype/iswspace_l.c",
+    "ctype/categories.c",
     "search/bsearch.c",
-    "search/ndbm.c",
+    // "search/ndbm.c",
     "search/qsort.c",
     "syscalls/sysclose.c",
     "syscalls/sysexecve.c",
     "syscalls/sysfcntl.c",
     "syscalls/sysfork.c",
     "syscalls/sysfstat.c",
-    "syscalls/sysgetentropy.c",
+    // "syscalls/sysgetentropy.c",
     "syscalls/sysgetpid.c",
     "syscalls/sysgettod.c",
     "syscalls/sysisatty.c",
@@ -1348,23 +1375,23 @@ const newlib_libc_files = &[_][]const u8{
     "time/asctime.c",
     "time/asctime_r.c",
     "time/clock.c",
-    "time/ctime.c",
-    "time/ctime_r.c",
+    // "time/ctime.c",
+    // "time/ctime_r.c",
     "time/difftime.c",
     "time/gettzinfo.c",
     "time/gmtime.c",
     "time/gmtime_r.c",
-    "time/lcltime.c",
-    "time/lcltime_r.c",
-    "time/mktime.c",
+    // "time/lcltime.c",
+    // "time/lcltime_r.c",
+    // "time/mktime.c",
     "time/month_lengths.c",
-    "time/strftime.c",
-    "time/strptime.c",
+    // "time/strftime.c",
+    // "time/strptime.c",
     "time/time.c",
     "time/tzcalc_limits.c",
     "time/tzlock.c",
-    "time/tzset.c",
-    "time/tzset_r.c",
+    // "time/tzset.c",
+    // "time/tzset_r.c",
     "time/tzvars.c",
-    "time/wcsftime.c",
+    // "time/wcsftime.c",
 };

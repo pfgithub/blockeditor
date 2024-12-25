@@ -6,8 +6,6 @@ const constants = emu.constants;
 
 const c = @cImport({
     @cInclude("3ds.h");
-    @cInclude("stdio.h");
-    @cInclude("malloc.h");
     @cInclude("time.h");
 });
 
@@ -25,7 +23,7 @@ const OffsetsOut = [constants.EMU_SCREEN_NLAYERS]@Vector(2, i8);
 const NullErrorSet = error{};
 pub const PrintfWriter = std.io.Writer(void, NullErrorSet, writeFn);
 fn writeFn(_: void, bytes: []const u8) NullErrorSet!usize {
-    _ = c.printf("%.*s", @as(c_int, @intCast(bytes.len)), bytes.ptr);
+    _ = std.c.printf("%.*s", @as(c_int, @intCast(bytes.len)), bytes.ptr);
     return bytes.len;
 }
 pub fn logFn(
@@ -51,13 +49,13 @@ export fn zigpart_create() *zigpart_Instance {
     // - https://github.com/devkitPro/3ds-examples/blob/master/network/http/source/main.c
     std.log.info("initializing...", .{});
 
-    const result: *zigpart_Instance = c_allocator.create(zigpart_Instance) catch @panic("oom");
+    const result: *zigpart_Instance = std.heap.c_allocator.create(zigpart_Instance) catch @panic("oom");
     std.log.info("malloc()", .{});
     result.* = .{
-        .gpa = c_allocator,
+        .gpa = std.heap.c_allocator,
         .emu = emu.Emu.init(),
-        .frame_out = c_allocator.create(FrameOut) catch @panic("oom"),
-        .offsets_out = c_allocator.create(OffsetsOut) catch @panic("oom"),
+        .frame_out = std.heap.c_allocator.create(FrameOut) catch @panic("oom"),
+        .offsets_out = std.heap.c_allocator.create(OffsetsOut) catch @panic("oom"),
         .bg_color_out = 0,
     };
     std.log.info("emu init()", .{});
@@ -68,11 +66,11 @@ export fn zigpart_create() *zigpart_Instance {
     return result;
 }
 export fn zigpart_destroy(instance: *zigpart_Instance) void {
-    instance.emu.unloadProgram(c_allocator);
+    instance.emu.unloadProgram(std.heap.c_allocator);
     instance.emu.deinit();
-    c_allocator.destroy(instance.frame_out);
-    c_allocator.destroy(instance.offsets_out);
-    c_allocator.destroy(instance);
+    std.heap.c_allocator.destroy(instance.frame_out);
+    std.heap.c_allocator.destroy(instance.offsets_out);
+    std.heap.c_allocator.destroy(instance);
 }
 
 extern const swizzle_data_u16: [65536]u16;
@@ -129,121 +127,3 @@ export fn zigpart_getRenderOffsets(instance: *zigpart_Instance) *OffsetsOut {
 export fn zigpart_getBgColor(instance: *zigpart_Instance) u32 {
     return instance.bg_color_out;
 }
-
-//
-// C allocator
-//
-
-pub const c_allocator = std.mem.Allocator{
-    .ptr = undefined,
-    .vtable = &c_allocator_vtable,
-};
-const c_allocator_vtable = std.mem.Allocator.VTable{
-    .alloc = CAllocator.alloc,
-    .resize = CAllocator.resize,
-    .free = CAllocator.free,
-};
-const CAllocator = struct {
-    pub const supports_malloc_size = @TypeOf(malloc_size) != void;
-    pub const malloc_size = if (@hasDecl(c, "malloc_size"))
-        c.malloc_size
-    else if (@hasDecl(c, "malloc_usable_size"))
-        c.malloc_usable_size
-    else if (@hasDecl(c, "_msize"))
-        c._msize
-    else {};
-
-    pub const supports_posix_memalign = @hasDecl(c, "posix_memalign");
-
-    fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @as(*[*]u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
-    }
-
-    fn alignedAlloc(len: usize, log2_align: u8) ?[*]u8 {
-        const alignment = @as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intCast(log2_align));
-        if (supports_posix_memalign) {
-            // The posix_memalign only accepts alignment values that are a
-            // multiple of the pointer size
-            const eff_alignment = @max(alignment, @sizeOf(usize));
-
-            var aligned_ptr: ?*anyopaque = undefined;
-            if (c.posix_memalign(&aligned_ptr, eff_alignment, len) != 0)
-                return null;
-
-            return @as([*]u8, @ptrCast(aligned_ptr));
-        }
-
-        // Thin wrapper around regular malloc, overallocate to account for
-        // alignment padding and store the original malloc()'ed pointer before
-        // the aligned address.
-        const unaligned_ptr = @as([*]u8, @ptrCast(c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null));
-        const unaligned_addr = @intFromPtr(unaligned_ptr);
-        const aligned_addr = std.mem.alignForward(usize, unaligned_addr + @sizeOf(usize), alignment);
-        const aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
-        getHeader(aligned_ptr).* = unaligned_ptr;
-
-        return aligned_ptr;
-    }
-
-    fn alignedFree(ptr: [*]u8) void {
-        if (supports_posix_memalign) {
-            return c.free(ptr);
-        }
-
-        const unaligned_ptr = getHeader(ptr).*;
-        c.free(unaligned_ptr);
-    }
-
-    fn alignedAllocSize(ptr: [*]u8) usize {
-        if (supports_posix_memalign) {
-            return CAllocator.malloc_size(ptr);
-        }
-
-        const unaligned_ptr = getHeader(ptr).*;
-        const delta = @intFromPtr(ptr) - @intFromPtr(unaligned_ptr);
-        return CAllocator.malloc_size(unaligned_ptr) - delta;
-    }
-
-    fn alloc(
-        _: *anyopaque,
-        len: usize,
-        log2_align: u8,
-        return_address: usize,
-    ) ?[*]u8 {
-        _ = return_address;
-        std.debug.assert(len > 0);
-        return alignedAlloc(len, log2_align);
-    }
-
-    fn resize(
-        _: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        new_len: usize,
-        return_address: usize,
-    ) bool {
-        _ = log2_buf_align;
-        _ = return_address;
-        if (new_len <= buf.len) {
-            return true;
-        }
-        if (CAllocator.supports_malloc_size) {
-            const full_len = alignedAllocSize(buf.ptr);
-            if (new_len <= full_len) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    fn free(
-        _: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        return_address: usize,
-    ) void {
-        _ = log2_buf_align;
-        _ = return_address;
-        alignedFree(buf.ptr);
-    }
-};

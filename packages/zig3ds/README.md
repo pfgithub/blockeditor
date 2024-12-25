@@ -56,7 +56,7 @@ elf.linkLibrary(zig3ds_dep.artifact("citro2d"));
 # TODO Features
 
 - [ ] Reduce usage of CIncluder, prefer `lib.installHeadersDirectory` + `elf.linkLibrary` instead.
-- [ ] Tell zig that it's linking libc so `std.heap.c_allocator` and other things can be used
+- [x] Tell zig that it's linking libc so `std.heap.c_allocator` and other things can be used
 - [ ] Support smdh file generation
 - [ ] Support `tex3ds`. Unfortunately, it depends on imagemagick which depends on libbzip2 & libjpeg & libpng & libtiff & zlib, and imagemagick already has a huge makefile
 - [ ] Support emitting `.cia` files. This maybe requires `cxitool` and `makerom`.

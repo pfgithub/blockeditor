@@ -35,6 +35,9 @@ pub fn build(b: *std.Build) !void {
     zigpart.root_module.addImport("minigamer_emulator", emu_mod);
     zigpart.root_module.addImport("sponge.cart", sponge_mod);
     libc_includer.applyTo(&zigpart.root_module);
+    zigpart.setLibCFile(zig3ds_dep.namedLazyPath("c"));
+    zigpart.libc_file.?.addStepDependencies(&zigpart.step);
+    zigpart.linkLibC();
     libctru_includer.applyTo(&zigpart.root_module);
 
     const elf = b.addExecutable(.{
@@ -51,6 +54,9 @@ pub fn build(b: *std.Build) !void {
 
     libc_includer.applyTo(&elf.root_module);
     elf.linkLibrary(zig3ds_dep.artifact("c"));
+    elf.setLibCFile(zig3ds_dep.namedLazyPath("c"));
+    elf.libc_file.?.addStepDependencies(&elf.step);
+    elf.linkLibC();
     elf.linkLibrary(zig3ds_dep.artifact("m"));
     libctru_includer.applyTo(&elf.root_module);
     elf.linkLibrary(zig3ds_dep.artifact("ctru"));

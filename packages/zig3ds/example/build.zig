@@ -19,6 +19,10 @@ pub fn build(b: *std.Build) !void {
 
     libc_includer.applyTo(&elf.root_module);
     elf.linkLibrary(zig3ds_dep.artifact("c"));
+    libc_includer.applyTo(&elf.root_module);
+    elf.setLibCFile(zig3ds_dep.namedLazyPath("c"));
+    elf.libc_file.?.addStepDependencies(&elf.step);
+    elf.linkLibC();
     elf.linkLibrary(zig3ds_dep.artifact("m"));
     libctru_includer.applyTo(&elf.root_module);
     elf.linkLibrary(zig3ds_dep.artifact("ctru"));
