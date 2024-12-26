@@ -11,7 +11,7 @@ fn addTool(b: *std.Build, dep: *std.Build.Dependency, tool_name: []const u8, fil
     exe.linkLibC();
     exe.linkLibCpp();
     exe.addCSourceFiles(.{
-        .root = dep.path(""),
+        .root = dep.path("."),
         .files = files,
         .flags = &.{
             b.fmt("-DPACKAGE_STRING=\"{s}\"", .{tool_name}),
@@ -20,7 +20,7 @@ fn addTool(b: *std.Build, dep: *std.Build.Dependency, tool_name: []const u8, fil
             // "-fno-sanitize=undefined",
         },
     });
-    exe.addIncludePath(dep.path(""));
+    exe.addIncludePath(dep.path("."));
 
     const insa = b.addInstallArtifact(exe, .{
         .dest_dir = .{ .override = .{ .custom = "3dstools" } },
@@ -265,7 +265,7 @@ pub fn build(b: *std.Build) !void {
     libc_includer.applyTo(citro3d.root_module);
     libctru_includer.applyTo(citro3d.root_module);
     citro3d_includer.applyTo(citro3d.root_module);
-    build_helper.addDir(citro3d.root_module, citro3d_dep.path(""));
+    build_helper.addDir(citro3d.root_module, citro3d_dep.path("."));
 
     // citro2d
     const citro2d_dep = b.dependency("citro2d", .{});
@@ -285,7 +285,7 @@ pub fn build(b: *std.Build) !void {
     libctru_includer.applyTo(citro2d.root_module);
     citro3d_includer.applyTo(citro2d.root_module);
     citro2d_includer.applyTo(citro2d.root_module);
-    build_helper.addDir(citro2d.root_module, citro2d_dep.path(""));
+    build_helper.addDir(citro2d.root_module, citro2d_dep.path("."));
 
     // 4. build the game
     for (t3ds_examples) |example_t| {
