@@ -194,6 +194,8 @@ const DemoState = struct {
         .rgba = null,
     }),
     sampler: zgpu.SamplerHandle,
+
+    update_tex: bool = true,
 };
 
 fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
@@ -339,7 +341,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, b2: *B2.Beui2, fram
         defer b2ft1.end();
         const texpack = &oneformatcache.texpack;
 
-        if (texpack.modified) {
+        if (texpack.modified and demo.update_tex) {
             texpack.modified = false;
             gctx.queue.writeTexture(
                 .{ .texture = gctx.lookupResource(value.texture).? },
@@ -918,6 +920,7 @@ pub fn main() !void {
             zgui.text("ns per vertex: {d:0.3}", .{@as(f64, @floatFromInt(last_frame_time)) / @as(f64, @floatFromInt(draw_list.vertices.items.len))});
             zgui.text("reduce latency: {d}", .{std.fmt.fmtDuration(reduce_input_latency)});
             _ = zgui.checkbox("Reduce latency", .{ .v = &reduce_latency });
+            _ = zgui.checkbox("Update tex", .{ .v = &demo.update_tex });
         }
         zgui.end();
 

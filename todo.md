@@ -2,8 +2,17 @@
 
 - [ ] the appliation freezes the whole computer on mac if you leave it open
        for like 10sec. this was introduced in the commit that also introduced:
-       - updating an image every frame 
-       - the two uniforms
+  - updating an image every frame 
+  - the two uniforms
+  - what happens:
+    - if "update tex" checkbox is enabled:
+      - after some time, the zgui will disappear on the app and the entire system will freeze
+      - after holding cmd option shift esc for a while, the system will come back alive
+        and the application will be toggling every other frame between solid pink and showing
+        the last rendered frame. it's not updating anymore.
+      - the application can be ctrl+c'd normally from the terminal at this point
+    - if "update tex" is not enabled:
+      - this doesn't seem to happen
 
 TODO
 
