@@ -13,6 +13,11 @@
       - the application can be ctrl+c'd normally from the terminal at this point
     - if "update tex" is not enabled:
       - this doesn't seem to happen
+    - if run through lldb:
+      - this doesn't seem to happen
+    - if run in ReleaseSafe with -Dtracy:
+      - doesn't seem to happen
+
 
 TODO
 
