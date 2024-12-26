@@ -90,7 +90,7 @@ pub const WM = struct {
                 .final => return &.{},
                 .window => |*w| return @as(*[1]FrameID, &w.child),
                 .dragging => |*w| return @as(*[1]FrameID, &w.child),
-                .none => unreachable,
+                .none => @panic("frame is none"),
             }
         }
         pub fn deinit(self: *FrameContent, gpa: std.mem.Allocator) void {
@@ -132,7 +132,7 @@ pub const WM = struct {
             break :blk reuse;
         } else blk: {
             const res: FrameID = .{ .gen = 0, .ptr = @enumFromInt(self.frames.items.len) };
-            self.frames.append(self.gpa, undefined) catch @panic("oom");
+            self.frames.append(self.gpa, .{ .gen = res.gen, .parent = .not_set, .id = res, .self = value }) catch @panic("oom");
             break :blk res;
         };
         self.getFrame(id).* = .{
