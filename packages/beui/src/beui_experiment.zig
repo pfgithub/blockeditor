@@ -249,7 +249,7 @@ pub const Beui2 = struct {
     }
     fn commitMouseMoveEvents(self: *Beui2) void {
         defer self.persistent.uncommitted_move_offset = .{ 0, 0 };
-        if (@reduce(.And, self.persistent.uncommitted_move_offset == @Vector(2, f32){ 0, 0 })) return;
+        // if (@reduce(.And, self.persistent.uncommitted_move_offset == @Vector(2, f32){ 0, 0 })) return;
         const mpos = self.persistent.mouse_pos orelse return;
         if (self.persistent.mouse_focus) |mfid| {
             // if there is a mouse focus:
