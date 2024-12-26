@@ -10,24 +10,25 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
     const optimize = options.optimize;
     const enable_tracy = options.enable_tracy;
 
-    const exe = b.addExecutable(.{
-        .name = name,
-        .root_source_file = b.path("src/beui_impl.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     const beui_dep = b.dependency("beui", .{ .target = target, .optimize = optimize });
-    exe.root_module.addImport("beui", beui_dep.module("beui"));
-
     const anywhere_mod = b.dependency("anywhere", .{}).module("anywhere");
-    exe.root_module.addImport("anywhere", anywhere_mod);
-
-    exe.root_module.addImport("app", app_mod);
-
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", enable_tracy);
-    exe.root_module.addImport("build_options", build_options.createModule());
+
+    const exe = b.addExecutable(.{
+        .name = name,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/beui_impl.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "beui", .module = beui_dep.module("beui") },
+                .{ .name = "anywhere", .module = anywhere_mod },
+                .{ .name = "app", .module = app_mod },
+                .{ .name = "build_options", .module = build_options.createModule() },
+            },
+        }),
+    });
 
     if (enable_tracy) {
         const tracy_dep = b.dependency("tracy", .{
@@ -119,9 +120,11 @@ pub fn build(b: *std.Build) !void {
 
     const multirun_exe = b.addExecutable(.{
         .name = "multirun",
-        .root_source_file = b.path("multirun.zig"),
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("multirun.zig"),
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
+        }),
     });
     b.installArtifact(multirun_exe);
 }

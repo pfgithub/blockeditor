@@ -111,10 +111,12 @@ pub fn createApp(self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) st
 
     const lib = b.addSharedLibrary(.{
         .name = "zigpart",
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-        .pic = true,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = target,
+            .optimize = optimize,
+            .pic = true,
+        }),
     });
     b.installArtifact(lib);
 

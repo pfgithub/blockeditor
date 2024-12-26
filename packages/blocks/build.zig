@@ -18,21 +18,17 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "anywhere", .module = anywhere_mod },
+            .{ .name = "build_options", .module = build_options_mod },
+        },
     });
-    blocks_mod.addImport("anywhere", anywhere_mod);
-    blocks_mod.addImport("build_options", build_options_mod);
 
-    const block_test = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    const block_test = b.addTest(.{ .root_module = blocks_mod });
     if (optimize == .Debug and target.result.cpu.arch == .x86_64 and target.result.os.tag == .linux) {
         block_test.use_llvm = false;
         block_test.use_lld = false;
     }
-    block_test.root_module.addImport("anywhere", anywhere_mod);
-    block_test.root_module.addImport("build_options", build_options_mod);
 
     b.installArtifact(block_test);
     const run_block_tests = b.addRunArtifact(block_test);
@@ -43,17 +39,18 @@ pub fn build(b: *std.Build) !void {
 
     const benchmark_exe = b.addExecutable(.{
         .name = "bench",
-        .root_source_file = b.path("src/text_component.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/text_component.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     if (optimize == .Debug and target.result.cpu.arch == .x86_64 and target.result.os.tag == .linux) {
         benchmark_exe.use_llvm = false;
         benchmark_exe.use_lld = false;
     }
     b.installArtifact(benchmark_exe);
-    benchmark_exe.root_module.addImport("anywhere", anywhere_mod);
-    benchmark_exe.root_module.addImport("build_options", build_options_mod);
+    for (blocks_mod.import_table.keys(), blocks_mod.import_table.values()) |k, v| benchmark_exe.root_module.addImport(k, v);
 
     if (use_tracy) {
         if (b.lazyDependency("tracy", .{ .target = target, .optimize = optimize })) |tracy_mod| {

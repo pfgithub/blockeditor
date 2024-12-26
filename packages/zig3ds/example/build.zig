@@ -11,9 +11,11 @@ pub fn build(b: *std.Build) !void {
 
     const elf = b.addExecutable(.{
         .name = "sample",
-        .target = build_helper.target,
-        .optimize = optimize,
-        .root_source_file = b.path("src/main.zig"),
+        .root_module = b.createModule(.{
+            .target = build_helper.target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/main.zig"),
+        }),
     });
     build_helper.link(elf);
 

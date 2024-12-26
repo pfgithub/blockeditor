@@ -13,9 +13,11 @@ pub fn build(b: *std.Build) !void {
     b.getInstallStep().dependOn(&fmt_step.step);
 
     const docs = b.addTest(.{
-        .root_source_file = b.path("src/docs.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/docs.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     // has to go on top otherwise the name gets rewritten when it's depended on by a different module and it breaks the zig docs viewer
     // the :build ones also just don't work at all for a similar reason it seems

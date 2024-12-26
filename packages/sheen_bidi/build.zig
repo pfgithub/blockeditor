@@ -55,9 +55,11 @@ pub fn build(b: *std.Build) void {
     sheen_bidi_mod.linkLibrary(sheen_bidi_lib);
 
     const sheen_bidi_tests = b.addTest(.{
-        .root_source_file = b.path("src/example.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/example.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     sheen_bidi_tests.root_module.addImport("sheen_bidi", sheen_bidi_mod);
     b.installArtifact(sheen_bidi_tests);

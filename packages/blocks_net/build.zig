@@ -18,28 +18,28 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "server",
-        .root_source_file = b.path("src/server.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/server.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "websocket", .module = websocket_zig_dep.module("websocket") },
+            },
+        }),
     });
-    exe.root_module.addImport("websocket", websocket_zig_dep.module("websocket"));
     b.installArtifact(exe);
 
     const client_mod = b.addModule("client", .{
         .root_source_file = b.path("src/client.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "websocket", .module = websocket_zig_dep.module("websocket") },
+            .{ .name = "blocks", .module = blocks_dep.module("blocks") },
+        },
     });
-    client_mod.addImport("websocket", websocket_zig_dep.module("websocket"));
-    client_mod.addImport("blocks", blocks_dep.module("blocks"));
 
-    const tests = b.addTest(.{
-        .root_source_file = b.path("src/test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    tests.root_module.addImport("websocket", websocket_zig_dep.module("websocket"));
-    tests.root_module.addImport("blocks", blocks_dep.module("blocks"));
+    const tests = b.addTest(.{ .root_module = client_mod });
     b.installArtifact(tests);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -60,11 +60,15 @@ pub fn build(b: *std.Build) void {
 
     const client_exe = b.addExecutable(.{
         .name = "wsnc",
-        .root_source_file = b.path("src/wsnc.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/wsnc.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "websocket", .module = websocket_zig_dep.module("websocket") },
+            },
+        }),
     });
-    client_exe.root_module.addImport("websocket", websocket_zig_dep.module("websocket"));
 
     b.installArtifact(client_exe);
     const run_client = b.addRunArtifact(client_exe);

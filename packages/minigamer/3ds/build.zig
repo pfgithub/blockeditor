@@ -6,9 +6,11 @@ pub fn build(b: *std.Build) !void {
 
     const swizzleimg = b.addExecutable(.{
         .name = "swizzlearray",
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
-        .root_source_file = b.path("tmp/swizzlearray.zig"),
+        .root_module = b.createModule(.{
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
+            .root_source_file = b.path("tmp/swizzlearray.zig"),
+        }),
     });
     const runswizzle = b.addRunArtifact(swizzleimg);
     runswizzle.addFileArg(b.path("tmp/swizzle.rgba"));
@@ -28,9 +30,11 @@ pub fn build(b: *std.Build) !void {
 
     const zigpart = b.addObject(.{
         .name = "zigpart",
-        .target = build_helper.target,
-        .optimize = optimize,
-        .root_source_file = b.path("src/zigpart.zig"),
+        .root_module = b.createModule(.{
+            .target = build_helper.target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/zigpart.zig"),
+        }),
     });
     zigpart.root_module.addImport("minigamer_emulator", emu_mod);
     zigpart.root_module.addImport("sponge.cart", sponge_mod);

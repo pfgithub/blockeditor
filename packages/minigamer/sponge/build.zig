@@ -27,9 +27,11 @@ pub fn build(b: *std.Build) !void {
     const loadimage_mod = b.dependency("loadimage", .{ .target = tool_target, .optimize = tool_optimize });
     const tools_exe = b.addExecutable(.{
         .name = "tools",
-        .root_source_file = b.path("src/tools.zig"),
-        .target = tool_target,
-        .optimize = tool_optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tools.zig"),
+            .target = tool_target,
+            .optimize = tool_optimize,
+        }),
     });
     tools_exe.root_module.addImport("loadimage", loadimage_mod.module("loadimage"));
     b.installArtifact(tools_exe);
@@ -46,9 +48,11 @@ pub fn build(b: *std.Build) !void {
 
     const riscv_build = b.addExecutable(.{
         .name = "sponge.cart",
-        .root_source_file = b.path("src/start.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/start.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     riscv_build.root_module.single_threaded = true;
     riscv_build.root_module.addImport("lib", lib_mod);

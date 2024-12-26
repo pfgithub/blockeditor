@@ -11,9 +11,11 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
 
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = b.path("src/web_impl.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/web_impl.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     exe.import_symbols = true; // freetype uses setjmp/longjmp :/ uh oh. also "undefined symbol: main"
     // how to implement setjmp/longjmp: https://stackoverflow.com/questions/44263019/how-would-setjmp-longjmp-be-implemented-in-webassembly
@@ -62,9 +64,11 @@ pub fn build(b: *std.Build) !void {
 
     const server_exe = b.addExecutable(.{
         .name = "server",
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
-        .root_source_file = b.path("src/server.zig"),
+        .root_module = b.createModule(.{
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
+            .root_source_file = b.path("src/server.zig"),
+        }),
     });
     // waiting on https://github.com/ziglang/zig/issues/21525 : for now, it will always fetch the dependency
     // even if server_exe is never compiled
@@ -78,9 +82,11 @@ pub fn build(b: *std.Build) !void {
 
     const bundle_exe = b.addExecutable(.{
         .name = "bundle",
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
-        .root_source_file = b.path("src/bundle.zig"),
+        .root_module = b.createModule(.{
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
+            .root_source_file = b.path("src/bundle.zig"),
+        }),
     });
     b.installArtifact(bundle_exe);
 }

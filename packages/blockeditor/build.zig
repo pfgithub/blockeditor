@@ -38,16 +38,10 @@ pub fn build(b: *std.Build) !void {
     });
 
     const app_test = b.addTest(.{
-        .root_source_file = b.path("src/App.zig"),
+        .root_module = app_mod,
         .target = target,
         .optimize = optimize,
     });
-    app_test.root_module.addImport("anywhere", anywhere_mod);
-    app_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
-    app_test.root_module.addImport("blocks_net", blocks_net_dep.module("client"));
-    app_test.root_module.addImport("beui", beui_dep.module("beui"));
-    app_test.root_module.addImport("minigamer", emu_mod);
-    app_test.root_module.addImport("sponge.cart", sponge_mod);
     if (opts.platform != .android) b.installArtifact(app_test);
 
     const app_test_run = b.addRunArtifact(app_test);

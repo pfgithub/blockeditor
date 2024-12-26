@@ -24,17 +24,14 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/loadimage.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "wuffs", .module = wuffs_mod },
+        },
     });
-    loadimage_mod.addImport("wuffs", wuffs_mod);
 
     // tests
 
-    const tests = b.addTest(.{
-        .root_source_file = b.path("src/loadimage.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    tests.root_module.addImport("wuffs", wuffs_mod);
+    const tests = b.addTest(.{ .root_module = loadimage_mod });
     b.installArtifact(tests);
 
     const install_docs = b.addInstallDirectory(.{

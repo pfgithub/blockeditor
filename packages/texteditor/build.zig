@@ -41,18 +41,9 @@ pub fn build(b: *std.Build) !void {
     texteditor_mod.linkLibrary(tree_sitter_markdown_obj);
 
     const texteditor_test = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = texteditor_mod,
         .filter = b.option([]const u8, "filter", ""),
     });
-    texteditor_test.root_module.addImport("diffz", diffz_dep.module("diffz"));
-    texteditor_test.root_module.addImport("blocks", blocks_dep.module("blocks"));
-    texteditor_test.root_module.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
-    texteditor_test.root_module.addImport("anywhere", anywhere_mod);
-    texteditor_test.root_module.addImport("tree_sitter", tree_sitter_dep.module("tree_sitter"));
-    texteditor_test.root_module.linkLibrary(tree_sitter_zig_obj);
-    texteditor_test.root_module.linkLibrary(tree_sitter_markdown_obj);
 
     b.installArtifact(texteditor_test);
     const run_texteditor_tests = b.addRunArtifact(texteditor_test);

@@ -15,11 +15,15 @@ pub fn build(b: *std.Build) void {
     const loadimage_mod = b.dependency("loadimage", .{ .target = tool_target, .optimize = tool_optimize });
     const genfont_tool = b.addExecutable(.{
         .name = "genfont_tool",
-        .root_source_file = b.path("src/genfont.zig"),
-        .target = tool_target,
-        .optimize = tool_optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/genfont.zig"),
+            .target = tool_target,
+            .optimize = tool_optimize,
+            .imports = &.{
+                .{ .name = "loadimage", .module = loadimage_mod.module("loadimage") },
+            },
+        }),
     });
-    genfont_tool.root_module.addImport("loadimage", loadimage_mod.module("loadimage"));
     const genfont_run = b.addRunArtifact(genfont_tool);
     genfont_run.addFileArg(b.path("src/base_texture.png"));
     const font_rgba = genfont_run.addOutputFileArg("font.rgba");
@@ -68,20 +72,7 @@ pub fn build(b: *std.Build) void {
     beui_mod.addImport("NotoSans[wght].ttf", notosans_wght_mod);
     beui_mod.addImport("NotoSansMono[wght].ttf", notosansmono_wght_mod);
 
-    const beui_test = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    beui_test.root_module.addImport("font.rgba", font_rgba_mod);
-    beui_test.root_module.addImport("freetype", freetype_mod);
-    beui_test.root_module.addImport("harfbuzz", harfbuzz_mod);
-    beui_test.root_module.addImport("sheen_bidi", sheen_bidi_mod);
-    beui_test.root_module.addImport("anywhere", anywhere_mod);
-    beui_test.root_module.addImport("texteditor", texteditor_mod);
-    beui_test.root_module.addImport("blocks", blocks_mod);
-    beui_test.root_module.addImport("NotoSans[wght].ttf", notosans_wght_mod);
-    beui_test.root_module.addImport("NotoSansMono[wght].ttf", notosansmono_wght_mod);
+    const beui_test = b.addTest(.{ .root_module = beui_mod });
 
     b.installArtifact(beui_test);
     const run_beui_tests = b.addRunArtifact(beui_test);

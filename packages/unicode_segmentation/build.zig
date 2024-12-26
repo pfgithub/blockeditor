@@ -48,14 +48,6 @@ pub fn build(b: *std.Build) !void {
     build_options.addOption(bool, "segmentation_available", segmentation_available);
     const build_options_mod = build_options.createModule();
 
-    const test_exe = b.addTest(.{
-        .root_source_file = b.path("src/grapheme_cursor.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    if (segmentation_available) test_exe.addObjectFile(obj_f_path);
-    test_exe.root_module.addImport("build_options", build_options_mod);
-
     const grapheme_cursor_mod = b.addModule("grapheme_cursor", .{
         .root_source_file = b.path("src/grapheme_cursor.zig"),
         .target = target,
@@ -63,6 +55,8 @@ pub fn build(b: *std.Build) !void {
     });
     if (segmentation_available) grapheme_cursor_mod.addObjectFile(obj_f_path);
     grapheme_cursor_mod.addImport("build_options", build_options_mod);
+
+    const test_exe = b.addTest(.{ .root_module = grapheme_cursor_mod });
 
     b.installArtifact(test_exe);
 
