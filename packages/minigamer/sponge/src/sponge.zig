@@ -243,7 +243,7 @@ pub fn frameSpongeRoom(input: Input) void {
     const clicked = input.mouse_down or input.interact_down or input.jump_down;
     const clicked_this_frame = input.mouse_down_this_frame or input.interact_down_this_frame or input.jump_down_this_frame;
 
-    const shift_float: f32 = @sin(@as(f32, @floatFromInt(state.ticks)) / 40) * 3.0;
+    const shift_float: f32 = @sin(@as(f32, @floatFromInt(state.ticks)) / 40) * 3.0 + 1.0;
     const shift_int, const shift_intrem = calcOffset(shift_float);
 
     if (clicked_this_frame) {
