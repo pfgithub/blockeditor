@@ -86,7 +86,7 @@ const wgsl_common = (
     \\      circle = smoothstep(1.0 - stepdist, 1.0 + stepdist, circle); // when both smoothstep args are the same as circle, it outputs 0
     \\      tint.a *= 1.0 - circle;
     \\      if in.uv.x < 0.0 { return premultiply(tint); }
-    \\      if true { color = vec4<f32>(1.0, 1.0, 1.0, color.r); }
+    \\      if uniforms.image_r == 1 { color = vec4<f32>(1.0, 1.0, 1.0, color.r); }
     \\      color *= tint;
     \\      return premultiply(color);
     \\  }
@@ -125,6 +125,7 @@ const WgslRes = struct {
 };
 fn genSub(comptime Src: type) struct { format: wgpu.VertexFormat, type_str: []const u8 } {
     return switch (Src) {
+        u32 => .{ .format = .uint32, .type_str = "u32" },
         f32 => .{ .format = .float32, .type_str = "f32" },
         @Vector(2, f32) => .{ .format = .float32x2, .type_str = "vec2<f32>" },
         @Vector(3, f32) => .{ .format = .float32x3, .type_str = "vec3<f32>" },
@@ -168,6 +169,7 @@ const Genres = genAttributes(draw_lists.RenderListVertex);
 
 const UniformsRes = genUniforms(extern struct {
     screen_size: @Vector(2, f32),
+    image_r: u32,
 });
 
 const TextureAndView = struct {
@@ -315,7 +317,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, b2: *B2.Beui2, fram
                 .size = .{
                     .width = texpack.size,
                     .height = texpack.size,
-                    .depth_or_array_layers = texpack.format.depth(),
+                    .depth_or_array_layers = 1,
                 },
                 .format = switch (texpack.format) {
                     .greyscale => .r8_unorm,
@@ -449,9 +451,24 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, b2: *B2.Beui2, fram
             pass.setPipeline(pipeline);
 
             const mem = gctx.uniformsAllocate(UniformsRes.Uniforms, 1);
+            const mem2 = gctx.uniformsAllocate(UniformsRes.Uniforms, 1);
+            // this is nonsense. what's the right way to do this?
+            // - should .r images be rendered with a different shader? and then we need to be really careful about
+            //   rendering as much as possible that is opaque seperately from non-opaque things and do all transparency
+            //   at the end?
+            // - should all images be .rgba and we pay the cost on the cpu?
+            // - ??
             mem.slice[0] = .{
                 .screen_size = .{ @floatFromInt(fb_width), @floatFromInt(fb_height) },
+                .image_r = 0,
             };
+            mem2.slice[0] = .{
+                .screen_size = .{ @floatFromInt(fb_width), @floatFromInt(fb_height) },
+                .image_r = 1,
+            };
+            // either this or writing a texture every frame has caused after like 10sec on mac the application
+            // freezes the entire computer :/ maybe we need to use opengl or something, zig-gamedev wgpu
+            // seems to have problems
             for (draw_list.commands.items) |command| {
                 const bind_group_handle = gctx.createBindGroup(demo.bind_group_layout, &.{
                     .{ .binding = 0, .buffer_handle = gctx.uniforms.buffer, .offset = 0, .size = 256 },
@@ -469,7 +486,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, b2: *B2.Beui2, fram
 
                 const bind_group = gctx.lookupResource(bind_group_handle) orelse break :pass;
 
-                pass.setBindGroup(0, bind_group, &.{mem.offset});
+                pass.setBindGroup(0, bind_group, &.{if (command.image == .grayscale) mem2.offset else mem.offset});
 
                 pass.drawIndexed(command.index_count, 1, command.first_index, command.base_vertex, 0);
             }

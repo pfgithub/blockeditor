@@ -39,10 +39,11 @@ pub const Image = struct {
         const image = gpa.create(Image) catch @panic("oom");
         _image_id += 1;
         image.* = .{
-            ._image_id = @enumFromInt(_image_id),
+            .id = @enumFromInt(_image_id),
             .size = size,
             .format = format,
             .contents = gpa.alignedAlloc(u8, @alignOf(u32), npx) catch @panic("oom"),
+            .modified = false,
         };
         return image;
     }
@@ -116,16 +117,19 @@ pub const OneFormatCache = struct {
     }
     fn _reserve(self: *OneFormatCache, image: *Image) ?Texpack.Region {
         // reserve the image
-        const reservation = self.texpack.reserve(self.gpa, image.size[0], image.size[1]) catch return null;
+        const reservation = self.texpack.reserve(self.gpa, image.size[0], image.size[1]) catch |e| switch (e) {
+            error.AtlasFull => return null,
+            error.OutOfMemory => @panic("oom"),
+        };
         // save
-        self.image_id_to_region_map.put(self.gpa, image.id, reservation);
+        self.image_id_to_region_map.put(self.gpa, image.id, reservation) catch @panic("oom");
         return reservation;
     }
     const none_uv = Texpack.Region.UV{ .size = .{ 0, 0 }, .pos = .{ -1, -1 } };
     pub fn getImageUVOnRenderFromRdl(self: *OneFormatCache, image: *Image) Texpack.Region.UV {
         if (@reduce(.Or, image.size > @as(@Vector(2, u16), @splat(@intCast(self.texpack.size / 2))))) return none_uv; // don't even try;
         if (@reduce(.Or, image.size == @as(@Vector(2, u16), @splat(0)))) return none_uv;
-        if (self.image_id_to_region_map.getPtr(image.id)) |*region| {
+        if (self.image_id_to_region_map.getPtr(image.id)) |region| {
             if (image.modified) {
                 self.texpack.set(region.*, image.contents);
                 image.modified = false;

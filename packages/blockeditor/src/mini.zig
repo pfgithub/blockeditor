@@ -6,12 +6,11 @@ const emu = @import("minigamer");
 const sponge_cart = @embedFile("sponge.cart");
 const util = @import("anywhere").util;
 
-const FrameOut = [emu.constants.EMU_SCREEN_DATA_SIZE_U32 * emu.constants.EMU_SCREEN_NLAYERS]u32;
 const OffsetsOut = [emu.constants.EMU_SCREEN_NLAYERS]@Vector(2, i8);
 const State = struct {
     gpa: std.mem.Allocator,
     val: emu.Emu,
-    frame_out: *FrameOut,
+    frame_out: *B2.ImageCache.Image,
     offsets_out: *OffsetsOut,
     bg_color_out: u32,
 
@@ -19,7 +18,7 @@ const State = struct {
         self.* = .{
             .gpa = gpa,
             .val = .init(),
-            .frame_out = gpa.create(FrameOut) catch @panic("oom"),
+            .frame_out = B2.ImageCache.Image.create(gpa, .{ emu.constants.EMU_SCREEN_W, emu.constants.EMU_SCREEN_H * emu.constants.EMU_SCREEN_NLAYERS }, .rgba),
             .offsets_out = gpa.create(OffsetsOut) catch @panic("oom"),
             .bg_color_out = 0,
         };
@@ -29,7 +28,7 @@ const State = struct {
     }
     pub fn deinit(self: *State) void {
         self.gpa.destroy(self.offsets_out);
-        self.gpa.destroy(self.frame_out);
+        self.frame_out.destroy(self.gpa);
         if (self.val.program != null) self.val.unloadProgram(self.gpa);
         self.val.deinit(); // this doesn't even do anything?
     }
@@ -42,23 +41,47 @@ pub fn render(_: *const void, call_info: B2.StandardCallInfo, _: void) *B2.Repos
 
     const state = ui.id.b2.state2(ui.id.sub(@src()), ui.id.b2.persistent.gpa, State);
 
-    if (state.val.program != null) {
-        state.val.simulate(.{
-            .time_ms = @bitCast(ui.id.b2.persistent.beui1.frame.frame_cfg.?.now_ms),
-            .buttons = .{
-                .up = ui.id.b2.persistent.beui1.isKeyHeld(.up),
-                .left = ui.id.b2.persistent.beui1.isKeyHeld(.left),
-                .down = ui.id.b2.persistent.beui1.isKeyHeld(.down),
-                .right = ui.id.b2.persistent.beui1.isKeyHeld(.right),
-                .interact = ui.id.b2.persistent.beui1.isKeyHeld(.z),
-                .jump = ui.id.b2.persistent.beui1.isKeyHeld(.x),
-                .menu = ui.id.b2.persistent.beui1.isKeyHeld(.c),
-            },
-            .mouse = null, // TODO
-        }, .{
-            .frame = state.frame_out,
-            .layer_offsets = state.offsets_out,
-            .background_color = &state.bg_color_out,
+    if (state.val.program == null) return rdl;
+
+    state.val.simulate(.{
+        .time_ms = @bitCast(ui.id.b2.persistent.beui1.frame.frame_cfg.?.now_ms),
+        .buttons = .{
+            .up = ui.id.b2.persistent.beui1.isKeyHeld(.up),
+            .left = ui.id.b2.persistent.beui1.isKeyHeld(.left),
+            .down = ui.id.b2.persistent.beui1.isKeyHeld(.down),
+            .right = ui.id.b2.persistent.beui1.isKeyHeld(.right),
+            .interact = ui.id.b2.persistent.beui1.isKeyHeld(.z),
+            .jump = ui.id.b2.persistent.beui1.isKeyHeld(.x),
+            .menu = ui.id.b2.persistent.beui1.isKeyHeld(.c),
+        },
+        .mouse = null, // TODO
+    }, .{
+        .frame = std.mem.bytesAsSlice(u32, state.frame_out.mutate())[0 .. emu.constants.EMU_SCREEN_DATA_SIZE_U32 * emu.constants.EMU_SCREEN_NLAYERS],
+        .layer_offsets = state.offsets_out,
+        .background_color = &state.bg_color_out,
+    });
+
+    const allow_non_integer = false; // if we want this we need to use pixel art scaling in the shader (only interpolates at the edges between pixels)
+    const min_axis = @min(size[0], size[1]);
+    var max_scale: f32 = min_axis / @as(f32, emu.constants.EMU_SCREEN_W);
+    if (!allow_non_integer) max_scale = @max(1, @floor(max_scale));
+    const scale: @Vector(2, f32) = @splat(max_scale * emu.constants.EMU_SCREEN_W);
+    const center = (size - scale) / @as(@Vector(2, f32), @splat(2));
+
+    // TODO clip a full pixel in from every edge
+
+    const uv = ui.id.b2.persistent.image_cache.getImageUVOnRenderFromRdl(state.frame_out);
+    for (&[_]f32{ 3.0, 2.0, 1.0, 0.0 }, &[_]usize{ 3, 2, 1, 0 }) |offset, i| {
+        // offset is i8 from -128 to 127. convert to [-0.5, 0.5)
+        var offset_vec: @Vector(2, f32) = @floatFromInt(state.offsets_out[i]);
+        offset_vec /= @splat(256);
+
+        rdl.addRect(.{
+            .pos = center + offset_vec * @as(@Vector(2, f32), @splat(max_scale)),
+            .size = scale,
+            .uv_pos = uv.pos + uv.size * @Vector(2, f32){ 0.0, offset / 4.0 },
+            .uv_size = uv.size * @Vector(2, f32){ 1.0, 1.0 / 4.0 },
+            .image = .rgba,
         });
     }
 
