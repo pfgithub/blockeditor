@@ -22,9 +22,9 @@ zig3ds currently supports [citro3d](https://github.com/devkitPro/citro3d) and [c
 const citro3d_includer = zig3ds.CIncluder.find(zig3ds_dep, "citro3d");
 const citro2d_includer = zig3ds.CIncluder.find(zig3ds_dep, "citro2d");
 
-citro3d_includer.applyTo(&elf.root_module);
+citro3d_includer.applyTo(elf.root_module);
 elf.linkLibrary(zig3ds_dep.artifact("citro3d"));
-citro2d_includer.applyTo(&elf.root_module);
+citro2d_includer.applyTo(elf.root_module);
 elf.linkLibrary(zig3ds_dep.artifact("citro2d"));
 ```
 

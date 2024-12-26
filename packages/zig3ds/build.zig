@@ -178,9 +178,9 @@ pub fn build(b: *std.Build) !void {
         .target = target_3ds,
         .optimize = optimize,
     });
-    libc_includer.applyTo(&libgloss_libsysbase.root_module);
+    libc_includer.applyTo(libgloss_libsysbase.root_module);
     libgloss_libsysbase.addIncludePath(b.path("src/config_fix"));
-    libgloss_libsysbase.defineCMacro("_BUILDING_LIBSYSBASE", null);
+    libgloss_libsysbase.root_module.addCMacro("_BUILDING_LIBSYSBASE", "");
     libgloss_libsysbase.addCSourceFiles(.{
         .root = newlib_dep.path("libgloss/libsysbase"),
         .files = libgloss_libsysbase_files,
@@ -193,7 +193,7 @@ pub fn build(b: *std.Build) !void {
         .target = target_3ds,
         .optimize = optimize,
     });
-    libc_includer.applyTo(&libc.root_module);
+    libc_includer.applyTo(libc.root_module);
     libc.addCSourceFiles(.{
         .root = newlib_dep.path("newlib/libc"),
         .files = newlib_libc_files,
@@ -219,7 +219,7 @@ pub fn build(b: *std.Build) !void {
         .target = target_3ds,
         .optimize = optimize,
     });
-    libc_includer.applyTo(&libm.root_module);
+    libc_includer.applyTo(libm.root_module);
     libm.addCSourceFiles(.{
         .root = newlib_dep.path("newlib/libm"),
         .files = newlib_libm_files,
@@ -242,10 +242,10 @@ pub fn build(b: *std.Build) !void {
     });
     b.installArtifact(libctru);
     {
-        libc_includer.applyTo(&libctru.root_module);
-        libctru_includer.applyTo(&libctru.root_module);
+        libc_includer.applyTo(libctru.root_module);
+        libctru_includer.applyTo(libctru.root_module);
 
-        build_helper.addDir(&libctru.root_module, libctru_dep.path("libctru"));
+        build_helper.addDir(libctru.root_module, libctru_dep.path("libctru"));
     }
 
     // citro3d
@@ -262,10 +262,10 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     b.installArtifact(citro3d);
-    libc_includer.applyTo(&citro3d.root_module);
-    libctru_includer.applyTo(&citro3d.root_module);
-    citro3d_includer.applyTo(&citro3d.root_module);
-    build_helper.addDir(&citro3d.root_module, citro3d_dep.path(""));
+    libc_includer.applyTo(citro3d.root_module);
+    libctru_includer.applyTo(citro3d.root_module);
+    citro3d_includer.applyTo(citro3d.root_module);
+    build_helper.addDir(citro3d.root_module, citro3d_dep.path(""));
 
     // citro2d
     const citro2d_dep = b.dependency("citro2d", .{});
@@ -281,11 +281,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     b.installArtifact(citro2d);
-    libc_includer.applyTo(&citro2d.root_module);
-    libctru_includer.applyTo(&citro2d.root_module);
-    citro3d_includer.applyTo(&citro2d.root_module);
-    citro2d_includer.applyTo(&citro2d.root_module);
-    build_helper.addDir(&citro2d.root_module, citro2d_dep.path(""));
+    libc_includer.applyTo(citro2d.root_module);
+    libctru_includer.applyTo(citro2d.root_module);
+    citro3d_includer.applyTo(citro2d.root_module);
+    citro2d_includer.applyTo(citro2d.root_module);
+    build_helper.addDir(citro2d.root_module, citro2d_dep.path(""));
 
     // 4. build the game
     for (t3ds_examples) |example_t| {
@@ -298,10 +298,10 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
         build_helper.link(elf);
-        build_helper.addDir(&elf.root_module, examples_dep.path(example.root_dir));
+        build_helper.addDir(elf.root_module, examples_dep.path(example.root_dir));
 
         if (example.dependencies.c) {
-            libc_includer.applyTo(&elf.root_module);
+            libc_includer.applyTo(elf.root_module);
             elf.linkLibrary(libc);
             elf.setLibCFile(libc_file);
             libc_file.addStepDependencies(&elf.step);
@@ -311,15 +311,15 @@ pub fn build(b: *std.Build) !void {
             elf.linkLibrary(libm);
         }
         if (example.dependencies.ctru) {
-            libctru_includer.applyTo(&elf.root_module);
+            libctru_includer.applyTo(elf.root_module);
             elf.linkLibrary(libctru);
         }
         if (example.dependencies.citro3d) {
-            citro3d_includer.applyTo(&elf.root_module);
+            citro3d_includer.applyTo(elf.root_module);
             elf.linkLibrary(citro3d);
         }
         if (example.dependencies.citro2d) {
-            citro2d_includer.applyTo(&elf.root_module);
+            citro2d_includer.applyTo(elf.root_module);
             elf.linkLibrary(citro2d);
         }
 

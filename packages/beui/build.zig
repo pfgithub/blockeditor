@@ -99,7 +99,7 @@ pub fn build(b: *std.Build) void {
             .freetype_use_system_zlib = false,
             .freetype_enable_brotli = true,
         })) |dep| {
-            dep.artifact("harfbuzz").defineCMacro("HB_NO_MT", "");
+            dep.artifact("harfbuzz").root_module.addCMacro("HB_NO_MT", "");
         }
     }
 }
