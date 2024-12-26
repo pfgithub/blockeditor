@@ -410,13 +410,12 @@ pub const Beui2 = struct {
     pub fn endFrame(self: *Beui2, renderlist: ?*render_list.RenderList) void {
         const result = self.persistent.wm.endFrame();
         self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
-        result.placed = true;
         result.finalize(.{
             .out_list = renderlist,
             .out_events = &self.persistent.last_frame_mouse_events,
             .out_mouse_events = &self.persistent.last_frame_mouse2_events,
             .out_rdl_states = &self.persistent.prev_frame_draw_list_states,
-        }, .{});
+        }, .{}, .{ .ul = .{ 0, 0 }, .br = self.frame.frame_cfg.size });
     }
 
     pub fn draw(self: *Beui2) *RepositionableDrawList {
@@ -808,6 +807,13 @@ pub const RepositionableDrawList = struct {
             child: ?*RepositionableDrawList,
             cfg: PlaceCfg,
         },
+        clip: struct {
+            child: *RepositionableDrawList,
+            rect: ClipCfg,
+            // for fancy clips in the future, we could implement clips by defining
+            // a 'geometry' command that writes to a clip buffer and then all renders
+            // go through that buffer. not sure how to have a clipping stack though.
+        },
         user_state: struct {
             id: ID,
             data: *const anyopaque,
@@ -826,10 +832,16 @@ pub const RepositionableDrawList = struct {
             return .{ .offset = a.offset + b.offset };
         }
     };
+    pub const ClipCfg = struct {
+        ul: @Vector(2, f32),
+        br: @Vector(2, f32),
+        pub fn sub(a: ClipCfg, add: @Vector(2, f32), b: ClipCfg) ClipCfg {
+            return .{ .ul = @max(a.ul, add + b.ul), .br = @min(a.br, add + b.br) };
+        }
+    };
     pub fn place(self: *RepositionableDrawList, child: *RepositionableDrawList, cfg: PlaceCfg) void {
         std.debug.assert(!child.placed);
         self.content.append(.{ .embed = .{ .child = child, .cfg = cfg } }) catch @panic("oom");
-        child.placed = true;
     }
     pub fn reserve(self: *RepositionableDrawList) Reservation {
         self.content.append(.{ .embed = .{ .child = null, .cfg = .{} } }) catch @panic("oom");
@@ -839,7 +851,6 @@ pub const RepositionableDrawList = struct {
         std.debug.assert(self.b2.persistent.frame_num == slot.frame);
         std.debug.assert(self == slot.for_draw_list);
         self.content.items[slot.index].embed = .{ .child = child, .cfg = cfg };
-        child.placed = true;
     }
     pub fn addUserState(self: *RepositionableDrawList, id: ID, comptime StateT: type, state: *const StateT) void {
         self.content.append(.{ .user_state = .{
@@ -847,6 +858,9 @@ pub const RepositionableDrawList = struct {
             .data = @ptrCast(state),
             .type_id = @typeName(StateT),
         } }) catch @panic("oom");
+    }
+    pub fn addClip(self: *RepositionableDrawList, child: *RepositionableDrawList, rect: struct { pos: @Vector(2, f32), size: @Vector(2, f32) }) void {
+        self.content.append(.{ .clip = .{ .child = child, .rect = .{ .ul = rect.pos, .br = rect.pos + rect.size } } }) catch @panic("oom");
     }
     //  if (image) |img| {
     //     const image_uv = self.b2.persistent.image_cache.getImageUVOnRenderFromRdl(img);
@@ -1016,11 +1030,13 @@ pub const RepositionableDrawList = struct {
         out_mouse_events: ?*std.ArrayList(Mouse2),
         out_rdl_states: ?*IdMap(GenericDrawListState),
     };
-    fn finalize(self: *RepositionableDrawList, res: FinalizeCfg, cfg: PlaceCfg) void {
+    fn finalize(self: *RepositionableDrawList, res: FinalizeCfg, cfg: PlaceCfg, clip: ClipCfg) void {
+        std.debug.assert(!self.placed); // double place of rdl
+        self.placed = true;
         for (self.content.items) |item| {
             switch (item) {
                 .geometry => |geo| {
-                    if (res.out_list) |v| v.addVertices(geo.image, geo.vertices, geo.indices, cfg.offset);
+                    if (res.out_list) |v| v.addVertices(geo.image, geo.vertices, geo.indices, cfg.offset, clip);
                 },
                 .mouse => |mev| {
                     if (res.out_events) |v| v.append(.{
@@ -1039,7 +1055,7 @@ pub const RepositionableDrawList = struct {
                     }) catch @panic("oom");
                 },
                 .embed => |eev| {
-                    if (eev.child) |c| c.finalize(res, cfg.add(eev.cfg));
+                    if (eev.child) |c| c.finalize(res, cfg.add(eev.cfg), clip);
                 },
                 .user_state => |usv| {
                     if (res.out_rdl_states) |v| {
@@ -1049,6 +1065,9 @@ pub const RepositionableDrawList = struct {
                             .type_id = usv.type_id,
                         }) catch @panic("oom");
                     }
+                },
+                .clip => |c| {
+                    c.child.finalize(res, cfg, clip.sub(cfg.offset, c.rect));
                 },
             }
         }

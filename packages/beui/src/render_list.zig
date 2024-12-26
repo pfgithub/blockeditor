@@ -33,6 +33,7 @@ pub const RenderListCommand = struct {
     first_index: u32,
     base_vertex: i32, // not sure if this is what I think it is
     image: ?RenderListImage,
+    clip: RenderList.Clip,
 };
 
 pub const RenderList = struct {
@@ -60,15 +61,17 @@ pub const RenderList = struct {
         self.commands.clearRetainingCapacity();
     }
 
-    fn getCmd(self: *RenderList, image: ?RenderListImage, min_remaining_vertices: usize) *RenderListCommand {
+    fn getCmd(self: *RenderList, image: ?RenderListImage, min_remaining_vertices: usize, clip: Clip) *RenderListCommand {
         // empty case: create a new command
         if (self.commands.items.len == 0) {
-            return self.addCmd(image);
+            return self.addCmd(image, clip);
         }
         const last = &self.commands.items[self.commands.items.len - 1];
+        // clip rect is different
+        if (!std.meta.eql(last.clip, clip)) return self.addCmd(image, clip);
         // last item does not have enough remaining indices to hold new vertices case: create new sublist
         if (last.vertex_count + min_remaining_vertices > std.math.maxInt(RenderListIndex)) {
-            return self.addCmd(image);
+            return self.addCmd(image, clip);
         }
         // last item does not have an image assigned yet: assign image
         if (last.image == null) {
@@ -77,24 +80,30 @@ pub const RenderList = struct {
         }
         // last item has an image assigned, but it is not the right image: create new sublist
         if (image != null and last.image.? != image.?) {
-            return self.addCmd(image);
+            return self.addCmd(image, clip);
         }
         // last image has an image assigned and it is the right image
         return last;
     }
-    fn addCmd(self: *RenderList, image: ?RenderListImage) *RenderListCommand {
+    fn addCmd(self: *RenderList, image: ?RenderListImage, clip: Clip) *RenderListCommand {
         self.commands.append(.{
             .vertex_count = 0,
             .index_count = 0,
             .first_index = @intCast(self.indices.items.len),
             .base_vertex = @intCast(self.vertices.items.len), // not sure if this usage is right?
             .image = image,
+            .clip = clip,
         }) catch @panic("oom");
         return &self.commands.items[self.commands.items.len - 1];
     }
 
-    pub fn addVertices(self: *RenderList, image: ?RenderListImage, vertices: []const RenderListVertex, indices: []const RenderListIndex, offset_pos: @Vector(2, f32)) void {
-        var cmd = self.getCmd(image, vertices.len);
+    pub fn addVertices(self: *RenderList, image: ?RenderListImage, vertices: []const RenderListVertex, indices: []const RenderListIndex, offset_pos: @Vector(2, f32), clip: Beui.beui_experiment.RepositionableDrawList.ClipCfg) void {
+        var cmd = self.getCmd(image, vertices.len, .{
+            .x = @intFromFloat(@ceil(clip.ul[0])),
+            .y = @intFromFloat(@ceil(clip.ul[1])),
+            .w = @intFromFloat(@max(0, @floor(clip.br[0] - clip.ul[0]))),
+            .h = @intFromFloat(@max(0, @floor(clip.br[1] - clip.ul[1]))),
+        });
 
         const prev_vertices_len: u16 = @intCast(cmd.vertex_count); // vertices len can never be larger than (maxInt(u16) - vertices.len)
         self.vertices.ensureUnusedCapacity(vertices.len) catch @panic("oom");
@@ -114,4 +123,10 @@ pub const RenderList = struct {
         cmd.vertex_count += vertices.len;
         cmd.index_count += @intCast(indices.len);
     }
+    const Clip = struct {
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+    };
 };

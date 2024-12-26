@@ -487,6 +487,7 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, b2: *B2.Beui2, fram
                 const bind_group = gctx.lookupResource(bind_group_handle) orelse break :pass;
 
                 pass.setBindGroup(0, bind_group, &.{if (command.image == .grayscale) mem2.offset else mem.offset});
+                pass.setScissorRect(command.clip.x, command.clip.y, command.clip.w, command.clip.h);
 
                 pass.drawIndexed(command.index_count, 1, command.first_index, command.base_vertex, 0);
             }
