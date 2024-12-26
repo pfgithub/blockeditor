@@ -86,11 +86,6 @@ export fn @"zig:renderFrame"() void {
         b2.endFrame(&draw_list);
     }
 
-    const glyphs = &b2.persistent.layout_cache.glyphs;
-    if (glyphs.modified) {
-        glyphs.modified = false;
-    }
-
     {
         // rewrite index data to not use base_vertex. glDrawElementsBaseVertex is available in gles3.2, but the emulator
         // in android studio only supports up to gles3.0
@@ -104,6 +99,6 @@ export fn @"zig:renderFrame"() void {
     }
 
     for (draw_list.commands.items) |command| {
-        if (command.image != null and command.image.? == .beui_font) @panic("TODO add beui_font to beui_impl_android");
+        _ = command;
     }
 }

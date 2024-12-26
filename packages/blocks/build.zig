@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     const block_test = b.addTest(.{ .root_module = blocks_mod });
-    if (optimize == .Debug and target.result.cpu.arch == .x86_64 and target.result.os.tag == .linux) {
+    if (optimize == .Debug and target.result.cpu.arch == .x86_64 and target.result.os.tag == .linux and !target.result.abi.isAndroid()) {
         block_test.use_llvm = false;
         block_test.use_lld = false;
     }
@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         }),
     });
-    if (optimize == .Debug and target.result.cpu.arch == .x86_64 and target.result.os.tag == .linux) {
+    if (optimize == .Debug and target.result.cpu.arch == .x86_64 and target.result.os.tag == .linux and !target.result.abi.isAndroid()) {
         benchmark_exe.use_llvm = false;
         benchmark_exe.use_lld = false;
     }

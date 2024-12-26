@@ -112,7 +112,7 @@ export fn zig_opengl_renderFrame() void {
         b2.endFrame(&draw_list);
     }
 
-    const glyphs = &b2.persistent.layout_cache.glyphs;
+    const glyphs = &b2.persistent.image_cache.caches.getPtr(.grayscale).texpack;
     if (glyphs.modified) {
         glyphs.modified = false;
         c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
@@ -148,7 +148,7 @@ export fn zig_opengl_renderFrame() void {
     c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, indices_buffer);
 
     for (draw_list.commands.items) |command| {
-        if (command.image != null and command.image.? == .beui_font) @panic("TODO add beui_font to beui_impl_android");
+        if (command.image != null and command.image.? != .grayscale) @panic("TODO add non-grayscale to beui_impl_android");
         c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
         c.glDrawElements(c.GL_TRIANGLES, @intCast(command.index_count), c.GL_UNSIGNED_INT, @ptrFromInt(command.first_index));
         c.glBindVertexArray(0);
