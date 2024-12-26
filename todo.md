@@ -1,3 +1,10 @@
+!important!
+
+- [ ] the appliation freezes the whole computer on mac if you leave it open
+       for like 10sec. this was introduced in the commit that also introduced:
+       - updating an image every frame 
+       - the two uniforms
+
 TODO
 
 - [ ] Get instruments.app, figure out why cpu is so high for blockeditor. Even in ReleaseSafe? Some kind of gpu problem?
