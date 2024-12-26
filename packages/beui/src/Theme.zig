@@ -172,22 +172,45 @@ fn drawWindowNode(man: *WM.Manager, rdl: *B2.RepositionableDrawList, win: WM.WM.
     }
 }
 
+const WindowEventInfo = struct {
+    im: WindowIkeyInteractionModel,
+    man: *WM.Manager,
+};
+
 pub const WindowIkeyInteractionModel = union(enum) {
     raise: struct { window: WM.WM.FrameID },
     resize: struct { window: WM.WM.FrameID, sides: B2.Sides, cursor: Beui.Cursor = .arrow },
     ignore,
 };
+fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2.MouseEvent) ?Beui.Cursor {
+    switch (wid.im) {
+        .ignore => return .arrow,
+        .raise => |r| {
+            if (ev.action == .down) wid.man.wm.bringToFront(r.window);
+            return null;
+        },
+        .resize => |resize| {
+            if (ev.action == .down) {
+                if (ev.pos) |pos| wid.man.beginResize(resize.window, pos);
+            }
+            if (ev.action == .move_while_down or ev.action == .up) {
+                // TODO
+                _ = b2;
+                if (ev.pos) |pos| wid.man.updateResize(resize.window, resize.sides, pos);
+            }
+            if (ev.action == .up) {
+                wid.man.endResize(resize.window);
+            }
+            return resize.cursor;
+        },
+    }
+}
 fn captureResize(rdl: *B2.RepositionableDrawList, man: *WM.Manager, id: B2.ID, ikey: WindowIkeyInteractionModel, pos: @Vector(2, f32), size: @Vector(2, f32)) void {
-    // rdl.addMouseEventCapture2(id, pos, size, .{
-    //     .onMouseEvent = .from(wm.makeWindowEventInfo(ikey), B2.WindowManager.handleWindowEvent),
-    // });
-    // TODO
-    _ = rdl;
-    _ = man;
-    _ = id;
-    _ = ikey;
-    _ = pos;
-    _ = size;
+    const wid = id.b2.frame.arena.create(WindowEventInfo) catch @panic("oom");
+    wid.* = .{ .im = ikey, .man = man };
+    rdl.addMouseEventCapture2(id, pos, size, .{
+        .onMouseEvent = .from(wid, captureResize__handleWindowEvent),
+    });
 }
 pub fn drawFullscreenOverlay(wm: *B2.WindowManager, win: *B2.FullscreenOverlay) void {
     const rdl = wm.this_frame_rdl.?;
@@ -248,7 +271,8 @@ pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2
     while (i > 0) {
         i -= 1;
         const win = man.wm.top_level_windows.items[i];
-        drawFloatingContainer(man, win, rdl, .{ 10 + (@as(f32, @floatFromInt(i)) * 200), 10 }, .{ 200, 200 });
+        const win_info = man.getWindowInfo(win);
+        drawFloatingContainer(man, win, rdl, win_info.pos, win_info.size);
     }
 
     // background

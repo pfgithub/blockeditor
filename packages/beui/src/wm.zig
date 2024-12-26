@@ -562,9 +562,16 @@ test WM {
 // but that means you would have to be passing around *Manager pointers or you would need to use a context provider
 // and wm is going to handle stuff like dropdown menus, ... so basically everything needs it
 pub const Manager = struct {
+    /// should this data be in WM rather than in Manager?
+    const TLFInfo = struct {
+        pos: @Vector(2, f32),
+        size: @Vector(2, f32),
+        _minitial: ?@Vector(2, f32), // kind of a hack, not sure what the final method of doing this will be
+    };
+
     wm: WM,
     /// stored for both the 'window' and the item directly inside it
-    top_level_window_positions_and_sizes: std.AutoArrayHashMapUnmanaged(WM.FrameID, struct { pos: @Vector(2, f32), size: @Vector(2, f32) }),
+    top_level_window_positions_and_sizes: std.AutoArrayHashMapUnmanaged(WM.FrameID, TLFInfo),
 
     id_to_final_map: B2.IdArrayMapUnmanaged(WM.FrameID),
     final_to_id_map: std.AutoArrayHashMapUnmanaged(WM.FrameID, B2.ID),
@@ -623,8 +630,53 @@ pub const Manager = struct {
         self.id_to_final_map.deinit(self.wm.gpa);
         self.final_to_id_map.deinit(self.wm.gpa);
         self.render_windows_ctx.deinit(self.wm.gpa);
+        self.top_level_window_positions_and_sizes.deinit(self.wm.gpa);
         self.this_frame.deinit(self.wm.gpa);
         self.wm.deinit();
+    }
+
+    pub fn getWindowInfo(self: *Manager, win: WM.FrameID) *const TLFInfo {
+        // return the value for the frame
+        // return the value for the window within the frame
+        const child = self.wm.getFrame(win).self.window.child;
+        if (self.top_level_window_positions_and_sizes.getPtr(win)) |val| return val;
+        if (self.top_level_window_positions_and_sizes.getPtr(child)) |val| return val;
+        // window is missing info
+        self.setWindowInfo(win, .{ .pos = .{ 20, 20 }, .size = .{ 300, 300 }, ._minitial = null });
+        return self.top_level_window_positions_and_sizes.getPtr(win).?;
+    }
+    pub fn setWindowInfo(self: *Manager, win: WM.FrameID, value: TLFInfo) void {
+        const child = self.wm.getFrame(win).self.window.child;
+        self.top_level_window_positions_and_sizes.put(self.wm.gpa, win, value) catch @panic("oom");
+        self.top_level_window_positions_and_sizes.put(self.wm.gpa, child, value) catch @panic("oom");
+    }
+    pub fn beginResize(self: *Manager, win: WM.FrameID, mpos: @Vector(2, f32)) void {
+        var wi = self.getWindowInfo(win).*;
+        wi._minitial = mpos;
+        self.setWindowInfo(win, wi);
+    }
+    pub fn updateResize(self: *Manager, win: WM.FrameID, sides: B2.Sides, mpos: @Vector(2, f32)) void {
+        const wi = self.getWindowInfo(win).*;
+        if (wi._minitial == null) return;
+        const offset = mpos - wi._minitial.?;
+        var x1 = wi.pos[0];
+        var x2 = wi.pos[0] + wi.size[0];
+        var y1 = wi.pos[1];
+        var y2 = wi.pos[1] + wi.size[1];
+        if (sides._left) x1 += offset[0];
+        if (sides._top) y1 += offset[1];
+        if (sides._right) x2 += offset[0];
+        if (sides._bottom) y2 += offset[1];
+        self.setWindowInfo(win, .{
+            .pos = .{ x1, y1 },
+            .size = .{ x2 - x1, y2 - y1 },
+            ._minitial = mpos, // ideally we wouldn't modify this I think?
+        });
+    }
+    pub fn endResize(self: *Manager, win: WM.FrameID) void {
+        var wi = self.getWindowInfo(win).*;
+        wi._minitial = null;
+        self.setWindowInfo(win, wi);
     }
 
     pub fn idForFrame(self: *Manager, src: std.builtin.SourceLocation, frame: WM.FrameID) B2.ID {
