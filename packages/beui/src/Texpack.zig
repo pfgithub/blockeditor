@@ -29,7 +29,7 @@ format: Format = .greyscale,
 /// to the user of the atlas to set this to false when they observe the value.
 /// This is a useful value to know if you need to send new data to the GPU or
 /// not.
-modified: bool = false,
+modified: ?Modified = null,
 
 /// This will be set to true when the atlas has been resized. It is up
 /// to the user of the atlas to set this to false when they observe the value.
@@ -37,6 +37,11 @@ modified: bool = false,
 /// a new texture needs to be allocated or if an existing one can be
 /// updated in-place.
 resized: bool = false,
+
+const Modified = struct {
+    min: @Vector(2, u32),
+    max: @Vector(2, u32),
+};
 
 pub const Format = enum(u8) {
     greyscale = 0,
@@ -101,7 +106,7 @@ pub fn init(alloc: Allocator, size: u32, format: Format) !Atlas {
 
     // This sets up our initial state
     result.clear();
-    result.modified = false;
+    result.modified = null;
 
     return result;
 }
@@ -244,7 +249,12 @@ pub fn set(self: *Atlas, reg: Region, data: []const u8) void {
         @memcpy(self.data[tex_offset .. tex_offset + src.len], src);
     }
 
-    self.modified = true;
+    const nm: Modified = .{ .min = .{ reg.x, reg.y }, .max = .{ reg.x + reg.width, reg.y + reg.height } };
+    if (self.modified) |*m| {
+        self.modified = .{ .min = @min(nm.min, m.min), .max = @max(nm.max, m.max) };
+    } else {
+        self.modified = nm;
+    }
 }
 
 // Grow the texture to the new size, preserving all previously written data.
@@ -285,13 +295,13 @@ pub fn grow(self: *Atlas, alloc: Allocator, size_new: u32) Allocator.Error!void 
     }, data_old[size_old * self.format.depth() ..]);
 
     // We are both modified and resized
-    self.modified = true;
+    self.modified = null; // resized implies modified
     self.resized = true;
 }
 
 // Empty the atlas. This doesn't reclaim any previously allocated memory.
 pub fn clear(self: *Atlas) void {
-    self.modified = true;
+    self.modified = .{ .min = @splat(0), .max = @splat(self.size) };
     @memset(self.data, 0);
     self.nodes.clearRetainingCapacity();
 
@@ -307,7 +317,7 @@ test "exact fit" {
     defer atlas.deinit(alloc);
 
     _ = try atlas.reserve(alloc, 32, 32);
-    try testing.expect(!atlas.modified);
+    try testing.expect(atlas.modified == null);
     try testing.expectError(Error.AtlasFull, atlas.reserve(alloc, 1, 1));
 }
 
@@ -336,9 +346,9 @@ test "writing data" {
     defer atlas.deinit(alloc);
 
     const reg = try atlas.reserve(alloc, 2, 2);
-    try testing.expect(!atlas.modified);
+    try testing.expect(atlas.modified == null);
     atlas.set(reg, &[_]u8{ 1, 2, 3, 4 });
-    try testing.expect(atlas.modified);
+    try testing.expect(atlas.modified != null);
 
     // 33 because of the 1px border and so on
     try testing.expectEqual(@as(u8, 1), atlas.data[33]);
@@ -363,12 +373,12 @@ test "grow" {
     try testing.expectEqual(@as(u8, 4), atlas.data[10]);
 
     // Reset our state
-    atlas.modified = false;
+    atlas.modified = null;
     atlas.resized = false;
 
     // Expand by exactly 1 should fit our new 1x1 block.
     try atlas.grow(alloc, atlas.size + 1);
-    try testing.expect(atlas.modified);
+    try testing.expect(atlas.modified == null);
     try testing.expect(atlas.resized);
     _ = try atlas.reserve(alloc, 1, 1);
 

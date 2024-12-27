@@ -142,6 +142,7 @@ pub fn render(self: *App, call_id: B2.ID) void {
     // b2.windows.add()
 
     id.b2.persistent.wm.addWindow(id.sub(@src()), "Debug Texture", .from(self, render__debugTexture));
+    id.b2.persistent.wm.addWindow(id.sub(@src()), "Debug Texture 2", .from(self, render__debugTexture2));
     const id_loop = id.pushLoop(@src(), usize);
     for (self.tabs.items, 0..) |tab, i| {
         const id_sub = id_loop.pushLoopValue(@src(), i);
@@ -351,17 +352,29 @@ fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) *B2.Re
     // TODO should be scrollable, vertical and horizontal
     // maybe window can autoscroll when content exceeds its bounds
     rdl.addRect(.{
-        .pos = .{ 20, 20 },
-        .size = .{ 200, 200 },
-        .tint = .fromHexRgb(0xFF0000),
-        .rounding = .{ .corners = .all, .radius = 100.0 },
-    });
-    rdl.addRect(.{
         .pos = .{ 0, 0 },
         .size = .{ 2048, 2048 },
         .uv_pos = .{ 0, 0 },
         .uv_size = .{ 1, 1 },
         .image = .grayscale,
+    });
+    rdl.addRect(.{
+        .pos = .{ 0, 0 },
+        .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? },
+        .tint = B2.Theme.colors.window_bg,
+        .rounding = .{ .corners = .all, .radius = 6.0 },
+    });
+    return rdl;
+}
+fn render__debugTexture2(_: *App, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
+    const ui = call_info.ui(@src());
+    const rdl = ui.id.b2.draw();
+    rdl.addRect(.{
+        .pos = .{ 0, 0 },
+        .size = .{ 2048, 2048 },
+        .uv_pos = .{ 0, 0 },
+        .uv_size = .{ 1, 1 },
+        .image = .rgba,
     });
     rdl.addRect(.{
         .pos = .{ 0, 0 },

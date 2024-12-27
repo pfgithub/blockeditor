@@ -308,11 +308,16 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, b2: *B2.Beui2, fram
     const fb_height = gctx.swapchain_descriptor.height;
 
     for (&demo.images.values, &b2.persistent.image_cache.caches.values) |*value, *oneformatcache| {
-        if (value.* == null) {
+        const texpack = &oneformatcache.texpack;
+        if (value.* == null or texpack.resized) {
+            if (value.*) |*prev_value| {
+                gctx.releaseResource(prev_value.texture);
+                gctx.releaseResource(prev_value.view);
+                value.* = null;
+            }
             const b2ft1 = tracy.traceNamed(@src(), "create texture");
             defer b2ft1.end();
-            const texpack = &oneformatcache.texpack;
-            texpack.modified = true;
+            texpack.modified = .{ .min = @splat(0), .max = @splat(texpack.size) };
 
             const tex = gctx.createTexture(.{
                 .usage = .{ .texture_binding = true, .copy_dst = true },
@@ -341,18 +346,23 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, b2: *B2.Beui2, fram
         defer b2ft1.end();
         const texpack = &oneformatcache.texpack;
 
-        if (texpack.modified and demo.update_tex) {
-            texpack.modified = false;
+        if (texpack.modified != null and demo.update_tex) {
+            const m = texpack.modified.?;
             gctx.queue.writeTexture(
-                .{ .texture = gctx.lookupResource(value.texture).? },
                 .{
-                    .bytes_per_row = texpack.size * texpack.format.depth(),
-                    .rows_per_image = texpack.size,
+                    .texture = gctx.lookupResource(value.texture).?,
+                    .origin = .{ .x = m.min[0], .y = m.min[1] },
                 },
-                .{ .width = texpack.size, .height = texpack.size },
+                .{
+                    .offset = (m.min[1] * texpack.size + m.min[0]) * texpack.format.depth(),
+                    .bytes_per_row = texpack.size * texpack.format.depth(),
+                    .rows_per_image = m.max[1] - m.min[1], // this is supposed to be optional?
+                },
+                .{ .width = m.max[0] - m.min[0], .height = m.max[1] - m.min[1] },
                 u8,
                 texpack.data,
             );
+            texpack.modified = null;
         }
     }
 
