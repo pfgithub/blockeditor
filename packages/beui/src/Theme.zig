@@ -235,9 +235,19 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
                     // } else {
                     //     wid.man.dragging.anim_start_ms = 0;
                     // }
+
+                    // starting now, we would like to treat this as a drag
+                    // - if man.dragging:
+                    //   - add a drop handler in the tab bar (per tab?)
+                    //   - add a drop handler for top, left, bottom, right
+                    // - how do we handle the drag?
+                    //   - currently, if there is a mouse focus, mouse events are only sent to that mouse focus
+                    //   - we need to mark the mouse event as a drag. like `b2.convertToDrag(scope: wid, data: frameid, handler: captureResize__handleDragEvent)`
+                    //     - and then use regular drop handlers as B2.dropHandler(scope: wid, pos, size, dropHandler__renderChild)
+                    //   - only drop handlers of the same scope are used. and this drag/drop event is for copy not for move
                 }
             }
-            if (ev.action == .move_while_down) {
+            if (ev.action == .move_while_down and wid.man.wm.dragging != WM.WM.FrameID.not_set) {
                 wid.man.dragging.pos = ev.pos.?;
             }
             if (ev.action == .up) {
