@@ -214,7 +214,10 @@ pub const WM = struct {
         }
     }
     pub fn grabFrame(self: *WM, frame_id: FrameID) void {
-        std.debug.assert(self.dragging == FrameID.not_set);
+        if (self.dragging != FrameID.not_set) {
+            self.dropFrameNewWindow();
+            return;
+        }
         self._tellParentChildRemoved(frame_id);
         self.getFrame(frame_id).parent = .not_set;
         self.dragging = self.addFrame(.{ .dragging = .{ .child = frame_id } });
@@ -226,7 +229,7 @@ pub const WM = struct {
         self.getFrame(next_child)._setParent(parent);
     }
     pub fn dropFrameNewWindow(self: *WM) void {
-        std.debug.assert(self.dragging != FrameID.not_set);
+        if (self.dragging == FrameID.not_set) return;
         const child = self.getFrame(self.dragging).self.dragging.child;
         self._tellParentChildRemoved(child);
 
@@ -591,6 +594,7 @@ pub const Manager = struct {
     current_window: ?B2.ID,
 
     active: ?FrameCfg,
+    dragging_pos: @Vector(2, f32) = .{ 0, 0 },
 
     pub const FrameCfg = struct {
         size: @Vector(2, f32),
@@ -638,17 +642,19 @@ pub const Manager = struct {
     pub fn getWindowInfo(self: *Manager, win: WM.FrameID) *const TLFInfo {
         // return the value for the frame
         // return the value for the window within the frame
-        const child = self.wm.getFrame(win).self.window.child;
+        const frame = self.wm.getFrame(win);
+        const child: ?WM.FrameID = if (frame.self == .window) frame.self.window.child else null;
         if (self.top_level_window_positions_and_sizes.getPtr(win)) |val| return val;
-        if (self.top_level_window_positions_and_sizes.getPtr(child)) |val| return val;
+        if (child != null) if (self.top_level_window_positions_and_sizes.getPtr(child.?)) |val| return val;
         // window is missing info
         self.setWindowInfo(win, .{ .pos = .{ 20, 20 }, .size = .{ 300, 300 }, ._minitial = null });
         return self.top_level_window_positions_and_sizes.getPtr(win).?;
     }
     pub fn setWindowInfo(self: *Manager, win: WM.FrameID, value: TLFInfo) void {
-        const child = self.wm.getFrame(win).self.window.child;
+        const frame = self.wm.getFrame(win);
+        const child: ?WM.FrameID = if (frame.self == .window) frame.self.window.child else null;
         self.top_level_window_positions_and_sizes.put(self.wm.gpa, win, value) catch @panic("oom");
-        self.top_level_window_positions_and_sizes.put(self.wm.gpa, child, value) catch @panic("oom");
+        if (child != null) self.top_level_window_positions_and_sizes.put(self.wm.gpa, child.?, value) catch @panic("oom");
     }
     pub fn beginResize(self: *Manager, win: WM.FrameID, mpos: @Vector(2, f32)) void {
         var wi = self.getWindowInfo(win).*;

@@ -221,11 +221,27 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
             return resize.cursor;
         },
         .grab_tab => |grab_tab| {
-            if (ev.action == .down) {
-                wid.man.wm.grabFrame(grab_tab.tab);
+            if (ev.action == .move_while_down and wid.man.wm.dragging == WM.WM.FrameID.not_set) {
+                const offset = ev.pos.? - ev.drag_start_pos.?;
+                const dist = std.math.sqrt(offset[0] * offset[0] + offset[1] * offset[1]);
+                if (dist > 3.0) {
+                    // if it's going to drag from the top left corner, at minimum it needs to animate into place
+                    // so like we need to have an id that has rdl position info to get former position and animate
+                    // into new position (can't get the new position so ???)
+                    wid.man.wm.grabFrame(grab_tab.tab);
+                }
+            }
+            if (ev.action == .move_while_down) {
+                wid.man.dragging_pos = ev.pos.?;
             }
             if (ev.action == .up) {
                 wid.man.wm.dropFrameNewWindow();
+                const wi = wid.man.getWindowInfo(grab_tab.tab);
+                wid.man.setWindowInfo(grab_tab.tab, .{
+                    .pos = ev.pos.?,
+                    .size = wi.size,
+                    ._minitial = null,
+                });
             }
             return .arrow;
         },
@@ -294,7 +310,7 @@ pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2
     const rdl = b2.draw();
 
     if (man.wm.dragging != WM.WM.FrameID.not_set) {
-        drawWindowDragging(man, rdl, man.wm.dragging, .{ 10, 10 }, .{ 300, 300 });
+        drawWindowDragging(man, rdl, man.wm.dragging, man.dragging_pos, .{ 300, 300 });
     }
 
     // loop in reverse because [0] = backmost, [len - 1] = frontmost

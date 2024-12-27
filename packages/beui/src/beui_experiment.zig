@@ -119,6 +119,7 @@ const Beui2Persistent = struct {
     beui1: *Beui,
 
     mouse_pos: ?@Vector(2, f32) = null,
+    mouse_pos_on_drag_start: ?@Vector(2, f32) = null,
     mouse_focus: ?ID = null,
     uncommitted_move_offset: @Vector(2, f32) = .{ 0, 0 },
 };
@@ -209,6 +210,7 @@ pub const Beui2 = struct {
         switch (ev) {
             .down => {
                 const mpos = self.persistent.mouse_pos orelse return;
+                self.persistent.mouse_pos_on_drag_start = mpos;
                 // find who captures this event
                 for (self.persistent.last_frame_mouse2_events.items) |item| {
                     if (pointInRect(mpos, item.pos, item.size)) {
@@ -218,6 +220,7 @@ pub const Beui2 = struct {
                                 .capture_size = item.size,
                                 .pos = mpos,
                                 .action = .down,
+                                .drag_start_pos = self.persistent.mouse_pos_on_drag_start.?,
                             })) |cursor| {
                                 self.persistent.beui1.frame.cursor = cursor;
                                 // it ate the event, so we set it as the mouse focus
@@ -239,6 +242,7 @@ pub const Beui2 = struct {
                                 .capture_size = item.size,
                                 .pos = self.persistent.mouse_pos,
                                 .action = .up,
+                                .drag_start_pos = self.persistent.mouse_pos_on_drag_start.?,
                             }).?;
                         }
                     }
@@ -261,6 +265,7 @@ pub const Beui2 = struct {
                             .capture_size = item.size,
                             .pos = mpos,
                             .action = .move_while_down,
+                            .drag_start_pos = self.persistent.mouse_pos_on_drag_start.?,
                         }).?;
                     }
                 }
@@ -278,6 +283,7 @@ pub const Beui2 = struct {
                             .capture_size = item.size,
                             .pos = mpos,
                             .action = .move_while_up,
+                            .drag_start_pos = mpos,
                         })) |cursor| {
                             self.persistent.beui1.frame.cursor = cursor;
                             break;
@@ -1262,6 +1268,7 @@ pub const MouseEvent = struct {
     capture_pos: @Vector(2, f32),
     capture_size: @Vector(2, f32),
     pos: ?@Vector(2, f32),
+    drag_start_pos: ?@Vector(2, f32),
     action: enum { down, up, move_while_down, move_while_up },
 };
 pub const ScrollEvent = struct {
