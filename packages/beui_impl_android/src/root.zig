@@ -113,11 +113,12 @@ export fn zig_opengl_renderFrame() void {
     }
 
     const glyphs = &b2.persistent.image_cache.caches.getPtr(.grayscale).texpack;
-    if (glyphs.modified) {
-        glyphs.modified = false;
+    if (glyphs.modified) |m| {
         c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
         defer c.glBindTexture(c.GL_TEXTURE_2D, 0);
-        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RED, @intCast(glyphs.size), @intCast(glyphs.size), 0, c.GL_RED, c.GL_UNSIGNED_BYTE, glyphs.data.ptr);
+        c.glPixelStorei(c.GL_UNPACK_ROW_LENGTH, @intCast(glyphs.size * glyphs.format.depth()));
+        c.glTexSubImage2D(c.GL_TEXTURE_2D, 0, @intCast(m.min[0]), @intCast(m.min[1]), @intCast(m.max[0] - m.min[0]), @intCast(m.max[1] - m.min[1]), c.GL_RED, c.GL_UNSIGNED_BYTE, glyphs.data.ptr);
+        glyphs.modified = null;
     }
 
     {
