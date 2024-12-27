@@ -113,11 +113,40 @@ export fn zig_opengl_renderFrame() void {
     }
 
     const glyphs = &b2.persistent.image_cache.caches.getPtr(.grayscale).texpack;
+    if (glyphs.resized or !ft_texture_initialized) {
+        c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
+        defer c.glBindTexture(c.GL_TEXTURE_2D, 0);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RED, @intCast(glyphs.size), @intCast(glyphs.size), 0, c.GL_RED, c.GL_UNSIGNED_BYTE, glyphs.data.ptr);
+        glyphs.resized = false;
+        ft_texture_initialized = true;
+    }
     if (glyphs.modified) |m| {
         c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
         defer c.glBindTexture(c.GL_TEXTURE_2D, 0);
-        c.glPixelStorei(c.GL_UNPACK_ROW_LENGTH, @intCast(glyphs.size * glyphs.format.depth()));
-        c.glTexSubImage2D(c.GL_TEXTURE_2D, 0, @intCast(m.min[0]), @intCast(m.min[1]), @intCast(m.max[0] - m.min[0]), @intCast(m.max[1] - m.min[1]), c.GL_RED, c.GL_UNSIGNED_BYTE, glyphs.data.ptr);
+        const oss = m.toOffsetStrideSize(glyphs);
+        std.log.info("results: pos={} size={} stride_bytes={} offset={}", .{ oss.pos, oss.size, oss.stride_bytes, oss.offset });
+        c.glPixelStorei(c.GL_UNPACK_ROW_LENGTH, @intCast(oss.stride_bytes));
+        defer c.glPixelStorei(c.GL_UNPACK_ROW_LENGTH, 0);
+        c.glTexSubImage2D(
+            // target
+            c.GL_TEXTURE_2D,
+            // level
+            0,
+            // xoffset
+            @intCast(oss.pos[0]),
+            // yoffset
+            @intCast(oss.pos[1]),
+            // width
+            @intCast(oss.size[0]),
+            // height
+            @intCast(oss.size[1]),
+            // format
+            c.GL_RED,
+            // type
+            c.GL_UNSIGNED_BYTE,
+            // pixels
+            glyphs.data[oss.offset .. oss.stride_bytes * oss.size[1]].ptr,
+        );
         glyphs.modified = null;
     }
 
@@ -149,7 +178,9 @@ export fn zig_opengl_renderFrame() void {
     c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, indices_buffer);
 
     for (draw_list.commands.items) |command| {
-        if (command.image != null and command.image.? != .grayscale) @panic("TODO add non-grayscale to beui_impl_android");
+        if (command.image != null and command.image.? != .grayscale) {
+            // TODO add non-grayscale to beui_impl_android
+        }
         c.glBindTexture(c.GL_TEXTURE_2D, ft_texture);
         c.glDrawElements(c.GL_TRIANGLES, @intCast(command.index_count), c.GL_UNSIGNED_INT, @ptrFromInt(command.first_index));
         c.glBindVertexArray(0);
@@ -164,6 +195,7 @@ var vbo: c.GLuint = 0;
 var uniform_screen_size: c.GLint = 0;
 var screen_size: @Vector(2, i32) = .{ 100, 100 };
 var ft_texture: c.GLuint = 0;
+var ft_texture_initialized: bool = false;
 var indices_buffer: c.GLuint = 0;
 
 // // Function to compile a shader

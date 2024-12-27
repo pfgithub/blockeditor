@@ -38,9 +38,23 @@ modified: ?Modified = null,
 /// updated in-place.
 resized: bool = false,
 
-const Modified = struct {
+pub const Modified = struct {
     min: @Vector(2, u32),
     max: @Vector(2, u32),
+    pub fn toOffsetStrideSize(self: Modified, atlas: *Atlas) OffsetSizeStride {
+        return .{
+            .pos = self.min,
+            .offset = (self.min[1] * atlas.size + self.min[0]) * atlas.format.depth(),
+            .size = .{ self.max[0] - self.min[0], self.max[1] - self.min[1] },
+            .stride_bytes = atlas.size * atlas.format.depth(),
+        };
+    }
+};
+pub const OffsetSizeStride = struct {
+    pos: @Vector(2, u32),
+    offset: u32,
+    size: @Vector(2, u32),
+    stride_bytes: u32,
 };
 
 pub const Format = enum(u8) {

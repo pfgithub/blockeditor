@@ -347,18 +347,18 @@ fn draw(demo: *DemoState, draw_list: *draw_lists.RenderList, b2: *B2.Beui2, fram
         const texpack = &oneformatcache.texpack;
 
         if (texpack.modified != null and demo.update_tex) {
-            const m = texpack.modified.?;
+            const m = texpack.modified.?.toOffsetStrideSize(texpack);
             gctx.queue.writeTexture(
                 .{
                     .texture = gctx.lookupResource(value.texture).?,
-                    .origin = .{ .x = m.min[0], .y = m.min[1] },
+                    .origin = .{ .x = m.pos[0], .y = m.pos[1] },
                 },
                 .{
-                    .offset = (m.min[1] * texpack.size + m.min[0]) * texpack.format.depth(),
-                    .bytes_per_row = texpack.size * texpack.format.depth(),
-                    .rows_per_image = m.max[1] - m.min[1], // this is supposed to be optional?
+                    .offset = m.offset,
+                    .bytes_per_row = m.stride_bytes,
+                    .rows_per_image = m.size[1], // this is supposed to be optional?
                 },
-                .{ .width = m.max[0] - m.min[0], .height = m.max[1] - m.min[1] },
+                .{ .width = m.size[0], .height = m.size[1] },
                 u8,
                 texpack.data,
             );
