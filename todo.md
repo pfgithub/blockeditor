@@ -17,7 +17,6 @@
       - this doesn't seem to happen
     - if run in ReleaseSafe with -Dtracy:
       - doesn't seem to happen
-  - looks like this isn't my fault: https://github.com/zig-gamedev/zig-gamedev/issues/411
 
 TODO
 
