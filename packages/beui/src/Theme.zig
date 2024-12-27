@@ -142,8 +142,10 @@ fn drawWindowTabbed(man: *WM.Manager, rdl: *B2.RepositionableDrawList, win: WM.W
         .tint = colors.window_active_tab,
         .rounding = .{ .corners = .all, .radius = 6.0 },
     });
+    // const user_state_id = window_id.sub(@src());
+    // rdl.addUserState(user_state_id, void, &{});
     captureResize(rdl, man, window_id.sub(@src()), .{
-        .grab_tab = .{ .tab = tabs[0] },
+        .grab_tab = .{ .tab = tabs[0], .offset = offset_pos },
     }, tab_pos, tab_size);
     rdl.addRect(.{
         .pos = offset_pos,
@@ -197,9 +199,10 @@ pub const WindowIkeyInteractionModel = union(enum) {
     raise: struct { window: WM.WM.FrameID },
     resize: struct { window: WM.WM.FrameID, sides: B2.Sides, cursor: Beui.Cursor = .arrow },
     ignore,
-    grab_tab: struct { tab: WM.WM.FrameID },
+    grab_tab: struct { tab: WM.WM.FrameID, offset: @Vector(2, f32) },
 };
 fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2.MouseEvent) ?Beui.Cursor {
+    _ = b2;
     switch (wid.im) {
         .ignore => return .arrow,
         .raise => |r| {
@@ -211,8 +214,6 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
                 if (ev.pos) |pos| wid.man.beginResize(resize.window, pos);
             }
             if (ev.action == .move_while_down or ev.action == .up) {
-                // TODO
-                _ = b2;
                 if (ev.pos) |pos| wid.man.updateResize(resize.window, resize.sides, pos);
             }
             if (ev.action == .up) {
@@ -225,14 +226,19 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
                 const offset = ev.pos.? - ev.drag_start_pos.?;
                 const dist = std.math.sqrt(offset[0] * offset[0] + offset[1] * offset[1]);
                 if (dist > 3.0) {
-                    // if it's going to drag from the top left corner, at minimum it needs to animate into place
-                    // so like we need to have an id that has rdl position info to get former position and animate
-                    // into new position (can't get the new position so ???)
                     wid.man.wm.grabFrame(grab_tab.tab);
+                    wid.man.dragging.anim_start = grab_tab.offset;
+                    wid.man.dragging.anim_start_ms = std.time.milliTimestamp();
+                    // if (b2.getPrevFrameDrawListState(grab_tab.user_state_id)) |si| {
+                    //     wid.man.dragging.anim_start = si.offset_from_screen_ul;
+                    //     wid.man.dragging.anim_start_ms = std.time.milliTimestamp();
+                    // } else {
+                    //     wid.man.dragging.anim_start_ms = 0;
+                    // }
                 }
             }
             if (ev.action == .move_while_down) {
-                wid.man.dragging_pos = ev.pos.?;
+                wid.man.dragging.pos = ev.pos.?;
             }
             if (ev.action == .up) {
                 wid.man.wm.dropFrameNewWindow();
@@ -306,11 +312,25 @@ pub fn drawFloatingContainer(man: *WM.Manager, frame: WM.WM.FrameID, rdl: *B2.Re
     // it won't try to lock a touch event into scrolling when it could tap.
 }
 
+fn easeInOutQuint(x: f32) f32 {
+    // https://easings.net/ EaseInOutQuint
+    return 1 - std.math.pow(f32, 1 - x, 5);
+}
+fn step(comptime T: type, a: T, b: T, t: T) T {
+    return a + t * (b - a);
+}
+
 pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2.RepositionableDrawList {
     const rdl = b2.draw();
 
     if (man.wm.dragging != WM.WM.FrameID.not_set) {
-        drawWindowDragging(man, rdl, man.wm.dragging, man.dragging_pos, .{ 300, 300 });
+        const start_ms: f64 = @floatFromInt(man.dragging.anim_start_ms);
+        const now_ms: f64 = @floatFromInt(b2.persistent.beui1.frame.frame_cfg.?.now_ms);
+        const diff: f32 = @floatCast(now_ms - start_ms);
+        const diff_scaled: f32 = @max(@min(diff / 200.0, 1.0), 0.0); // 200ms anim
+        const diff_functioned: f32 = easeInOutQuint(diff_scaled);
+        const rescaled = step(@Vector(2, f32), man.dragging.anim_start, man.dragging.pos, @splat(diff_functioned));
+        drawWindowDragging(man, rdl, man.wm.dragging, rescaled, .{ 300, 300 });
     }
 
     // loop in reverse because [0] = backmost, [len - 1] = frontmost

@@ -594,7 +594,11 @@ pub const Manager = struct {
     current_window: ?B2.ID,
 
     active: ?FrameCfg,
-    dragging_pos: @Vector(2, f32) = .{ 0, 0 },
+    dragging: struct {
+        pos: @Vector(2, f32) = @splat(0),
+        anim_start: @Vector(2, f32) = @splat(0),
+        anim_start_ms: i64 = 0,
+    } = .{},
 
     pub const FrameCfg = struct {
         size: @Vector(2, f32),
