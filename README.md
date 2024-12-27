@@ -27,21 +27,14 @@ zig build run -Dtracy -Doptimize=ReleaseSafe --prominent-compile-errors
 
 If you get error: EndOfStream, wait a bit and try again.
 
-Target support
-
-- tests:
-  - should support all targets, native and cross-compile
-- glfw_wgpu:
-  - aarch64-macOS (native only)
-  - x86_64-macOS (native only)
-  - x86_64-windows (supports cross-compile)
-  - x86_64-linux (native only)
-- android:
-  - must be built in android studio from `packages/Android`
-  - arm-linux-android
-  - aarch64-linux-android
-  - x86-linux-android
-  - x86_64-linux-android
+|Target|Support level|Cross-compilation|CI coverage|
+|-|-|-|-|
+|aarch64-macos|full|no|no|
+|x86_64-macos|full|no|no|
+|-Dtarget=x86_64-windows|full|yes|compiles|
+|x86_64-linux|full|no|tests|
+|-Dplatform=web|none|yes|compiles|
+|-Dplatform=android|none|requires android studio|compiles|
 
 ## Build specific projects
 
