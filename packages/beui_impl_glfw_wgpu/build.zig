@@ -2,7 +2,7 @@ const std = @import("std");
 const anywhere = @import("anywhere").lib;
 const zig_gamedev = @import("zig_gamedev");
 
-pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) struct { []const u8, []const u8, std.Build.LazyPath } {
+pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) struct { []const u8, []const u8, std.Build.LazyPath, ?struct { name: []const u8, path: std.Build.LazyPath } } {
     const b = self_dep.builder;
 
     const options = anywhere.util.build.find(self_dep, Options, "options");
@@ -61,7 +61,10 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
     exe.root_module.addImport("zgpu", zgpu.module("root"));
     exe.linkLibrary(zgpu.artifact("zdawn"));
 
-    return .{ exe.name, exe.out_filename, exe.getEmittedBin() };
+    return .{ exe.name, exe.out_filename, exe.getEmittedBin(), if (exe.producesPdbFile()) .{
+        .name = b.fmt("{s}.pdb", .{exe.name}),
+        .path = exe.getEmittedPdb(),
+    } else null };
 }
 
 const Options = struct {

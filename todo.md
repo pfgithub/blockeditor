@@ -111,6 +111,7 @@ Tasks:
 - [ ] ~~switch to allyourcodebase/tracy & remove the local port except bindings. it has support for building the profiler too & maybe even a more recent version than us with the flamegraph updates & new features.~~ does not track latest main from tracy & tracy has not yet released flamegraphs
 - [ ] try using libghostty to add an integrated terminal emulator
 - [ ] consider switching to sdl3 https://ziggit.dev/t/sdl3-ported-to-the-zig-build-system-with-example-games/7606 (supports cross-compiling to windows & linux. not mac though :/) (also missing aarch64-linux)
+- [x] pdb is not outputted on windows for blockeditor.exe
 
 wishlist:
 

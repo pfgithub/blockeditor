@@ -12,6 +12,7 @@ pub const App = struct {
     emitted_file: std.Build.LazyPath,
 
     dep: ?*std.Build.Dependency,
+    pdb: ?struct { name: []const u8, path: std.Build.LazyPath } = null,
 };
 
 const _targethack = struct {
@@ -157,13 +158,14 @@ pub fn createApp(b: *std.Build, cfg: AppCfg) *App {
         .glfw_wgpu => {
             const beui_impl_glfw_wgpu_dep = b.dependencyFromBuildZig(@This(), .{}).builder.dependencyFromBuildZig(beui_impl_glfw_wgpu, .{ .target = target, .optimize = cfg.opts.optimize, .tracy = cfg.opts.tracy });
 
-            const vname, const vbin_name, const vemitted_file = beui_impl_glfw_wgpu.createApp(cfg.name, beui_impl_glfw_wgpu_dep, cfg.module);
+            const vname, const vbin_name, const vemitted_file, const vpdb = beui_impl_glfw_wgpu.createApp(cfg.name, beui_impl_glfw_wgpu_dep, cfg.module);
             app_res.* = .{
                 .name = vname,
                 .bin_name = vbin_name,
                 .emitted_file = vemitted_file,
                 .kind = .glfw_wgpu,
                 .dep = beui_impl_glfw_wgpu_dep,
+                .pdb = if (vpdb) |vp| .{ .name = vp.name, .path = vp.path } else null,
             };
         },
     }
@@ -189,6 +191,9 @@ pub fn addInstallApp(b: *std.Build, the_app: *App, dir: std.Build.InstallDir) st
         genf.* = .{ .step = &id_step.step, .path = b.getInstallPath(dir, the_app.bin_name) };
     } else {
         const if_step = b.addInstallFileWithDir(the_app.emitted_file, dir, the_app.bin_name);
+        if (the_app.pdb) |pdb| {
+            if_step.step.dependOn(&b.addInstallFileWithDir(pdb.path, dir, pdb.name).step);
+        }
         genf.* = .{ .step = &if_step.step, .path = b.getInstallPath(dir, the_app.bin_name) };
     }
     return .{ .generated = .{ .file = genf } };
