@@ -797,15 +797,15 @@ pub fn main() !void {
     defer draw_list.deinit();
 
     var frame_num: u64 = 0;
-    var reduce_latency: bool = true;
 
     var frame_timer = try std.time.Timer.start();
     var last_frame_time: u64 = 0;
 
+    var reduce_latency_target: u64 = target_none;
+
     while (!window.shouldClose()) {
         var add_us: u64 = 0;
-        const target_mspf: u64 = 16666666;
-        const reduce_input_latency: usize = if (reduce_latency) (target_mspf -| last_frame_time) -| (1 * std.time.ns_per_ms) else 0;
+        const reduce_input_latency: usize = if (reduce_latency_target != 0) (reduce_latency_target -| last_frame_time) -| (1 * std.time.ns_per_ms) else 0;
         if (reduce_input_latency > 0) {
             const b2ft = tracy.traceNamed(@src(), "reduce latency");
             defer b2ft.end();
@@ -929,7 +929,9 @@ pub fn main() !void {
             zgui.text("frame non-wait time: {d}", .{std.fmt.fmtDuration(last_frame_time)});
             zgui.text("ns per vertex: {d:0.3}", .{@as(f64, @floatFromInt(last_frame_time)) / @as(f64, @floatFromInt(draw_list.vertices.items.len))});
             zgui.text("reduce latency: {d}", .{std.fmt.fmtDuration(reduce_input_latency)});
-            _ = zgui.checkbox("Reduce latency", .{ .v = &reduce_latency });
+            if (zgui.radioButton("none", .{ .active = reduce_latency_target == target_none })) reduce_latency_target = target_none;
+            if (zgui.radioButton("60hz", .{ .active = reduce_latency_target == target_60hz })) reduce_latency_target = target_60hz;
+            if (zgui.radioButton("239.75hz", .{ .active = reduce_latency_target == target_239_75hz })) reduce_latency_target = target_239_75hz;
             _ = zgui.checkbox("Update tex", .{ .v = &demo.update_tex });
         }
         zgui.end();
@@ -938,3 +940,7 @@ pub fn main() !void {
         frame_num += 1;
     }
 }
+
+const target_60hz: u64 = 16666666;
+const target_239_75hz: u64 = 4171011;
+const target_none: u64 = 0;
