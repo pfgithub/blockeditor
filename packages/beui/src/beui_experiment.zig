@@ -742,6 +742,12 @@ const MouseEventCaptureConfig = struct {
     capture_click: ?Beui.Cursor = null,
     capture_scroll: struct { x: bool = false, y: bool = false } = .{},
 };
+pub const Direction = enum {
+    left,
+    top,
+    right,
+    bottom,
+};
 pub const Corners = packed struct(u4) {
     top_left: bool = false,
     top_right: bool = false,

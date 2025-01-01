@@ -11,6 +11,7 @@ const border_width: f32 = 6.0;
 pub const colors = struct {
     pub const window_bg: Beui.Color = .fromHexRgb(0x2e2e2e);
     pub const window_active_tab: Beui.Color = .fromHexRgb(0x4D4D4D);
+    pub const window_drop_spot: Beui.Color = .fromHexRgb(0xA5D8FF);
 };
 
 // so here's the plan:
@@ -112,7 +113,7 @@ const CollapseData = struct {
     man: *WM.Manager,
     frame: WM.WM.FrameID,
 };
-fn drawWindowTabbed(man: *WM.Manager, rdl: *B2.RepositionableDrawList, win: WM.WM.FrameID, current_tab: WM.WM.FrameID, tabs: []const WM.WM.FrameID, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
+fn drawWindowTabbed(man: *WM.Manager, rdl: *B2.RepositionableDrawList, top: ?TopInfo, win: WM.WM.FrameID, current_tab: WM.WM.FrameID, tabs: []const WM.WM.FrameID, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
     // draw titlebar
 
     const window_id = man.idForFrame(@src(), win);
@@ -161,21 +162,45 @@ fn drawWindowTabbed(man: *WM.Manager, rdl: *B2.RepositionableDrawList, win: WM.W
     if (man.wm.getFrame(current_tab).collapsed) {
         // ...
     } else {
-        return drawWindowNode(man, rdl, current_tab_node, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
+        return drawWindowNode(man, rdl, top, current_tab_node, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
     }
 }
-fn drawWindowNode(man: *WM.Manager, rdl: *B2.RepositionableDrawList, win: WM.WM.FrameID, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
+fn drawDropPoint(man: *WM.Manager, id: B2.ID, node: WM.WM.FrameID, dir: B2.Direction, rdl: *B2.RepositionableDrawList, pos: @Vector(2, f32), size: @Vector(2, f32)) void {
+    _ = node;
+    _ = dir;
+    captureResize(rdl, man, id, .ignore, pos, size);
+    rdl.addRect(.{
+        .pos = pos,
+        .size = size,
+        .tint = colors.window_drop_spot,
+    });
+}
+fn drawWindowNode(man: *WM.Manager, rdl: *B2.RepositionableDrawList, parent_top: ?TopInfo, win: WM.WM.FrameID, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32), cfg: struct { parent_is_tabs: bool }) void {
+    var child_top: ?TopInfo = null;
+    if (parent_top) |top| if (top.skip != B2.Sides.all) {
+        const id = man.idForFrame(@src(), win);
+        if (!top.skip._top) drawDropPoint(man, id.sub(@src()), win, .top, top.rdl, .{ top.pos[0] + border_width, top.pos[1] }, .{ top.size[0] - border_width * 2, border_width });
+        if (!top.skip._bottom) drawDropPoint(man, id.sub(@src()), win, .bottom, top.rdl, .{ top.pos[0] + border_width, top.pos[1] + top.size[1] - border_width }, .{ top.size[0] - border_width * 2, border_width });
+        if (!top.skip._left) drawDropPoint(man, id.sub(@src()), win, .left, top.rdl, .{ top.pos[0], top.pos[1] + border_width }, .{ border_width, top.size[1] - border_width * 2 });
+        if (!top.skip._right) drawDropPoint(man, id.sub(@src()), win, .right, top.rdl, .{ top.pos[0] + top.size[0] - border_width, top.pos[1] + border_width }, .{ border_width, top.size[1] - border_width * 2 });
+        child_top = .{
+            .rdl = top.rdl,
+            .pos = .{ top.pos[0] + border_width, top.pos[1] + border_width },
+            .size = .{ top.size[0] - border_width * 2, top.size[1] - border_width * 2 },
+            .skip = .none,
+        };
+    };
     const frame = man.wm.getFrame(win);
     switch (frame.self) {
         .final => {
             if (cfg.parent_is_tabs) {
                 return drawWindowFinal(man, rdl, win, offset_pos, offset_size);
             } else {
-                return drawWindowTabbed(man, rdl, win, win, &.{win}, offset_pos, offset_size);
+                return drawWindowTabbed(man, rdl, if (child_top) |t| .{ .rdl = t.rdl, .pos = t.pos, .size = t.size, .skip = .all } else null, win, win, &.{win}, offset_pos, offset_size);
             }
         },
         .tabbed => |t| {
-            return drawWindowTabbed(man, rdl, win, t.current_tab.?, t.children.items, offset_pos, offset_size);
+            return drawWindowTabbed(man, rdl, child_top, win, t.current_tab.?, t.children.items, offset_pos, offset_size);
         },
         else => std.debug.panic("TODO: {s}", .{@tagName(frame.self)}),
     }
@@ -184,7 +209,7 @@ fn drawWindowDragging(man: *WM.Manager, rdl: *B2.RepositionableDrawList, win: WM
     const frame = man.wm.getFrame(win);
     switch (frame.self) {
         .dragging => |d| {
-            drawWindowNode(man, rdl, d.child, offset_pos, offset_size, .{ .parent_is_tabs = false });
+            drawWindowNode(man, rdl, null, d.child, offset_pos, offset_size, .{ .parent_is_tabs = false });
         },
         else => unreachable,
     }
@@ -277,7 +302,7 @@ pub fn drawFullscreenOverlay(wm: *B2.WindowManager, win: *B2.FullscreenOverlay) 
     const win_data = wm.windows.getPtr(win.contents).?;
     win_data.* = .{ .slot = slot, .position = .{ 0, 0 }, .size = .{ 0, 0 } };
 }
-pub fn drawFloatingContainer(man: *WM.Manager, frame: WM.WM.FrameID, rdl: *B2.RepositionableDrawList, win_position_in: @Vector(2, f32), win_size_in: @Vector(2, f32)) void {
+pub fn drawFloatingContainer(man: *WM.Manager, frame: WM.WM.FrameID, rdl: *B2.RepositionableDrawList, top: ?TopInfo, win_position_in: @Vector(2, f32), win_size_in: @Vector(2, f32)) void {
     const id = man.idForFrame(@src(), frame);
     const wm = &man.wm;
 
@@ -306,7 +331,12 @@ pub fn drawFloatingContainer(man: *WM.Manager, frame: WM.WM.FrameID, rdl: *B2.Re
     if (!collapsed) captureResize(rdl, man, id.sub(@src()), .{ .resize = .{ .window = frame, .sides = .top_left, .cursor = .resize_nw_se } }, .{ win_pos[0] - resize_width, win_pos[1] - resize_width }, .{ resize_width, resize_width });
 
     // render the children
-    drawWindowNode(man, rdl, wm.getFrame(frame).self.window.child, win_pos, win_size, .{ .parent_is_tabs = false });
+    drawWindowNode(man, rdl, if (top) |t| .{
+        .rdl = t.rdl,
+        .pos = win_pos,
+        .size = win_size,
+        .skip = .none,
+    } else null, wm.getFrame(frame).self.window.child, win_pos, win_size, .{ .parent_is_tabs = false });
 
     // add the black rectangle
     rdl.addRect(.{
@@ -349,7 +379,14 @@ pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2
         i -= 1;
         const win = man.wm.top_level_windows.items[i];
         const win_info = man.getWindowInfo(win);
-        drawFloatingContainer(man, win, rdl, win_info.pos, win_info.size);
+        const top_rdl = b2.draw();
+        rdl.place(top_rdl, .{});
+        drawFloatingContainer(man, win, rdl, .{
+            .rdl = top_rdl,
+            .pos = win_info.pos,
+            .size = win_info.size,
+            .skip = .none,
+        }, win_info.pos, win_info.size);
     }
 
     // background
@@ -357,3 +394,10 @@ pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2
 
     return rdl;
 }
+
+const TopInfo = struct {
+    rdl: *B2.RepositionableDrawList,
+    pos: @Vector(2, f32),
+    size: @Vector(2, f32),
+    skip: B2.Sides,
+};
