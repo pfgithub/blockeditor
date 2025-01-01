@@ -108,8 +108,9 @@ Tasks:
   event handlers definitely need to be cpu clipped, not gpu clipped.
 - [ ] switch event handling to be callback based. we'll have to figure out how to in the callback make
   sure a pointer hasn't invalidated. and then the callback can tell us if we should render a frame or not.
-- [ ] switch to allyourcodebase/tracy & remove the local port except bindings. it has support for building the profiler too & maybe even a more recent version than us with the flamegraph updates & new features.
+- [ ] ~~switch to allyourcodebase/tracy & remove the local port except bindings. it has support for building the profiler too & maybe even a more recent version than us with the flamegraph updates & new features.~~ does not track latest main from tracy & tracy has not yet released flamegraphs
 - [ ] try using libghostty to add an integrated terminal emulator
+- [ ] consider switching to sdl3 https://ziggit.dev/t/sdl3-ported-to-the-zig-build-system-with-example-games/7606 (supports cross-compiling to windows & linux. not mac though :/) (also missing aarch64-linux)
 
 wishlist:
 
