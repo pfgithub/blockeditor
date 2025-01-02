@@ -5,32 +5,9 @@ const Theme = @import("Theme.zig");
 // this is the backing wm
 // but the caller will manage:
 // - remove windows by id that no longer exist
-pub const XY = enum { x, y };
-pub const LR = enum {
-    left,
-    right,
-    pub fn idx(self: LR) u1 {
-        return @intFromBool(self == .right);
-    }
-};
-pub const Dir = enum {
-    left,
-    top,
-    right,
-    bottom,
-    pub fn toXY(self: Dir) XY {
-        return switch (self) {
-            .left, .right => .x,
-            .top, .bottom => .y,
-        };
-    }
-    pub fn idx(self: Dir) u1 {
-        return switch (self) {
-            .left, .top => 0,
-            .right, .bottom => 1,
-        };
-    }
-};
+pub const XY = B2.Axis;
+pub const LR = B2.LR;
+pub const Dir = B2.Direction;
 pub const WM = struct {
     pub const FrameID = packed struct(u64) {
         gen: u32,
@@ -82,12 +59,13 @@ pub const WM = struct {
         dragging: struct {
             child: FrameID,
         },
+        placeholder,
         /// unreachable
         none,
         pub fn children(self: *FrameContent) []FrameID {
             switch (self.*) {
                 inline .tabbed, .split => |s| return s.children.items,
-                .final => return &.{},
+                .final, .placeholder => return &.{},
                 .window => |*w| return @as(*[1]FrameID, &w.child),
                 .dragging => |*w| return @as(*[1]FrameID, &w.child),
                 .none => @panic("frame is none"),
@@ -147,11 +125,6 @@ pub const WM = struct {
         }
         return id;
     }
-    pub fn addWindow(self: *WM, child: FrameID) void {
-        const window_id = self.addFrame(.{ .window = .{ .child = child } });
-        self.top_level_windows.append(self.gpa, window_id) catch @panic("oom");
-        self.getFrame(window_id).parent = .top_level;
-    }
     pub fn existsFrame(self: *WM, frame: FrameID) bool {
         const res = &self.frames.items[@intFromEnum(frame.ptr)];
         return res.gen == frame.gen;
@@ -184,6 +157,7 @@ pub const WM = struct {
         const child_frame = self.getFrame(child);
         const parent = child_frame.parent;
         if (parent == FrameID.top_level) unreachable; // not allowed
+        if (parent == FrameID.not_set) return; // no parent to inform
         const parent_frame = self.getFrame(parent);
         switch (parent_frame.self) {
             inline .tabbed, .split => |*sv| {
@@ -195,7 +169,7 @@ pub const WM = struct {
                     self._removeNode(parent);
                 }
             },
-            .final => unreachable, // has no children
+            .final, .placeholder => unreachable, // has no children
             .window => |win| {
                 // the window must be removed
                 std.debug.assert(win.child == child);
@@ -215,8 +189,7 @@ pub const WM = struct {
     }
     pub fn grabFrame(self: *WM, frame_id: FrameID) void {
         if (self.dragging != FrameID.not_set) {
-            self.dropFrameNewWindow();
-            return;
+            self.dropFrameToNewWindow();
         }
         self._tellParentChildRemoved(frame_id);
         self.getFrame(frame_id).parent = .not_set;
@@ -228,26 +201,34 @@ pub const WM = struct {
         children[std.mem.indexOfScalar(FrameID, children, prev_child) orelse unreachable] = next_child;
         self.getFrame(next_child)._setParent(parent);
     }
-    pub fn dropFrameNewWindow(self: *WM) void {
+    pub fn moveFrameNewWindow(self: *WM, child: FrameID) void {
+        self._tellParentChildRemoved(child);
+        self.getFrame(child).parent = .not_set;
+
+        const window_id = self.addFrame(.{ .window = .{ .child = child } });
+        self.top_level_windows.append(self.gpa, window_id) catch @panic("oom");
+        self.getFrame(window_id).parent = .top_level;
+    }
+    pub fn dropFrameToNewWindow(self: *WM) void {
         if (self.dragging == FrameID.not_set) return;
         const child = self.getFrame(self.dragging).self.dragging.child;
-        self._tellParentChildRemoved(child);
-
-        self.getFrame(child).parent = .not_set;
-        self.addWindow(child);
+        self.moveFrameNewWindow(child);
     }
-    pub fn dropFrameSplit(self: *WM, target: FrameID, target_dir: Dir) void {
+    pub fn dropFrameToSplit(self: *WM, target: FrameID, target_dir: Dir) void {
         std.debug.assert(self.dragging != FrameID.not_set);
         const child = self.getFrame(self.dragging).self.dragging.child;
+        self.moveFrameToSplit(child, target, target_dir);
+    }
+    pub fn moveFrameToSplit(self: *WM, child: FrameID, target: FrameID, target_dir: Dir) void {
         self._tellParentChildRemoved(child);
 
         const target_parent = self.getFrame(target).parent;
-        const offset: usize, const split: FrameID = if (self.getFrame(target_parent).self == .split and self.getFrame(target_parent).self.split.direction == target_dir.toXY()) blk: {
+        const offset: usize, const split: FrameID = if (self.getFrame(target_parent).self == .split and self.getFrame(target_parent).self.split.direction == target_dir.toAxis()) blk: {
             const idxof = std.mem.indexOfScalar(FrameID, self.getFrame(target_parent).self.split.children.items, target) orelse unreachable;
             break :blk .{ idxof, target_parent };
         } else blk: {
             const split = self.addFrame(.{ .split = .{
-                .direction = target_dir.toXY(),
+                .direction = target_dir.toAxis(),
                 .children = .empty,
             } });
             self.getFrame(split).self.split.children.append(self.gpa, target) catch @panic("oom");
@@ -260,9 +241,12 @@ pub const WM = struct {
         self.getFrame(child).parent = .not_set;
         self.getFrame(child)._setParent(split);
     }
-    pub fn dropFrameTab(self: *WM, target: FrameID, target_dir: LR) void {
+    pub fn dropFrameToTab(self: *WM, target: FrameID, target_dir: LR) void {
         std.debug.assert(self.dragging != FrameID.not_set);
         const child = self.getFrame(self.dragging).self.dragging.child;
+        self.moveFrameToTab(child, target, target_dir);
+    }
+    pub fn moveFrameToTab(self: *WM, child: FrameID, target: FrameID, target_dir: LR) void {
         self._tellParentChildRemoved(child);
 
         const target_parent = self.getFrame(target).parent;
@@ -372,11 +356,11 @@ test WM {
     defer buf.deinit();
 
     try std.testing.expectEqualStrings("", try my_wm.testingRenderToString(&buf));
-    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
+    my_wm.moveFrameNewWindow(my_wm.addFrame(.{ .final = .{} }));
     try std.testing.expectEqualStrings(
         \\@0.1.window: @0.0.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
+    my_wm.moveFrameNewWindow(my_wm.addFrame(.{ .final = .{} }));
     try std.testing.expectEqualStrings(
         \\@0.1.window: @0.0.final
         \\@0.3.window: @0.2.final
@@ -390,8 +374,8 @@ test WM {
         \\
     , try my_wm.testingRenderToString(&buf));
 
-    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
-    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
+    my_wm.moveFrameNewWindow(my_wm.addFrame(.{ .final = .{} }));
+    my_wm.moveFrameNewWindow(my_wm.addFrame(.{ .final = .{} }));
     try std.testing.expectEqualStrings(
         \\@1.3.window: @1.2.final
         \\@1.1.window: @1.0.final
@@ -401,13 +385,13 @@ test WM {
         \\@1.1.window: @1.0.final
         \\@2.3.dragging: @1.2.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.dropFrameSplit(.fromTest(1, 0), .left);
+    my_wm.dropFrameToSplit(.fromTest(1, 0), .left);
     try std.testing.expectEqualStrings(
         \\@1.1.window: @3.3.split.x:
         \\    @1.2.final
         \\    @1.0.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
+    my_wm.moveFrameNewWindow(my_wm.addFrame(.{ .final = .{} }));
     try std.testing.expectEqualStrings(
         \\@1.1.window: @3.3.split.x:
         \\    @1.2.final
@@ -415,7 +399,7 @@ test WM {
         \\@0.5.window: @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.grabFrame(.fromTest(0, 4));
-    my_wm.dropFrameSplit(.fromTest(1, 0), .right);
+    my_wm.dropFrameToSplit(.fromTest(1, 0), .right);
     try std.testing.expectEqualStrings(
         \\@1.1.window: @3.3.split.x:
         \\    @1.2.final
@@ -429,7 +413,7 @@ test WM {
         \\    @0.4.final
         \\@2.5.dragging: @1.0.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.dropFrameNewWindow();
+    my_wm.dropFrameToNewWindow();
     try std.testing.expectEqualStrings(
         \\@1.1.window: @3.3.split.x:
         \\    @1.2.final
@@ -442,7 +426,7 @@ test WM {
         \\@3.5.window: @1.0.final
         \\@4.3.dragging: @1.2.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.dropFrameTab(.fromTest(1, 0), .left);
+    my_wm.dropFrameToTab(.fromTest(1, 0), .left);
     try std.testing.expectEqualStrings(
         \\@1.1.window: @0.4.final
         \\@3.5.window: @5.3.tabbed:
@@ -456,7 +440,7 @@ test WM {
         \\    @1.0.final
         \\@2.1.dragging: @0.4.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.dropFrameTab(.fromTest(1, 0), .right);
+    my_wm.dropFrameToTab(.fromTest(1, 0), .right);
     try std.testing.expectEqualStrings(
         \\@3.5.window: @5.3.tabbed:
         \\    @1.2.final
@@ -470,7 +454,7 @@ test WM {
         \\    @1.0.final
         \\@3.1.dragging: @0.4.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.dropFrameSplit(.fromTest(1, 2), .bottom);
+    my_wm.dropFrameToSplit(.fromTest(1, 2), .bottom);
     try std.testing.expectEqualStrings(
         \\@3.5.window: @5.3.tabbed:
         \\    @4.1.split.y:
@@ -485,7 +469,7 @@ test WM {
         \\    @0.4.final
         \\@6.3.dragging: @1.0.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.dropFrameSplit(.fromTest(0, 4), .left);
+    my_wm.dropFrameToSplit(.fromTest(0, 4), .left);
     try std.testing.expectEqualStrings(
         \\@3.5.window: @4.1.split.y:
         \\    @1.2.final
@@ -493,7 +477,7 @@ test WM {
         \\        @1.0.final
         \\        @0.4.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
+    my_wm.moveFrameNewWindow(my_wm.addFrame(.{ .final = .{} }));
     try std.testing.expectEqualStrings(
         \\@3.5.window: @4.1.split.y:
         \\    @1.2.final
@@ -511,7 +495,7 @@ test WM {
         \\        @1.0.final
         \\        @0.4.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.dropFrameTab(.fromTest(0, 6), .right);
+    my_wm.dropFrameToTab(.fromTest(0, 6), .right);
     try std.testing.expectEqualStrings(
         \\@0.7.window: @5.5.tabbed:
         \\    @0.6.final
@@ -533,7 +517,7 @@ test WM {
     try std.testing.expectEqualStrings(
         \\@0.7.window: @0.6.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.addWindow(my_wm.addFrame(.{ .final = .{} }));
+    my_wm.moveFrameNewWindow(my_wm.addFrame(.{ .final = .{} }));
     try std.testing.expectEqualStrings(
         \\@0.7.window: @0.6.final
         \\@1.4.window: @8.3.final
@@ -810,7 +794,7 @@ pub const Manager = struct {
         if (!frame_id_gpres.found_existing) {
             frame_id_gpres.key_ptr.* = id_unowned.dupeToOwned(self.wm.gpa);
             const frame_id = self.wm.addFrame(.{ .final = .{} });
-            self.wm.addWindow(frame_id);
+            self.wm.moveFrameNewWindow(frame_id);
             frame_id_gpres.value_ptr.* = frame_id;
             self.final_to_id_map.putNoClobber(self.wm.gpa, frame_id_gpres.value_ptr.*, frame_id_gpres.key_ptr.*) catch @panic("oom");
         }

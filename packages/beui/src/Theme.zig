@@ -123,8 +123,8 @@ fn drawWindowTabbed(man: *WM.Manager, rdl: *B2.RepositionableDrawList, top: ?Top
     const closebtn_data = &(window_id.b2.frame.arena.dupe(CollapseData, &.{
         .{ .man = man, .frame = current_tab },
     }) catch @panic("oom"))[0];
-    const title = man.render_windows_ctx.getPtr(current_tab).?;
-    const text_line_res = B2.textLine(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = offset_size[0], .h = null } } }, .{ .text = title.title });
+    const title: []const u8 = if (man.render_windows_ctx.getPtr(current_tab)) |t| t.title else "Untitled";
+    const text_line_res = B2.textLine(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = offset_size[0], .h = null } } }, .{ .text = title });
     // we can replace the manual calculations with:
     // padding(border_width / 2, h(vcenter(collapseicon), space, vcenter(tab1), space, vcenter(tab2), space, vcenter(tab3)))
     rdl.place(B2.button(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = null, .h = null } } }, .{
@@ -166,9 +166,7 @@ fn drawWindowTabbed(man: *WM.Manager, rdl: *B2.RepositionableDrawList, top: ?Top
     }
 }
 fn drawDropPoint(man: *WM.Manager, id: B2.ID, node: WM.WM.FrameID, dir: B2.Direction, rdl: *B2.RepositionableDrawList, pos: @Vector(2, f32), size: @Vector(2, f32)) void {
-    _ = node;
-    _ = dir;
-    captureResize(rdl, man, id, .ignore, pos, size);
+    captureResize(rdl, man, id, .{ .insert = .{ .window = node, .dir = dir } }, pos, size);
     rdl.addRect(.{
         .pos = pos,
         .size = size,
@@ -199,8 +197,43 @@ fn drawWindowNode(man: *WM.Manager, rdl: *B2.RepositionableDrawList, parent_top:
                 return drawWindowTabbed(man, rdl, if (child_top) |t| .{ .rdl = t.rdl, .pos = t.pos, .size = t.size, .skip = .all } else null, win, win, &.{win}, offset_pos, offset_size);
             }
         },
+        .placeholder => {
+            if (cfg.parent_is_tabs) {
+                rdl.addRect(.{
+                    .pos = offset_pos,
+                    .size = offset_size,
+                    .tint = colors.window_bg,
+                });
+            } else {
+                return drawWindowTabbed(man, rdl, if (child_top) |t| .{ .rdl = t.rdl, .pos = t.pos, .size = t.size, .skip = .all } else null, win, win, &.{win}, offset_pos, offset_size);
+            }
+        },
         .tabbed => |t| {
             return drawWindowTabbed(man, rdl, child_top, win, t.current_tab.?, t.children.items, offset_pos, offset_size);
+        },
+        .split => |s| {
+            const len_f: f32 = @floatFromInt(s.children.items.len);
+            const rem_space: f32 = s.direction.flip(offset_size)[0] - len_f * border_width;
+            const per_child_space: f32 = @floor(rem_space / len_f);
+            var child_size = s.direction.flip(offset_size);
+            child_size[0] = per_child_space;
+            var pos = s.direction.flip(offset_pos);
+            const skip: B2.Sides = switch (s.direction) {
+                .x => .left_right,
+                .y => .top_bottom,
+            };
+            for (s.children.items) |ch| {
+                drawWindowNode(
+                    man,
+                    rdl,
+                    if (child_top) |t| t.within(s.direction.flip(pos), s.direction.flip(child_size), skip) else null,
+                    ch,
+                    s.direction.flip(pos),
+                    s.direction.flip(child_size),
+                    .{ .parent_is_tabs = false },
+                );
+                pos[0] += per_child_space + border_width;
+            }
         },
         else => std.debug.panic("TODO: {s}", .{@tagName(frame.self)}),
     }
@@ -225,6 +258,7 @@ pub const WindowIkeyInteractionModel = union(enum) {
     resize: struct { window: WM.WM.FrameID, sides: B2.Sides, cursor: Beui.Cursor = .arrow },
     ignore,
     grab_tab: struct { tab: WM.WM.FrameID, offset: @Vector(2, f32) },
+    insert: struct { window: WM.WM.FrameID, dir: B2.Direction },
 };
 fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2.MouseEvent) ?Beui.Cursor {
     _ = b2;
@@ -245,6 +279,14 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
                 wid.man.endResize(resize.window);
             }
             return resize.cursor;
+        },
+        .insert => |insert| {
+            if (ev.action == .up) {
+                if (B2.pointInRect(ev.pos.?, ev.capture_pos, ev.capture_size)) {
+                    wid.man.wm.moveFrameToSplit(wid.man.wm.addFrame(.placeholder), insert.window, insert.dir);
+                }
+            }
+            return .pointer;
         },
         .grab_tab => |grab_tab| {
             if (ev.action == .move_while_down and wid.man.wm.dragging == WM.WM.FrameID.not_set) {
@@ -276,7 +318,7 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
                 wid.man.dragging.pos = ev.pos.?;
             }
             if (ev.action == .up) {
-                wid.man.wm.dropFrameNewWindow();
+                wid.man.wm.dropFrameToNewWindow();
                 const wi = wid.man.getWindowInfo(grab_tab.tab);
                 wid.man.setWindowInfo(grab_tab.tab, .{
                     .pos = ev.pos.?,
@@ -400,4 +442,14 @@ const TopInfo = struct {
     pos: @Vector(2, f32),
     size: @Vector(2, f32),
     skip: B2.Sides,
+
+    fn within(self: TopInfo, pos: @Vector(2, f32), size: @Vector(2, f32), skip: B2.Sides) TopInfo {
+        const out_pos: @Vector(2, f32) = @max(self.pos, pos);
+        return .{
+            .rdl = self.rdl,
+            .pos = out_pos,
+            .size = @min(pos + size, self.pos + self.size) - out_pos,
+            .skip = skip,
+        };
+    }
 };

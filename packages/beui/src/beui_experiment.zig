@@ -747,6 +747,35 @@ pub const Direction = enum {
     top,
     right,
     bottom,
+    pub fn toAxis(self: Direction) Axis {
+        return switch (self) {
+            .left, .right => .x,
+            .top, .bottom => .y,
+        };
+    }
+    pub fn idx(self: Direction) u1 {
+        return switch (self) {
+            .left, .top => 0,
+            .right, .bottom => 1,
+        };
+    }
+};
+pub const Axis = enum {
+    x,
+    y,
+    pub fn flip(a: Axis, b: anytype) @TypeOf(b) {
+        return switch (a) {
+            .x => .{ b[0], b[1] },
+            .y => .{ b[1], b[0] },
+        };
+    }
+};
+pub const LR = enum {
+    left,
+    right,
+    pub fn idx(self: LR) u1 {
+        return @intFromBool(self == .right);
+    }
 };
 pub const Corners = packed struct(u4) {
     top_left: bool = false,
@@ -771,6 +800,7 @@ pub const Sides = packed struct(u4) {
     pub const bottom: Sides = .{ ._bottom = true };
     pub const bottom_left: Sides = .{ ._bottom = true, ._left = true };
     pub const left: Sides = .{ ._left = true };
+    pub const left_right: Sides = .{ ._left = true, ._right = true };
     pub const top_left: Sides = .{ ._top = true, ._left = true };
     pub const all: Sides = .{ ._top = true, ._left = true, ._bottom = true, ._right = true };
     pub const top_bottom: Sides = .{ ._top = true, ._left = false, ._bottom = true, ._right = false };
