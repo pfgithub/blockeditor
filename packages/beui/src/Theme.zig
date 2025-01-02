@@ -177,14 +177,18 @@ fn drawWindowNode(man: *WM.Manager, rdl: *B2.RepositionableDrawList, parent_top:
     var child_top: ?TopInfo = null;
     if (parent_top) |top| if (top.skip != B2.Sides.all) {
         const id = man.idForFrame(@src(), win);
-        if (!top.skip._top) drawDropPoint(man, id.sub(@src()), win, .top, top.rdl, .{ top.pos[0] + border_width, top.pos[1] }, .{ top.size[0] - border_width * 2, border_width });
-        if (!top.skip._bottom) drawDropPoint(man, id.sub(@src()), win, .bottom, top.rdl, .{ top.pos[0] + border_width, top.pos[1] + top.size[1] - border_width }, .{ top.size[0] - border_width * 2, border_width });
-        if (!top.skip._left) drawDropPoint(man, id.sub(@src()), win, .left, top.rdl, .{ top.pos[0], top.pos[1] + border_width }, .{ border_width, top.size[1] - border_width * 2 });
-        if (!top.skip._right) drawDropPoint(man, id.sub(@src()), win, .right, top.rdl, .{ top.pos[0] + top.size[0] - border_width, top.pos[1] + border_width }, .{ border_width, top.size[1] - border_width * 2 });
+        const left_offset: f32 = if (top.skip._left) 0 else border_width;
+        const right_offset: f32 = if (top.skip._right) 0 else border_width;
+        const top_offset: f32 = if (top.skip._top) 0 else border_width;
+        const bottom_offset: f32 = if (top.skip._bottom) 0 else border_width;
+        if (!top.skip._top) drawDropPoint(man, id.sub(@src()), win, .top, top.rdl, .{ top.pos[0] + left_offset, top.pos[1] }, .{ top.size[0] - left_offset - right_offset, border_width });
+        if (!top.skip._bottom) drawDropPoint(man, id.sub(@src()), win, .bottom, top.rdl, .{ top.pos[0] + left_offset, top.pos[1] + top.size[1] - border_width }, .{ top.size[0] - left_offset - right_offset, border_width });
+        if (!top.skip._left) drawDropPoint(man, id.sub(@src()), win, .left, top.rdl, .{ top.pos[0], top.pos[1] + top_offset }, .{ border_width, top.size[1] - top_offset - bottom_offset });
+        if (!top.skip._right) drawDropPoint(man, id.sub(@src()), win, .right, top.rdl, .{ top.pos[0] + top.size[0] - border_width, top.pos[1] + top_offset }, .{ border_width, top.size[1] - top_offset - bottom_offset });
         child_top = .{
             .rdl = top.rdl,
-            .pos = .{ top.pos[0] + border_width, top.pos[1] + border_width },
-            .size = .{ top.size[0] - border_width * 2, top.size[1] - border_width * 2 },
+            .pos = .{ top.pos[0] + left_offset, top.pos[1] + top_offset },
+            .size = .{ top.size[0] - left_offset - right_offset, top.size[1] - top_offset - bottom_offset },
             .skip = .none,
         };
     };
@@ -213,23 +217,26 @@ fn drawWindowNode(man: *WM.Manager, rdl: *B2.RepositionableDrawList, parent_top:
         },
         .split => |s| {
             const len_f: f32 = @floatFromInt(s.children.items.len);
-            const rem_space: f32 = s.direction.flip(offset_size)[0] - len_f * border_width;
+            const rem_space: f32 = s.axis.flip(offset_size)[0] - (len_f - 1.0) * border_width;
             const per_child_space: f32 = @floor(rem_space / len_f);
-            var child_size = s.direction.flip(offset_size);
+            var child_size = s.axis.flip(offset_size);
             child_size[0] = per_child_space;
-            var pos = s.direction.flip(offset_pos);
-            const skip: B2.Sides = switch (s.direction) {
+            var pos = s.axis.flip(offset_pos);
+            const skip: B2.Sides = switch (s.axis) {
                 .x => .left_right,
                 .y => .top_bottom,
             };
-            for (s.children.items) |ch| {
+            for (s.children.items, 0..) |ch, i| {
+                if (child_top) |t| if (i != 0) {
+                    drawDropPoint(man, man.idForFrame(@src(), ch), ch, .left, t.rdl, s.axis.flip(@Vector(2, f32){ pos[0] - border_width, pos[1] }), s.axis.flip(@Vector(2, f32){ border_width, child_size[1] }));
+                };
                 drawWindowNode(
                     man,
                     rdl,
-                    if (child_top) |t| t.within(s.direction.flip(pos), s.direction.flip(child_size), skip) else null,
+                    if (child_top) |t| t.within(s.axis.flip(pos), s.axis.flip(child_size), skip) else null,
                     ch,
-                    s.direction.flip(pos),
-                    s.direction.flip(child_size),
+                    s.axis.flip(pos),
+                    s.axis.flip(child_size),
                     .{ .parent_is_tabs = false },
                 );
                 pos[0] += per_child_space + border_width;
@@ -405,6 +412,8 @@ fn step(comptime T: type, a: T, b: T, t: T) T {
 pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2.RepositionableDrawList {
     const rdl = b2.draw();
 
+    const incl_top = b2.persistent.beui1.isKeyHeld(.left_shift) or b2.persistent.beui1.isKeyHeld(.right_shift);
+
     if (man.wm.dragging != WM.WM.FrameID.not_set) {
         const start_ms: f64 = @floatFromInt(man.dragging.anim_start_ms);
         const now_ms: f64 = @floatFromInt(b2.persistent.beui1.frame.frame_cfg.?.now_ms);
@@ -423,12 +432,12 @@ pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2
         const win_info = man.getWindowInfo(win);
         const top_rdl = b2.draw();
         rdl.place(top_rdl, .{});
-        drawFloatingContainer(man, win, rdl, .{
+        drawFloatingContainer(man, win, rdl, if (incl_top) .{
             .rdl = top_rdl,
             .pos = win_info.pos,
             .size = win_info.size,
             .skip = .none,
-        }, win_info.pos, win_info.size);
+        } else null, win_info.pos, win_info.size);
     }
 
     // background

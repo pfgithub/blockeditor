@@ -47,7 +47,7 @@ pub const WM = struct {
             children: std.ArrayListUnmanaged(FrameID),
         },
         split: struct {
-            direction: XY,
+            axis: XY,
             children: std.ArrayListUnmanaged(FrameID),
         },
         final: struct {
@@ -223,12 +223,14 @@ pub const WM = struct {
         self._tellParentChildRemoved(child);
 
         const target_parent = self.getFrame(target).parent;
-        const offset: usize, const split: FrameID = if (self.getFrame(target_parent).self == .split and self.getFrame(target_parent).self.split.direction == target_dir.toAxis()) blk: {
+        const offset: usize, const split: FrameID = if (self.getFrame(target_parent).self == .split and self.getFrame(target_parent).self.split.axis == target_dir.toAxis()) blk: {
             const idxof = std.mem.indexOfScalar(FrameID, self.getFrame(target_parent).self.split.children.items, target) orelse unreachable;
             break :blk .{ idxof, target_parent };
+        } else if (self.getFrame(target).self == .split and self.getFrame(target).self.split.axis == target_dir.toAxis()) blk: {
+            break :blk .{ if (target_dir.idx() == 0) 0 else self.getFrame(target).self.split.children.items.len - 1, target };
         } else blk: {
             const split = self.addFrame(.{ .split = .{
-                .direction = target_dir.toAxis(),
+                .axis = target_dir.toAxis(),
                 .children = .empty,
             } });
             self.getFrame(split).self.split.children.append(self.gpa, target) catch @panic("oom");
@@ -237,6 +239,9 @@ pub const WM = struct {
             self.getFrame(target)._setParent(split);
             break :blk .{ 0, split };
         };
+        if (self.getFrame(child).self == .split and self.getFrame(child).self.split.axis == target_dir.toAxis()) {
+            @panic("TODO support drop split in split");
+        }
         self.getFrame(split).self.split.children.insert(self.gpa, offset + target_dir.idx(), child) catch @panic("oom");
         self.getFrame(child).parent = .not_set;
         self.getFrame(child)._setParent(split);
@@ -328,13 +333,13 @@ pub const WM = struct {
             },
             .split => |s| {
                 if (s.children.items.len < 2) unreachable;
-                try out.writer().print(".{s}:", .{@tagName(s.direction)});
+                try out.writer().print(".{s}:", .{@tagName(s.axis)});
                 for (s.children.items) |child| {
                     try _printIndent(out, indent);
                     try self._renderFrameToString(child, frame_id, out, indent + 1);
                 }
             },
-            .final => {},
+            .final, .placeholder => {},
             .window => |w| {
                 try out.appendSlice(": ");
                 try self._renderFrameToString(w.child, frame_id, out, indent);
@@ -541,6 +546,27 @@ test WM {
     try std.testing.expectEqualStrings(
         \\@0.7.window: @0.6.final
         \\@1.4.window: @8.3.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.moveFrameToSplit(.fromTest(0, 6), .fromTest(8, 3), .right);
+    try std.testing.expectEqualStrings(
+        \\@1.4.window: @1.7.split.x:
+        \\    @8.3.final
+        \\    @0.6.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.moveFrameToSplit(my_wm.addFrame(.final), .fromTest(0, 6), .right);
+    try std.testing.expectEqualStrings(
+        \\@1.4.window: @1.7.split.x:
+        \\    @8.3.final
+        \\    @0.6.final
+        \\    @2.0.final
+    , try my_wm.testingRenderToString(&buf));
+    my_wm.moveFrameToSplit(my_wm.addFrame(.final), .fromTest(1, 7), .right);
+    try std.testing.expectEqualStrings(
+        \\@1.4.window: @1.7.split.x:
+        \\    @8.3.final
+        \\    @0.6.final
+        \\    @2.0.final
+        \\    @6.5.final
     , try my_wm.testingRenderToString(&buf));
 }
 
