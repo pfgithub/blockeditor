@@ -227,9 +227,15 @@ fn drawWindowNode(man: *WM.Manager, rdl: *B2.RepositionableDrawList, parent_top:
                 .y => .top_bottom,
             };
             for (s.children.items, 0..) |ch, i| {
-                if (child_top) |t| if (i != 0) {
-                    drawDropPoint(man, man.idForFrame(@src(), ch), ch, .left, t.rdl, s.axis.flip(@Vector(2, f32){ pos[0] - border_width, pos[1] }), s.axis.flip(@Vector(2, f32){ border_width, child_size[1] }));
-                };
+                if (i != 0) {
+                    if (child_top) |t| {
+                        drawDropPoint(man, man.idForFrame(@src(), ch), ch, .left, t.rdl, s.axis.flip(@Vector(2, f32){ pos[0] - border_width, pos[1] }), s.axis.flip(@Vector(2, f32){ border_width, child_size[1] }));
+                    }
+                    captureResize(rdl, man, man.idForFrame(@src(), ch), .{ .resize = .{ .window = man.wm.findRoot(win), .sides = .all, .cursor = switch (s.axis) {
+                        .x => .resize_ew,
+                        .y => .resize_ns,
+                    } } }, s.axis.flip(@Vector(2, f32){ pos[0] - border_width, pos[1] }), s.axis.flip(@Vector(2, f32){ border_width, child_size[1] }));
+                }
                 drawWindowNode(
                     man,
                     rdl,
@@ -268,7 +274,6 @@ pub const WindowIkeyInteractionModel = union(enum) {
     insert: struct { window: WM.WM.FrameID, dir: B2.Direction },
 };
 fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2.MouseEvent) ?Beui.Cursor {
-    _ = b2;
     switch (wid.im) {
         .ignore => return .arrow,
         .raise => |r| {
@@ -290,7 +295,7 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
         .insert => |insert| {
             if (ev.action == .up) {
                 if (B2.pointInRect(ev.pos.?, ev.capture_pos, ev.capture_size)) {
-                    wid.man.wm.moveFrameToSplit(wid.man.wm.addFrame(.placeholder), insert.window, insert.dir);
+                    wid.man.wm.moveFrameToSplit(if (wid.man.wm.dragging != WM.WM.FrameID.not_set) wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child else wid.man.wm.addFrame(.placeholder), insert.window, insert.dir);
                 }
             }
             return .pointer;
@@ -324,7 +329,7 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
             if (ev.action == .move_while_down and wid.man.wm.dragging != WM.WM.FrameID.not_set) {
                 wid.man.dragging.pos = ev.pos.?;
             }
-            if (ev.action == .up) {
+            if (ev.action == .up and !(b2.persistent.beui1.isKeyHeld(.left_shift) or b2.persistent.beui1.isKeyHeld(.right_shift))) {
                 wid.man.wm.dropFrameToNewWindow();
                 const wi = wid.man.getWindowInfo(grab_tab.tab);
                 wid.man.setWindowInfo(grab_tab.tab, .{
