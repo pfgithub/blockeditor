@@ -21,3 +21,10 @@ const TextureViewerBlock = struct {
 // maybe that's okay though?
 // - whenever you update zig and try to compile, it will have errors: block hashes changed
 //   - when this happens, you have to add a no-op upgrade from <previous hash> to <next hash>
+
+// actually
+// - updating a block won't be a problem. blocks are little wasm or riscv blobs, so if a client is outdated
+//   it can download the new version
+//   * that only applies if only merging logic changed. if the block layout changed, it is a problem, the
+//      client still needs to update. so that is one problem with this method, forcing client updates. if any
+//      one user updates. but that's probably fine.
