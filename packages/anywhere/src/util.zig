@@ -323,3 +323,75 @@ pub const FixedTimestep = struct {
         return result;
     }
 };
+
+pub const SerializeDeserialize = struct {
+    pub const Mode = enum { count, serialize, deserialize };
+
+    pub fn Value(comptime T: type, comptime mode: Mode) type {
+        return switch (mode) {
+            .count => struct {
+                src: *const T,
+                count: usize = 0,
+                pub inline fn int(self: *@This(), comptime Int: type, comptime endian: std.builtin.Endian, _: Int) error{}!void {
+                    _ = endian;
+                    self.count += @sizeOf(Int);
+                }
+                pub inline fn slice(self: *@This(), comptime Entry: type, value: []align(1) const Entry) error{}!void {
+                    self.count += value.len * @sizeOf(Entry);
+                }
+                pub const Ret = usize;
+            },
+            .serialize => struct {
+                src: *const T,
+                res: []u8,
+                fn _get(self: *@This(), n: usize) []u8 {
+                    if (self.res.len < n) unreachable;
+                    const res = self.res[0..n];
+                    self.res = self.res[n..];
+                    return res;
+                }
+                fn _getC(self: *@This(), comptime n: usize) *[n]u8 {
+                    if (self.res.len < n) unreachable;
+                    const res = self.res[0..n];
+                    self.res = self.res[n..];
+                    return res;
+                }
+                pub fn int(self: *@This(), comptime Int: type, comptime endian: std.builtin.Endian, value: Int) !Int {
+                    std.mem.writeInt(Int, self._getC(@sizeOf(Int)), value, endian);
+                    return value;
+                }
+                pub fn slice(self: *@This(), comptime Entry: type, value: []align(1) const Entry) ![]align(1) const Entry {
+                    comptime std.debug.assert(std.meta.hasUniqueRepresentation(Entry));
+                    const res = self._get(value.len * @sizeOf(Entry));
+                    @memcpy(res, std.mem.sliceAsBytes(value));
+                    return value;
+                }
+                pub const Ret = void;
+            },
+            .deserialize => struct {
+                src_txt: []const u8,
+                fn _get(self: *@This(), n: usize) ![]const u8 {
+                    if (self.src_txt.len < n) return error.DeserializeError;
+                    const res = self.src_txt[0..n];
+                    self.src_txt = self.src_txt[n..];
+                    return res;
+                }
+                fn _getC(self: *@This(), comptime n: usize) !*const [n]u8 {
+                    if (self.src_txt.len < n) return error.DeserializeError;
+                    const res = self.src_txt[0..n];
+                    self.src_txt = self.src_txt[n..];
+                    return res;
+                }
+                pub fn int(self: *@This(), comptime Int: type, comptime endian: std.builtin.Endian, _: void) !Int {
+                    return std.mem.readInt(Int, try self._getC(@sizeOf(Int)), endian);
+                }
+                pub fn slice(self: *@This(), comptime Entry: type, len: usize) ![]align(1) const Entry {
+                    comptime std.debug.assert(std.meta.hasUniqueRepresentation(Entry));
+                    const res = try self._get(len * @sizeOf(Entry));
+                    return std.mem.bytesAsSlice(Entry, res);
+                }
+                pub const Ret = T;
+            },
+        };
+    }
+};

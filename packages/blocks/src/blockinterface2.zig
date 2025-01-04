@@ -212,7 +212,8 @@ pub const CounterComponent = struct {
     }
 };
 
-pub fn ComposedBlock(comptime ChildComponent: type) type {
+pub fn ComposedBlock(comptime id: u128, comptime ChildComponent: type) type {
+    _ = id;
     return struct {
         const Self = @This();
         pub const Child = ChildComponent;
@@ -265,5 +266,5 @@ pub fn ComposedBlock(comptime ChildComponent: type) type {
     };
 }
 
-pub const CounterBlock = ComposedBlock(CounterComponent);
-pub const TextDocumentBlock = ComposedBlock(text_component.TextDocument);
+pub const CounterBlock = ComposedBlock(0x24572b13_e449_4c5c_91df_c61326c1f3b4, CounterComponent);
+pub const TextDocumentBlock = ComposedBlock(0x6416ee95_d8a5_40ff_abdd_561f44599530, text_component.TextDocument);
