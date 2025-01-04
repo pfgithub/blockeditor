@@ -28,3 +28,9 @@ const TextureViewerBlock = struct {
 //   * that only applies if only merging logic changed. if the block layout changed, it is a problem, the
 //      client still needs to update. so that is one problem with this method, forcing client updates. if any
 //      one user updates. but that's probably fine.
+
+// a problem:
+// - if blocks are a hash, what about blocks which are only differentiated by an id:
+//   - a DebugWindow and a FpsWindow both have no update logic, no operations, no contents, ...
+//     so their hash would be the same
+//   - so that suggests using a uuid rather than a hash
