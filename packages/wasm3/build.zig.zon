@@ -1,0 +1,16 @@
+.{
+    .name = "wasm3",
+    .version = "0.0.0",
+
+    .dependencies = .{
+        .anywhere = .{ .path = "../anywhere" },
+        .wasm3 = .{
+            .url = "https://github.com/pfgithub/wasm3/archive/840225156362bc1be590b53ab0616e1b70c9fcd0.zip",
+            .hash = "1220d68d48641a9974cc96479e2d85596b008e2da5f3fa9e7152fb895e98ce41f903",
+        },
+    },
+
+    .paths = .{
+        "",
+    },
+}
