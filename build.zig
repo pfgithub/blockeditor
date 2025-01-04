@@ -33,7 +33,6 @@ pub fn build(b: *std.Build) void {
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
     const tracy_dep = b.dependency("tracy", .{ .target = b.resolveTargetQuery(.{}), .optimize = .ReleaseSafe });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
-    const wasm3_dep = b.dependency("wasm3", .{ .target = target, .optimize = optimize });
 
     const blockeditor_app = deps.beui_app.app(blockeditor_dep, "blockeditor");
     const blockeditor_app_install = deps.beui_app.installApp(b, blockeditor_app);
@@ -46,8 +45,6 @@ pub fn build(b: *std.Build) void {
     // });
     b.installArtifact(texteditor_dep.artifact("zls"));
     b.installArtifact(blocks_dep.artifact("bench"));
-    b.installArtifact(wasm3_dep.artifact("m3"));
-    if (!opts.target(b).result.isWasm() and !opts.target(b).result.isAndroid()) b.installArtifact(wasm3_dep.artifact("wasm3"));
     if (opts.tracy) b.getInstallStep().dependOn(&b.addInstallArtifact(tracy_dep.artifact("tracy"), .{ .dest_dir = .{ .override = .{ .custom = "tool" } } }).step); // tracy exe has system dependencies and cannot be compiled for all targets
 
     const test_step = b.step("test", "Test");
