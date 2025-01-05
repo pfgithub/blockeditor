@@ -8,57 +8,6 @@ const Theme = @import("Theme.zig");
 pub const XY = B2.Axis;
 pub const LR = B2.LR;
 pub const Dir = B2.Direction;
-// can we make this a Block? what would it take?
-// - the requirement for a block is that if operations are applied in the same order,
-//   it gets the same result. also important that we can't end up with invalid states
-//   and that we preserve intent.
-//   - so here's a question:
-//     - a closes Win1. b drags Win1. what happens?
-//       - the drag is ignored
-//   - what happens with temporary frames?
-//     - a places Win1 left of Win2, creating frame Frame3 to hold them
-//     - b places Win4 right of Win2, creating frame Frame4 to hold them
-//     - a would win & any operations b does on frame4 would get discarded. that's not what we want though
-//     - solution for this is simple: when something creates a split, the id is derived from the thing it was created from.
-//       so both clients end up with the same id for the created split.
-//     - the question is is this important enough to bother with? maybe not, maybe who cares.
-//   - what happens as splits & tabs automatically disappear?
-//     - a removes Win2, deleting the tabs Tabs1
-//     - b places Tabs1 in Vsplit2
-//     - b's action is discarded
-// what types of operations exist?
-// - PlaceInDirection <window> <in_window> <direction> -> ?<new_split_id> (or derived from the in_window & "spit")
-// - PlaceInNewWindow <window> -> ?<new_root_id> (or derived from in_window & "window")
-// - PlaceInNewTab <window> <next_to_window> <direction> -> ?<new_tabs_id> (or derived from in_window & "tabs")
-// - CreateFinal <new_id> (must be in a commit that places this window, otherwise it should be rejected)
-// - CreatePlaceholder <new_id>
-// - MoveWindow <root_id> <dest> (along with presence updates while you're dragging the window)
-// - ResizeSplit <split_id> <left_of_id> <new_value> (along with presence updates while resizing)
-// this seems fully doable and not that bad
-// so this goes fully against b2.addWindow(). what's up with that?
-// - windows are owned by the user more than backed by data for your program
-//   - your program can spawn windows rather than declaratively stating what windows there are
-// - what about tool panels?
-//   - a Final holds a block in this thing. so for the text editor, the Final would hold the TextEditorBlock
-//   - say you have blockeditor. in the BlockEditorBlock window, you want a default layout:
-//     - left is a FileTreeViewerBlock
-//     - right is a placeholder where eventually tabs will go
-//     - when you click something in the fileviewer, you open it as a tab
-//       - BlockEditorBlock doesn't know what's open - the WindowManagerBlock does
-//       - this causes an oddity: if you have two blockeditors open, you might think something is open
-//         when it's open in a different one. that's fine for now, we'll deal with that later.
-//     - when something is active, you highlight it as a tab
-//       - active in what way? you could show the BlockEditorBlock here if you want. what counts here?
-//         - unclear
-//     - here's what's weird. what is the BlockEditorBlock? it's just a FileTreeViewerBlock.
-//       - maybe windows have owners. every window belonging to the BlockEditorBlock supports
-//         ctrl+shift+p to show the menu. by default they're all even in the same window and might
-//         not even support being made floating.
-//   - say you have an image editor. in the ImageEditorBlock window, you want a default layout of
-//     windows: left has tools, top has random junk, right has layers & properties, bottom has some text
-//     - the tools window isn't really a block, it belongs to the ImageEditor. but I guess:
-//       - there is a ToolsWindowBlock. but the active tool is stored on the ImageEditorBlock, and all
-//         ToolsWindowBlock<s> just show that same thing. maybe they could be customizable or something.
 // - ok so this is fine and works out. recap:
 //   - all Final windows hold Blocks. a placeholder window is a window holding nothing.
 //   - the blocks they hold are viewer blocks
@@ -72,24 +21,24 @@ pub const Dir = B2.Direction;
 //     but that is complicated and comes later.
 //     - specifically it is {save_state: MinigamerSaveState} and savestate holds {contents: ..., cart: Ref}
 // - transition period:
-//   - we'll create void blocks for each of the things
-//     - MinigamerBlock (not yet holding a MinigamerSaveState)
-//     - EditorBlock (not yet holding the editor state or scroll state or cursor state or any of that, just a filename for now)
-//     - DebugTextureBlock (just holding an index for now)
-//     - FileViewerBlock (void, not yet holding the map of (block ids => isopen) or the scroll state)
-//   - we'll update wm Final to hold a block reference
-//   - we'll add render methods to these blocks
-//   - we'll remove addWindow and instead render from the block's render method
-//   - we'll move WM to be operation-based
-//   - we'll add serialization/deserialization to WM (remember to use the gist! add it to anywhere/util)
-//   - we'll add support for blocks to hold references to other blocks
-//   - we'll change WM to be a block & update callsites
-//   - we'll update the void blocks to not be so void anymore
-//     - MinigamerBlock holds a MinigamerSaveState which holds {contents_id: ..., contents: []const u8, cart: Ref}
+//   - [ ] we'll create void blocks for each of the things
+//     - [ ] MinigamerBlock (not yet holding a MinigamerSaveState)
+//     - [ ] EditorBlock (not yet holding the editor state or scroll state or cursor state or any of that, just a filename for now)
+//     - [x] DebugTextureBlock (just holding an index for now)
+//     - [ ] FileViewerBlock (void, not yet holding the map of (block ids => isopen) or the scroll state)
+//   - [ ] we'll update wm Final to hold a block reference
+//   - [ ] we'll add render methods to these blocks
+//   - [ ] we'll remove addWindow and instead render from the block's render method
+//   - [ ] we'll move WM to be operation-based
+//   - [ ] we'll add serialization/deserialization to WM (remember to use the gist! add it to anywhere/util)
+//   - [ ] we'll add support for blocks to hold references to other blocks
+//   - [ ] we'll change WM to be a block & update callsites
+//   - [ ] we'll update the void blocks to not be so void anymore
+//     - [ ] MinigamerBlock holds a MinigamerSaveState which holds {contents_id: ..., contents: []const u8, cart: Ref}
 //       - it will have to deal with conflict management eventually
-//     - EditorBlock holds scroll & cursor state & a reference to a TextBlock in the docs folder?
-//     - DebugTextureBlock holds an index of the texture to view
-//     - FileViewerBlock holds maybe a map of (block id => true) & scroll state
+//     - [ ] EditorBlock holds scroll & cursor state & a reference to a TextBlock in the docs folder?
+//     - [ ] DebugTextureBlock holds an index of the texture to view
+//     - [ ] FileViewerBlock holds maybe a map of (block id => true) & scroll state
 pub const WM = struct {
     pub const FrameID = packed struct(u64) {
         gen: u32,

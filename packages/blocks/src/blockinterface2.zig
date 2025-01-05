@@ -91,6 +91,7 @@ pub const AnyBlock = struct {
             .clone = if (@hasDecl(T, "clone")) T.clone else null,
             .is_crdt = false,
             .type_id = @typeName(T),
+            .uuid = T.uuid,
         };
         return .{
             .data = @ptrCast(@alignCast(self)),
@@ -128,7 +129,13 @@ pub const BlockVtable = struct {
     /// for a block (only one copy needs to be kept in memory) and may improve performance
     is_crdt: bool,
 
+    // /// if 'true', operations can be undone by applying an undo operation at the end of the operations list. if false, to undo an
+    // /// operation you must go fully back in history and apply all operations again from the point of the nearest snapshot to the
+    // /// undone one and call the undone operation with 'undo: true'.
+    // has_resonable_undo: bool = true,
+
     type_id: [*:0]const u8,
+    uuid: u128,
 };
 
 pub const CounterComponent = struct {
@@ -213,7 +220,6 @@ pub const CounterComponent = struct {
 };
 
 pub fn ComposedBlock(comptime id: u128, comptime ChildComponent: type) type {
-    _ = id;
     return struct {
         const Self = @This();
         pub const Child = ChildComponent;
@@ -224,6 +230,7 @@ pub fn ComposedBlock(comptime id: u128, comptime ChildComponent: type) type {
         pub const default: []align(16) const u8 = &default_aligned;
 
         pub const Operation = ChildComponent.Operation;
+        pub const uuid = id;
 
         fn applyOperations(any: AnyBlock, operations_serialized: AlignedByteSlice, undo_operation: ?*AlignedArrayList) DeserializeError!void {
             const self = any.cast(Self);
@@ -268,3 +275,5 @@ pub fn ComposedBlock(comptime id: u128, comptime ChildComponent: type) type {
 
 pub const CounterBlock = ComposedBlock(0x24572b13_e449_4c5c_91df_c61326c1f3b4, CounterComponent);
 pub const TextDocumentBlock = ComposedBlock(0x6416ee95_d8a5_40ff_abdd_561f44599530, text_component.TextDocument);
+
+pub const DebugViewer = ComposedBlock(0xc253685c_8e30_4e46_8f15_73bcde756867, CounterComponent);

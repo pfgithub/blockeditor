@@ -29,6 +29,8 @@ db_sync: ?blocks_net.TcpSync,
 counter_block: *db_mod.BlockRef,
 counter_component: db_mod.TypedComponentRef(bi.CounterComponent),
 
+block_windows: std.ArrayListUnmanaged(*db_mod.BlockRef),
+
 zig_language: Beui.EditorView.Core.highlighters_zig.HlZig,
 markdown_language: Beui.EditorView.Core.highlighters_markdown.HlMd,
 
@@ -55,6 +57,16 @@ pub fn initWithCfg(self: *App, gpa: std.mem.Allocator, cfg: struct { enable_db_s
 
     self.counter_block = self.db.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
     self.counter_component = self.counter_block.typedComponent(bi.CounterBlock).?;
+
+    self.block_windows = .empty;
+    const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(gpa, bi.DebugViewer.default) catch unreachable);
+    const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(gpa, bi.DebugViewer.default) catch unreachable);
+    {
+        const debug_2_component = debug_2.typedComponent(bi.DebugViewer).?;
+        defer debug_2_component.unref();
+        debug_2_component.applySimpleOperation(.{ .set = 1 }, null);
+    }
+    self.block_windows.appendSlice(self.gpa, &.{ debug_1, debug_2 }) catch @panic("oom");
 
     self.zig_language = Beui.EditorView.Core.highlighters_zig.HlZig.init(gpa);
     self.markdown_language = Beui.EditorView.Core.highlighters_markdown.HlMd.init();
@@ -86,6 +98,8 @@ pub fn deinit(self: *App) void {
     self.zig_language.deinit();
     self.counter_component.unref();
     self.counter_block.unref();
+    for (self.block_windows.items) |bwi| bwi.unref();
+    self.block_windows.deinit(self.gpa);
     if (self.db_sync) |*s| s.deinit();
     self.db.deinit();
 }
@@ -141,8 +155,11 @@ pub fn render(self: *App, call_id: B2.ID) void {
     // const wm = b2.windowManager();
     // b2.windows.add()
 
-    id.b2.persistent.wm.addWindow(id.sub(@src()), "Debug Texture", .from(self, render__debugTexture));
-    id.b2.persistent.wm.addWindow(id.sub(@src()), "Debug Texture 2", .from(self, render__debugTexture2));
+    const id_loop_2 = id.pushLoop(@src(), *db_mod.BlockRef);
+    for (self.block_windows.items) |bwi| {
+        const id_sub = id_loop_2.pushLoopValue(@src(), bwi);
+        id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Block Window", .from(bwi, render__block));
+    }
     const id_loop = id.pushLoop(@src(), usize);
     for (self.tabs.items, 0..) |tab, i| {
         const id_sub = id_loop.pushLoopValue(@src(), i);
@@ -346,42 +363,35 @@ const RenderTreeIndex = struct {
         return .{ .i = itm.i + 1 };
     }
 };
-fn render__debugTexture(_: *App, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
+fn render__block(block: *db_mod.BlockRef, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
     const ui = call_info.ui(@src());
     const rdl = ui.id.b2.draw();
-    // TODO should be scrollable, vertical and horizontal
-    // maybe window can autoscroll when content exceeds its bounds
-    rdl.addRect(.{
-        .pos = .{ 0, 0 },
-        .size = .{ 2048, 2048 },
-        .uv_pos = .{ 0, 0 },
-        .uv_size = .{ 1, 1 },
-        .image = .grayscale,
-    });
-    rdl.addRect(.{
-        .pos = .{ 0, 0 },
-        .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? },
-        .tint = B2.Theme.colors.window_bg,
-        .rounding = .{ .corners = .all, .radius = 6.0 },
-    });
-    return rdl;
-}
-fn render__debugTexture2(_: *App, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
-    const ui = call_info.ui(@src());
-    const rdl = ui.id.b2.draw();
-    rdl.addRect(.{
-        .pos = .{ 0, 0 },
-        .size = .{ 2048, 2048 },
-        .uv_pos = .{ 0, 0 },
-        .uv_size = .{ 1, 1 },
-        .image = .rgba,
-    });
-    rdl.addRect(.{
-        .pos = .{ 0, 0 },
-        .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? },
-        .tint = B2.Theme.colors.window_bg,
-        .rounding = .{ .corners = .all, .radius = 6.0 },
-    });
+
+    if (block.contents()) |c| {
+        if (bi.DebugViewer.uuid == c.vtable.uuid) {
+            const value = block.typedComponent(bi.DebugViewer).?;
+            defer value.unref();
+
+            // TODO should be scrollable, vertical and horizontal
+            // maybe window can autoscroll when content exceeds its bounds
+            rdl.addRect(.{
+                .pos = .{ 0, 0 },
+                .size = .{ 2048, 2048 },
+                .uv_pos = .{ 0, 0 },
+                .uv_size = .{ 1, 1 },
+                .image = if (value.value.count == 0) .grayscale else .rgba,
+            });
+            rdl.addRect(.{
+                .pos = .{ 0, 0 },
+                .size = .{ ui.constraints.available_size.w.?, ui.constraints.available_size.h.? },
+                .tint = B2.Theme.colors.window_bg,
+                .rounding = .{ .corners = .all, .radius = 6.0 },
+            });
+        }
+    } else {
+        // loading
+    }
+
     return rdl;
 }
 fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
