@@ -8,6 +8,7 @@ const anywhere = @import("anywhere");
 const tracy = anywhere.tracy;
 const zgui = anywhere.zgui;
 const B2 = Beui.beui_experiment;
+const WM = B2.WM;
 
 pub const std_options = std.Options{
     .log_scope_levels = &.{
@@ -25,7 +26,8 @@ db_sync: ?blocks_net.TcpSync,
 counter_block: *db_mod.BlockRef,
 counter_component: db_mod.TypedComponentRef(bi.CounterComponent),
 
-block_windows: std.ArrayListUnmanaged(*db_mod.BlockRef),
+initialized: bool = false,
+wm: WM.Manager,
 
 pub fn init(self: *App, gpa: std.mem.Allocator) void {
     return self.initWithCfg(gpa, .{});
@@ -44,31 +46,18 @@ pub fn initWithCfg(self: *App, gpa: std.mem.Allocator, cfg: struct { enable_db_s
     self.counter_block = self.db.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch @panic("oom"));
     self.counter_component = self.counter_block.typedComponent(bi.CounterBlock).?;
 
-    self.block_windows = .empty;
-    const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(gpa, bi.DebugViewer.default) catch @panic("oom"));
-    const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(gpa, bi.DebugViewer.default) catch @panic("oom"));
-    {
-        const debug_2_component = debug_2.typedComponent(bi.DebugViewer).?;
-        defer debug_2_component.unref();
-        debug_2_component.applySimpleOperation(.{ .set = 1 }, null);
-    }
-    const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(gpa, bi.MinigamerViewer.default) catch @panic("oom"));
-    const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(gpa, bi.FileTreeViewer.default) catch @panic("oom"));
-    const bouncy_ball = self.db.createBlock(bi.BouncyBallViewer.deserialize(gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
-    self.block_windows.appendSlice(self.gpa, &.{ debug_1, debug_2, minigamer_viewer, filetree_viewer, bouncy_ball }) catch @panic("oom");
-
-    self.addTab(@embedFile("App.zig"));
+    self.wm = .init(self.gpa);
 }
 pub fn deinit(self: *App) void {
+    self.wm.deinit();
+
     self.counter_component.unref();
     self.counter_block.unref();
-    for (self.block_windows.items) |bwi| bwi.unref();
-    self.block_windows.deinit(self.gpa);
     if (self.db_sync) |*s| s.deinit();
     self.db.deinit();
 }
 
-pub fn addTab(self: *App, file_cont: []const u8) void {
+pub fn addTab(self: *App, file_cont: []const u8) *db_mod.BlockRef {
     const text_block = self.db.createBlock(bi.TextDocumentBlock.deserialize(self.gpa, bi.TextDocumentBlock.default) catch unreachable);
     defer text_block.unref();
     {
@@ -82,14 +71,32 @@ pub fn addTab(self: *App, file_cont: []const u8) void {
         }, null);
     }
     text_block.ref();
-    self.block_windows.append(self.gpa, text_block) catch @panic("oom");
+    return text_block;
 }
 
-pub fn render(self: *App, call_id: B2.ID) void {
+pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
     const id = call_id.sub(@src());
+
+    self.wm.beginFrame(.{ .id = id.sub(@src()), .size = id.b2.frame.frame_cfg.size });
 
     self.db.tickBegin();
     defer self.db.tickEnd();
+
+    if (!self.initialized) {
+        const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
+        const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
+        {
+            const debug_2_component = debug_2.typedComponent(bi.DebugViewer).?;
+            defer debug_2_component.unref();
+            debug_2_component.applySimpleOperation(.{ .set = 1 }, null);
+        }
+        const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(self.gpa, bi.MinigamerViewer.default) catch @panic("oom"));
+        const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(self.gpa, bi.FileTreeViewer.default) catch @panic("oom"));
+        const bouncy_ball = self.db.createBlock(bi.BouncyBallViewer.deserialize(self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
+        for (&[_]*db_mod.BlockRef{ debug_1, debug_2, minigamer_viewer, filetree_viewer, bouncy_ball, self.addTab(@embedFile("App.zig")) }) |itm| {
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = itm } }));
+        }
+    }
 
     if (zgui.beginWindow("My counter (editor 1)", .{})) {
         defer zgui.endWindow();
@@ -100,15 +107,21 @@ pub fn render(self: *App, call_id: B2.ID) void {
     // b2.windows.add()
 
     const id_loop_2 = id.pushLoop(@src(), *db_mod.BlockRef);
-    for (self.block_windows.items) |bwi| {
-        const id_sub = id_loop_2.pushLoopValue(@src(), bwi);
-        if (bwi.contents().?.vtable.uuid == bi.BouncyBallViewer.uuid) {
-            // temporary hack, not sure what the final solution will be
-            id.b2.persistent.wm.addFullscreenOverlay(id.sub(@src()), .from(bwi, render__block));
-        } else {
-            id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Block Window", .from(bwi, render__block));
+    for (self.wm.wm.frames.items) |fi| {
+        if (fi.self == .final and fi.self.final.ref != null) {
+            const bwi = fi.self.final.ref.?;
+            const id_sub = id_loop_2.pushLoopValue(@src(), bwi);
+            if (bwi.contents().?.vtable.uuid == bi.BouncyBallViewer.uuid) {
+                // temporary hack, not sure what the final solution will be
+                self.wm.addFullscreenOverlay(id.sub(@src()), .from(bwi, render__block));
+            } else {
+                self.wm.addWindow(id_sub.sub(@src()), "Block Window", .from(bwi, render__block));
+            }
         }
     }
+
+    const result = self.wm.endFrame();
+    return result;
 }
 
 const BounceBallState = struct {
@@ -486,9 +499,9 @@ test "app renders" {
     for (0..2) |_| {
         const root_id = tester.startFrame(0, .{ 200, 200 });
 
-        app.render(root_id.sub(@src()));
+        const rdl = app.render(root_id.sub(@src()));
 
-        tester.endFrame();
+        tester.endFrame(rdl);
     }
 }
 const testing_vtable: Beui.FrameCfgVtable = .{

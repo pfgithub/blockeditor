@@ -82,8 +82,8 @@ export fn @"zig:renderFrame"() void {
         defer beui.endFrame();
 
         const id = b2.newFrame(.{ .size = .{ 1024, 1024 } });
-        app.render(id.sub(@src()));
-        b2.endFrame(&draw_list);
+        const rdl = app.render(id.sub(@src()));
+        b2.endFrame(rdl, &draw_list);
     }
 
     {

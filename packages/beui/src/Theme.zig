@@ -414,7 +414,7 @@ fn step(comptime T: type, a: T, b: T, t: T) T {
 pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2.RepositionableDrawList {
     const rdl = b2.draw();
 
-    const incl_top = b2.persistent.wm.wm.dragging != WM.WM.FrameID.not_set;
+    const incl_top = man.wm.dragging != WM.WM.FrameID.not_set;
 
     if (man.wm.dragging != WM.WM.FrameID.not_set) {
         const start_ms: f64 = @floatFromInt(man.dragging.anim_start_ms);

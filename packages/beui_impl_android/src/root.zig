@@ -108,8 +108,8 @@ export fn zig_opengl_renderFrame() void {
         applyEvents();
 
         const id = b2.newFrame(.{ .size = @floatFromInt(screen_size) });
-        app.render(id.sub(@src()));
-        b2.endFrame(&draw_list);
+        const rdl = app.render(id.sub(@src()));
+        b2.endFrame(rdl, &draw_list);
     }
 
     const glyphs = &b2.persistent.image_cache.caches.getPtr(.grayscale).texpack;

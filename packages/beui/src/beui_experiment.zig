@@ -114,7 +114,6 @@ const Beui2Persistent = struct {
 
     verdana_ttf: ?[]const u8,
     layout_cache: LayoutCache,
-    wm: WM.Manager,
 
     beui1: *Beui,
 
@@ -160,7 +159,6 @@ pub const Beui2 = struct {
 
                 .verdana_ttf = verdana_ttf,
                 .layout_cache = .init(gpa, font),
-                .wm = .init(gpa),
 
                 .beui1 = beui1,
             },
@@ -178,7 +176,6 @@ pub const Beui2 = struct {
         }
         self.persistent.image_cache.deinit();
         self.persistent.state2_storage.deinit();
-        self.persistent.wm.deinit();
         self.persistent.prev_frame_draw_list_states.deinit();
         self.persistent.layout_cache.deinit();
         if (self.persistent.verdana_ttf) |v| self.persistent.gpa.free(v);
@@ -409,14 +406,12 @@ pub const Beui2 = struct {
             .frame = self.persistent.frame_num,
             .str = &.{},
         };
-        self.persistent.wm.beginFrame(.{ .id = res_id.sub(@src()), .size = frame_cfg.size });
 
         return res_id;
     }
-    pub fn endFrame(self: *Beui2, renderlist: ?*render_list.RenderList) void {
-        const result = self.persistent.wm.endFrame();
+    pub fn endFrame(self: *Beui2, rdl: *RepositionableDrawList, renderlist: ?*render_list.RenderList) void {
         self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
-        result.finalize(.{
+        rdl.finalize(.{
             .out_list = renderlist,
             .out_events = &self.persistent.last_frame_mouse_events,
             .out_mouse_events = &self.persistent.last_frame_mouse2_events,
@@ -1527,8 +1522,8 @@ pub const B2Tester = struct {
         const id = self.b2.newFrame(.{ .size = size });
         return id;
     }
-    pub fn endFrame(self: *B2Tester) void {
-        self.b2.endFrame(&self.draw_list);
+    pub fn endFrame(self: *B2Tester, rdl: *RepositionableDrawList) void {
+        self.b2.endFrame(rdl, &self.draw_list);
         self.b1.endFrame();
     }
 };
@@ -1541,7 +1536,7 @@ test "state2" {
     defer tester.deinit();
 
     _ = tester.startFrame(1000, .{ 1000, 500 });
-    tester.endFrame();
+    tester.endFrame(tester.b2.draw());
 
     // TODO: test state2
     // TODO: clean up beui setup, what a mess!

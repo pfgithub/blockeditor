@@ -901,16 +901,16 @@ pub fn main() !void {
                 }
             }
 
-            {
+            const rdl = blk: {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 scrollDemo");
                 defer b2ft_.end();
 
-                app.render(id.sub(@src()));
-            }
+                break :blk app.render(id.sub(@src()));
+            };
             {
                 const b2ft_ = tracy.traceNamed(@src(), "b2 finalize");
                 defer b2ft_.end();
-                b2.endFrame(&draw_list);
+                b2.endFrame(rdl, &draw_list);
             }
         }
 
