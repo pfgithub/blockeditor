@@ -1,6 +1,9 @@
 const std = @import("std");
 const B2 = @import("beui_experiment.zig");
 const Theme = @import("Theme.zig");
+const blocks_mod = @import("blocks");
+const bi = blocks_mod.blockinterface2;
+const db_mod = blocks_mod.blockdb;
 
 // this is the backing wm
 // but the caller will manage:
@@ -26,7 +29,7 @@ pub const Dir = B2.Direction;
 //     - [x] EditorBlock (not yet holding the editor state or scroll state or cursor state or any of that, just a filename for now)
 //     - [x] DebugTextureBlock (just holding an index for now)
 //     - [x] FileViewerBlock (void, not yet holding the map of (block ids => isopen) or the scroll state)
-//   - [ ] we'll update wm Final to hold a block reference
+//   - [x] we'll update wm Final to hold a block reference
 //   - [ ] we'll add render methods to these blocks
 //   - [ ] we'll remove addWindow and instead render from the block's render method
 //   - [ ] we'll move WM to be operation-based
@@ -89,7 +92,8 @@ pub const WM = struct {
             children: std.ArrayListUnmanaged(FrameID),
         },
         final: struct {
-            // window: B2.ID,
+            // null indicates this is a placeholder window that does not contain any block
+            ref: ?*db_mod.BlockRef = null,
         },
         window: struct {
             child: FrameID,
@@ -97,13 +101,12 @@ pub const WM = struct {
         dragging: struct {
             child: FrameID,
         },
-        placeholder,
         /// unreachable
         none,
         pub fn children(self: *FrameContent) []FrameID {
             switch (self.*) {
                 inline .tabbed, .split => |s| return s.children.items,
-                .final, .placeholder => return &.{},
+                .final => return &.{},
                 .window => |*w| return @as(*[1]FrameID, &w.child),
                 .dragging => |*w| return @as(*[1]FrameID, &w.child),
                 .none => @panic("frame is none"),
@@ -112,6 +115,9 @@ pub const WM = struct {
         pub fn deinit(self: *FrameContent, gpa: std.mem.Allocator) void {
             switch (self.*) {
                 inline .tabbed, .split => |*s| s.children.deinit(gpa),
+                .final => |f| {
+                    if (f.ref) |r| r.unref();
+                },
                 else => {},
             }
         }
@@ -207,7 +213,7 @@ pub const WM = struct {
                     self._removeNode(parent);
                 }
             },
-            .final, .placeholder => unreachable, // has no children
+            .final => unreachable, // has no children
             .window => |win| {
                 // the window must be removed
                 std.debug.assert(win.child == child);
@@ -377,7 +383,7 @@ pub const WM = struct {
                     try self._renderFrameToString(child, frame_id, out, indent + 1);
                 }
             },
-            .final, .placeholder => {},
+            .final => {},
             .window => |w| {
                 try out.appendSlice(": ");
                 try self._renderFrameToString(w.child, frame_id, out, indent);
@@ -591,14 +597,14 @@ test WM {
         \\    @8.3.final
         \\    @0.6.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.moveFrameToSplit(my_wm.addFrame(.final), .fromTest(0, 6), .right);
+    my_wm.moveFrameToSplit(my_wm.addFrame(.{ .final = .{} }), .fromTest(0, 6), .right);
     try std.testing.expectEqualStrings(
         \\@1.4.window: @1.7.split.x:
         \\    @8.3.final
         \\    @0.6.final
         \\    @2.0.final
     , try my_wm.testingRenderToString(&buf));
-    my_wm.moveFrameToSplit(my_wm.addFrame(.final), .fromTest(1, 7), .right);
+    my_wm.moveFrameToSplit(my_wm.addFrame(.{ .final = .{} }), .fromTest(1, 7), .right);
     try std.testing.expectEqualStrings(
         \\@1.4.window: @1.7.split.x:
         \\    @8.3.final

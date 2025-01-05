@@ -194,20 +194,17 @@ fn drawWindowNode(man: *WM.Manager, rdl: *B2.RepositionableDrawList, parent_top:
     };
     const frame = man.wm.getFrame(win);
     switch (frame.self) {
-        .final => {
+        .final => |f| {
             if (cfg.parent_is_tabs) {
-                return drawWindowFinal(man, rdl, win, offset_pos, offset_size);
-            } else {
-                return drawWindowTabbed(man, rdl, if (child_top) |t| .{ .rdl = t.rdl, .pos = t.pos, .size = t.size, .skip = .all } else null, win, win, &.{win}, offset_pos, offset_size);
-            }
-        },
-        .placeholder => {
-            if (cfg.parent_is_tabs) {
-                rdl.addRect(.{
-                    .pos = offset_pos,
-                    .size = offset_size,
-                    .tint = colors.window_bg,
-                });
+                if (f.ref == null and false) {
+                    rdl.addRect(.{
+                        .pos = offset_pos,
+                        .size = offset_size,
+                        .tint = colors.window_bg,
+                    });
+                } else {
+                    return drawWindowFinal(man, rdl, win, offset_pos, offset_size);
+                }
             } else {
                 return drawWindowTabbed(man, rdl, if (child_top) |t| .{ .rdl = t.rdl, .pos = t.pos, .size = t.size, .skip = .all } else null, win, win, &.{win}, offset_pos, offset_size);
             }
@@ -293,9 +290,9 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
             return resize.cursor;
         },
         .insert => |insert| {
-            if (ev.action == .up) {
+            if (ev.action == .up and wid.man.wm.dragging != WM.WM.FrameID.not_set) {
                 if (B2.pointInRect(ev.pos.?, ev.capture_pos, ev.capture_size)) {
-                    wid.man.wm.moveFrameToSplit(if (wid.man.wm.dragging != WM.WM.FrameID.not_set) wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child else wid.man.wm.addFrame(.placeholder), insert.window, insert.dir);
+                    wid.man.wm.moveFrameToSplit(wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child, insert.window, insert.dir);
                 }
             }
             return .pointer;
@@ -417,7 +414,7 @@ fn step(comptime T: type, a: T, b: T, t: T) T {
 pub fn renderWindows(b2: *B2.Beui2, size: @Vector(2, f32), man: *WM.Manager) *B2.RepositionableDrawList {
     const rdl = b2.draw();
 
-    const incl_top = b2.persistent.beui1.isKeyHeld(.left_shift) or b2.persistent.beui1.isKeyHeld(.right_shift);
+    const incl_top = b2.persistent.wm.wm.dragging != WM.WM.FrameID.not_set;
 
     if (man.wm.dragging != WM.WM.FrameID.not_set) {
         const start_ms: f64 = @floatFromInt(man.dragging.anim_start_ms);
