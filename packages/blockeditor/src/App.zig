@@ -37,8 +37,6 @@ markdown_language: Beui.EditorView.Core.highlighters_markdown.HlMd,
 tabs: std.ArrayList(*EditorTab),
 current_tab: usize,
 
-tree: FsTree2,
-
 enable_bouncing_ball: bool,
 
 pub fn init(self: *App, gpa: std.mem.Allocator) void {
@@ -66,7 +64,9 @@ pub fn initWithCfg(self: *App, gpa: std.mem.Allocator, cfg: struct { enable_db_s
         defer debug_2_component.unref();
         debug_2_component.applySimpleOperation(.{ .set = 1 }, null);
     }
-    self.block_windows.appendSlice(self.gpa, &.{ debug_1, debug_2 }) catch @panic("oom");
+    const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(gpa, bi.MinigamerViewer.default) catch unreachable);
+    const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(gpa, bi.FileTreeViewer.default) catch unreachable);
+    self.block_windows.appendSlice(self.gpa, &.{ debug_1, debug_2, minigamer_viewer, filetree_viewer }) catch @panic("oom");
 
     self.zig_language = Beui.EditorView.Core.highlighters_zig.HlZig.init(gpa);
     self.markdown_language = Beui.EditorView.Core.highlighters_markdown.HlMd.init();
@@ -77,18 +77,8 @@ pub fn initWithCfg(self: *App, gpa: std.mem.Allocator, cfg: struct { enable_db_s
     self.current_tab = 0;
 
     self.addTab(@embedFile("App.zig"));
-
-    var outbuf: [std.fs.max_path_bytes]u8 = undefined;
-    self.tree = .init(if (@import("builtin").os.tag == .wasi) (
-    // realpath should never be used. but until then:
-        "/") else std.fs.cwd().realpath(".", &outbuf) catch |e| blk: {
-        std.log.err("unable to get realpath: {s}", .{@errorName(e)});
-        break :blk "";
-    }, gpa);
-    self.tree.createRootNode();
 }
 pub fn deinit(self: *App) void {
-    self.tree.deinit();
     for (self.tabs.items) |tab| {
         tab.editor_view.deinit();
         self.gpa.destroy(tab);
@@ -166,8 +156,6 @@ pub fn render(self: *App, call_id: B2.ID) void {
         const tmpdata = id.b2.frame.arena.dupe(render__editor__Context, &.{.{ .self = self, .tab = tab }}) catch @panic("oom");
         id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Editor View.zig", .from(&tmpdata[0], render__editor));
     }
-    id.b2.persistent.wm.addWindow(id.sub(@src()), "File Tree", .from(self, render__tree));
-    id.b2.persistent.wm.addWindow(id.sub(@src()), "Minigamer", .from(&{}, @import("mini.zig").render));
     if (zgui.beginWindow("Bouncing Ball", .{})) {
         defer zgui.endWindow();
 
@@ -365,10 +353,11 @@ const RenderTreeIndex = struct {
 };
 fn render__block(block: *db_mod.BlockRef, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
     const ui = call_info.ui(@src());
-    const rdl = ui.id.b2.draw();
 
-    if (block.contents()) |c| {
-        if (bi.DebugViewer.uuid == c.vtable.uuid) {
+    if (block.contents()) |c| switch (c.vtable.uuid) {
+        bi.DebugViewer.uuid => {
+            const rdl = ui.id.b2.draw();
+
             const value = block.typedComponent(bi.DebugViewer).?;
             defer value.unref();
 
@@ -387,18 +376,46 @@ fn render__block(block: *db_mod.BlockRef, call_info: B2.StandardCallInfo, _: voi
                 .tint = B2.Theme.colors.window_bg,
                 .rounding = .{ .corners = .all, .radius = 6.0 },
             });
-        }
-    } else {
-        // loading
-    }
 
-    return rdl;
+            return rdl;
+        },
+        bi.MinigamerViewer.uuid => {
+            return @import("mini.zig").render(&{}, ui.sub(@src()), {});
+        },
+        bi.FileTreeViewer.uuid => {
+            return render__tree({}, ui.sub(@src()), {});
+        },
+        else => {
+            return B2.textLine(ui.sub(@src()), .{ .text = ui.id.b2.fmt("no ui provided for: {s}", .{std.mem.span(c.vtable.type_id)}) }).rdl;
+        },
+    } else {
+        return B2.textLine(ui.sub(@src()), .{ .text = "loading" }).rdl;
+    }
 }
-fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
+const TreeState = struct {
+    tree: FsTree2,
+    pub fn init(self: *TreeState, gpa: std.mem.Allocator) void {
+        var outbuf: [std.fs.max_path_bytes]u8 = undefined;
+        var res: FsTree2 = .init(if (@import("builtin").os.tag == .wasi) (
+        // realpath should never be used. but until then:
+            "/") else std.fs.cwd().realpath(".", &outbuf) catch |e| blk: {
+            std.log.err("unable to get realpath: {s}", .{@errorName(e)});
+            break :blk "";
+        }, gpa);
+        res.createRootNode();
+        self.* = .{ .tree = res };
+    }
+    pub fn deinit(self: *TreeState) void {
+        self.tree.deinit();
+    }
+};
+fn render__tree(_: void, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
     const ui = call_info.ui(@src());
+    const state = ui.id.b2.state2(ui.id.sub(@src()), ui.id.b2.persistent.gpa, TreeState);
+    const tree = &state.tree;
 
     const rdl = ui.id.b2.draw();
-    const chres = B2.virtualScroller(ui.sub(@src()), &self.tree, FsTree2.Index, .from(self, render__tree__child));
+    const chres = B2.virtualScroller(ui.sub(@src()), tree, FsTree2.Index, .from(tree, render__tree__child));
     rdl.place(chres.rdl, .{});
     rdl.addRect(.{
         .pos = .{ 0, 0 },
@@ -408,7 +425,7 @@ fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) *B2.Reposit
     });
     return rdl;
 }
-fn render__tree__child(self: *App, call_info: B2.StandardCallInfo, index: FsTree2.Index) B2.StandardChild {
+fn render__tree__child(tree: *FsTree2, call_info: B2.StandardCallInfo, index: FsTree2.Index) B2.StandardChild {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
@@ -417,18 +434,18 @@ fn render__tree__child(self: *App, call_info: B2.StandardCallInfo, index: FsTree
     const tree_node = index.current_node orelse unreachable;
 
     const tree_data = ui.id.b2.frame.arena.create(render__tree__child_onClick_data) catch @panic("oom");
-    tree_data.* = .{ .self = self, .tree_node = tree_node };
+    tree_data.* = .{ .tree = tree, .tree_node = tree_node };
     const ehdl: B2.ButtonEhdl = .{
         .onClick = .from(tree_data, render__tree__child_onClick),
     };
-    return B2.button(ui.sub(@src()), ehdl, .from(&TreeChild{ .self = self, .node = tree_node }, render__tree__child__child));
+    return B2.button(ui.sub(@src()), ehdl, .from(&TreeChild{ .tree = tree, .node = tree_node }, render__tree__child__child));
 }
 const render__tree__child_onClick_data = struct {
-    self: *App,
+    tree: *FsTree2,
     tree_node: *FsTree2.Node,
 };
 fn render__tree__child_onClick(data: *render__tree__child_onClick_data, b2: *B2.Beui2, _: void) void {
-    const self = data.self;
+    const tree = data.tree;
     const tree_node = data.tree_node;
     // if App was deinitialized at the end of this frame, self & tree_node won't exist.
     // luckily that (probably? what if we run two apps?) won't happen with App, but this
@@ -439,29 +456,28 @@ fn render__tree__child_onClick(data: *render__tree__child_onClick_data, b2: *B2.
         // or something like that?
         // if (ui.id.b2.persistent.beui1.leftMouseClickedCount() == 2) {
         var file_path = std.ArrayList(u8).init(b2.frame.arena);
-        self.tree.getPath(tree_node, &file_path);
+        tree.getPath(tree_node, &file_path);
         if (std.fs.cwd().readFileAlloc(b2.frame.arena, file_path.items, std.math.maxInt(usize))) |file_cont| {
-            self.addTab(file_cont);
+            _ = file_cont;
+            // self.addTab(file_cont);
+            @panic("todo open file after blocks change");
         } else |e| {
             std.log.err("Failed to open file: {s}", .{@errorName(e)});
         }
     } else {
         if (!tree_node.opened) {
-            self.tree.expand(tree_node) catch |e| {
+            tree.expand(tree_node) catch |e| {
                 std.log.err("Failed to open directory: {s}", .{@errorName(e)});
             };
         } else {
-            self.tree.contract(tree_node);
+            tree.contract(tree_node);
         }
     }
 }
-const TreeChild = struct { self: *App, node: *FsTree2.Node };
+const TreeChild = struct { tree: *FsTree2, node: *FsTree2.Node };
 fn render__tree__child__child(tc: *const TreeChild, call_info: B2.StandardCallInfo, state: B2.ButtonState) B2.StandardChild {
-    const self = tc.self;
     const tree_node = tc.node;
     const ui = call_info.ui(@src());
-
-    _ = self;
 
     const offset_x: f32 = @as(f32, @floatFromInt(tree_node.indent_level)) * 6;
 

@@ -219,6 +219,25 @@ pub const CounterComponent = struct {
     }
 };
 
+pub const VoidComponent = struct {
+    pub const default = "";
+
+    pub const SimpleOperation = void;
+    pub const Operation = struct {
+        pub fn serialize(_: Operation, _: *AlignedArrayList) void {}
+    };
+    pub fn applyOperation(_: *VoidComponent, _: std.mem.Allocator, _: AlignedByteSlice, _: ?*OperationWriter(Operation)) DeserializeError!void {}
+
+    pub fn serialize(_: VoidComponent, _: *AlignedArrayList) void {}
+    pub fn deserialize(_: std.mem.Allocator, _: *AlignedFbsReader) DeserializeError!VoidComponent {
+        return .{};
+    }
+
+    pub fn genOperations(_: *VoidComponent, _: *OperationWriter(Operation), _: SimpleOperation) void {}
+
+    pub fn deinit(_: *VoidComponent) void {}
+};
+
 pub fn ComposedBlock(comptime id: u128, comptime ChildComponent: type) type {
     return struct {
         const Self = @This();
@@ -277,3 +296,5 @@ pub const CounterBlock = ComposedBlock(0x24572b13_e449_4c5c_91df_c61326c1f3b4, C
 pub const TextDocumentBlock = ComposedBlock(0x6416ee95_d8a5_40ff_abdd_561f44599530, text_component.TextDocument);
 
 pub const DebugViewer = ComposedBlock(0xc253685c_8e30_4e46_8f15_73bcde756867, CounterComponent);
+pub const MinigamerViewer = ComposedBlock(0x726a0c03_6f05_406a_9b5a_c05ae89acf15, VoidComponent);
+pub const FileTreeViewer = ComposedBlock(0x29719224_f336_4b96_af65_de74a137301a, VoidComponent);

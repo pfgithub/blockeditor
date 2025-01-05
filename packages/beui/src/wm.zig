@@ -12,7 +12,7 @@ pub const Dir = B2.Direction;
 //   - all Final windows hold Blocks. a placeholder window is a window holding nothing.
 //   - the blocks they hold are viewer blocks
 //   - the blocks hold a reference to their application block so they can have behaviour for the application
-//   - in your UI, you no longer declaratively say which windows to open
+//   - in your UI, you no longer declaratively say which windows to zopen
 // - our existing UI:
 //   - a Minigamer block holding a reference to (but not owning) the cart. this block is irregular, rather than
 //     being editable/viewable by multiple people at once, it can only be edited by one. while held, it is
@@ -22,10 +22,10 @@ pub const Dir = B2.Direction;
 //     - specifically it is {save_state: MinigamerSaveState} and savestate holds {contents: ..., cart: Ref}
 // - transition period:
 //   - [ ] we'll create void blocks for each of the things
-//     - [ ] MinigamerBlock (not yet holding a MinigamerSaveState)
+//     - [x] MinigamerBlock (not yet holding a MinigamerSaveState)
 //     - [ ] EditorBlock (not yet holding the editor state or scroll state or cursor state or any of that, just a filename for now)
 //     - [x] DebugTextureBlock (just holding an index for now)
-//     - [ ] FileViewerBlock (void, not yet holding the map of (block ids => isopen) or the scroll state)
+//     - [x] FileViewerBlock (void, not yet holding the map of (block ids => isopen) or the scroll state)
 //   - [ ] we'll update wm Final to hold a block reference
 //   - [ ] we'll add render methods to these blocks
 //   - [ ] we'll remove addWindow and instead render from the block's render method
