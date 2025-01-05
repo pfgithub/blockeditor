@@ -298,3 +298,4 @@ pub const TextDocumentBlock = ComposedBlock(0x6416ee95_d8a5_40ff_abdd_561f445995
 pub const DebugViewer = ComposedBlock(0xc253685c_8e30_4e46_8f15_73bcde756867, CounterComponent);
 pub const MinigamerViewer = ComposedBlock(0x726a0c03_6f05_406a_9b5a_c05ae89acf15, VoidComponent);
 pub const FileTreeViewer = ComposedBlock(0x29719224_f336_4b96_af65_de74a137301a, VoidComponent);
+pub const BouncyBallViewer = ComposedBlock(0x0b50ebd9_9df1_4db7_b802_92a8a8b26bb3, VoidComponent);

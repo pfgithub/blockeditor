@@ -21,9 +21,9 @@ pub const Dir = B2.Direction;
 //     but that is complicated and comes later.
 //     - specifically it is {save_state: MinigamerSaveState} and savestate holds {contents: ..., cart: Ref}
 // - transition period:
-//   - [ ] we'll create void blocks for each of the things
+//   - [x] we'll create void blocks for each of the things
 //     - [x] MinigamerBlock (not yet holding a MinigamerSaveState)
-//     - [ ] EditorBlock (not yet holding the editor state or scroll state or cursor state or any of that, just a filename for now)
+//     - [x] EditorBlock (not yet holding the editor state or scroll state or cursor state or any of that, just a filename for now)
 //     - [x] DebugTextureBlock (just holding an index for now)
 //     - [x] FileViewerBlock (void, not yet holding the map of (block ids => isopen) or the scroll state)
 //   - [ ] we'll update wm Final to hold a block reference
@@ -39,6 +39,13 @@ pub const Dir = B2.Direction;
 //     - [ ] EditorBlock holds scroll & cursor state & a reference to a TextBlock in the docs folder?
 //     - [ ] DebugTextureBlock holds an index of the texture to view
 //     - [ ] FileViewerBlock holds maybe a map of (block id => true) & scroll state
+// - outstanding questions:
+//   - what about a fullscreen overlay window?
+//   - what about an application which has windows and a tray icon
+//   - what about a notification? (a block seems resonable here and it can show then go to a history in a moment)
+//   - do we really want every window to be a block? every application will have to define a block type for each
+//     of its windows and parent ref to the application block. alternatively, apps could own their windows and render
+//     them in a render fn based on their open window list.
 pub const WM = struct {
     pub const FrameID = packed struct(u64) {
         gen: u32,

@@ -17,10 +17,6 @@ pub const std_options = std.Options{
 
 const App = @This();
 
-const EditorTab = struct {
-    editor_view: Beui.EditorView,
-};
-
 gpa: std.mem.Allocator,
 
 db: db_mod.BlockDB,
@@ -30,14 +26,6 @@ counter_block: *db_mod.BlockRef,
 counter_component: db_mod.TypedComponentRef(bi.CounterComponent),
 
 block_windows: std.ArrayListUnmanaged(*db_mod.BlockRef),
-
-zig_language: Beui.EditorView.Core.highlighters_zig.HlZig,
-markdown_language: Beui.EditorView.Core.highlighters_markdown.HlMd,
-
-tabs: std.ArrayList(*EditorTab),
-current_tab: usize,
-
-enable_bouncing_ball: bool,
 
 pub fn init(self: *App, gpa: std.mem.Allocator) void {
     return self.initWithCfg(gpa, .{});
@@ -53,39 +41,25 @@ pub fn initWithCfg(self: *App, gpa: std.mem.Allocator, cfg: struct { enable_db_s
         self.db_sync = null;
     }
 
-    self.counter_block = self.db.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch unreachable);
+    self.counter_block = self.db.createBlock(bi.CounterBlock.deserialize(gpa, bi.CounterBlock.default) catch @panic("oom"));
     self.counter_component = self.counter_block.typedComponent(bi.CounterBlock).?;
 
     self.block_windows = .empty;
-    const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(gpa, bi.DebugViewer.default) catch unreachable);
-    const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(gpa, bi.DebugViewer.default) catch unreachable);
+    const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(gpa, bi.DebugViewer.default) catch @panic("oom"));
+    const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(gpa, bi.DebugViewer.default) catch @panic("oom"));
     {
         const debug_2_component = debug_2.typedComponent(bi.DebugViewer).?;
         defer debug_2_component.unref();
         debug_2_component.applySimpleOperation(.{ .set = 1 }, null);
     }
-    const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(gpa, bi.MinigamerViewer.default) catch unreachable);
-    const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(gpa, bi.FileTreeViewer.default) catch unreachable);
-    self.block_windows.appendSlice(self.gpa, &.{ debug_1, debug_2, minigamer_viewer, filetree_viewer }) catch @panic("oom");
-
-    self.zig_language = Beui.EditorView.Core.highlighters_zig.HlZig.init(gpa);
-    self.markdown_language = Beui.EditorView.Core.highlighters_markdown.HlMd.init();
-
-    self.enable_bouncing_ball = true;
-
-    self.tabs = .init(gpa);
-    self.current_tab = 0;
+    const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(gpa, bi.MinigamerViewer.default) catch @panic("oom"));
+    const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(gpa, bi.FileTreeViewer.default) catch @panic("oom"));
+    const bouncy_ball = self.db.createBlock(bi.BouncyBallViewer.deserialize(gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
+    self.block_windows.appendSlice(self.gpa, &.{ debug_1, debug_2, minigamer_viewer, filetree_viewer, bouncy_ball }) catch @panic("oom");
 
     self.addTab(@embedFile("App.zig"));
 }
 pub fn deinit(self: *App) void {
-    for (self.tabs.items) |tab| {
-        tab.editor_view.deinit();
-        self.gpa.destroy(tab);
-    }
-    self.tabs.deinit();
-    self.markdown_language.deinit();
-    self.zig_language.deinit();
     self.counter_component.unref();
     self.counter_block.unref();
     for (self.block_windows.items) |bwi| bwi.unref();
@@ -97,23 +71,18 @@ pub fn deinit(self: *App) void {
 pub fn addTab(self: *App, file_cont: []const u8) void {
     const text_block = self.db.createBlock(bi.TextDocumentBlock.deserialize(self.gpa, bi.TextDocumentBlock.default) catch unreachable);
     defer text_block.unref();
-    const text_component = text_block.typedComponent(bi.TextDocumentBlock).?;
-    defer text_component.unref();
+    {
+        const text_component = text_block.typedComponent(bi.TextDocumentBlock).?;
+        defer text_component.unref();
 
-    text_component.applySimpleOperation(.{
-        .position = text_component.value.positionFromDocbyte(0),
-        .delete_len = 0,
-        .insert_text = file_cont,
-    }, null);
-
-    const new_tab = self.gpa.create(EditorTab) catch @panic("oom");
-    new_tab.* = .{ .editor_view = undefined };
-    new_tab.editor_view.initFromDoc(self.gpa, text_component);
-    new_tab.editor_view.core.setSynHl(self.zig_language.language());
-
-    new_tab.editor_view.core.executeCommand(.{ .set_cursor_pos = .{ .position = text_component.value.positionFromDocbyte(0) } });
-
-    self.tabs.append(new_tab) catch @panic("oom");
+        text_component.applySimpleOperation(.{
+            .position = text_component.value.positionFromDocbyte(0),
+            .delete_len = 0,
+            .insert_text = file_cont,
+        }, null);
+    }
+    text_block.ref();
+    self.block_windows.append(self.gpa, text_block) catch @panic("oom");
 }
 
 pub fn render(self: *App, call_id: B2.ID) void {
@@ -127,44 +96,18 @@ pub fn render(self: *App, call_id: B2.ID) void {
         renderCounter(self.counter_component);
     }
 
-    if (zgui.beginWindow("Editor Settings", .{})) {
-        defer zgui.endWindow();
-
-        zgui.text("Set syn hl:", .{});
-        if (zgui.button("zig", .{})) {
-            self.tabs.items[self.current_tab].editor_view.core.setSynHl(self.zig_language.language());
-        }
-        if (zgui.button("markdown", .{})) {
-            self.tabs.items[self.current_tab].editor_view.core.setSynHl(self.markdown_language.language());
-        }
-        if (zgui.button("plaintext", .{})) {
-            self.tabs.items[self.current_tab].editor_view.core.setSynHl(null);
-        }
-    }
-
     // const wm = b2.windowManager();
     // b2.windows.add()
 
     const id_loop_2 = id.pushLoop(@src(), *db_mod.BlockRef);
     for (self.block_windows.items) |bwi| {
         const id_sub = id_loop_2.pushLoopValue(@src(), bwi);
-        id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Block Window", .from(bwi, render__block));
-    }
-    const id_loop = id.pushLoop(@src(), usize);
-    for (self.tabs.items, 0..) |tab, i| {
-        const id_sub = id_loop.pushLoopValue(@src(), i);
-        const tmpdata = id.b2.frame.arena.dupe(render__editor__Context, &.{.{ .self = self, .tab = tab }}) catch @panic("oom");
-        id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Editor View.zig", .from(&tmpdata[0], render__editor));
-    }
-    if (zgui.beginWindow("Bouncing Ball", .{})) {
-        defer zgui.endWindow();
-
-        zgui.checkbox("Enable", &self.enable_bouncing_ball);
-    }
-    if (self.enable_bouncing_ball) {
-        id.b2.persistent.wm.addFullscreenOverlay(id.sub(@src()), .from(@as(*void, undefined), render__bounceBall));
-    } else {
-        // todo preserve state tree
+        if (bwi.contents().?.vtable.uuid == bi.BouncyBallViewer.uuid) {
+            // temporary hack, not sure what the final solution will be
+            id.b2.persistent.wm.addFullscreenOverlay(id.sub(@src()), .from(bwi, render__block));
+        } else {
+            id.b2.persistent.wm.addWindow(id_sub.sub(@src()), "Block Window", .from(bwi, render__block));
+        }
     }
 }
 
@@ -194,7 +137,7 @@ const BounceBallState = struct {
 const ball_diameter: f32 = 80.0;
 const ball_size: @Vector(2, f32) = @splat(ball_diameter);
 const ball_size_half: @Vector(2, f32) = @splat(ball_diameter / 2.0);
-fn render__bounceBall(_: *void, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
+fn render__bounceBall(call_info: B2.StandardCallInfo) *B2.RepositionableDrawList {
     const whole_size: @Vector(2, f32) = .{ call_info.constraints.available_size.w.?, call_info.constraints.available_size.h.? };
 
     const ui = call_info.ui(@src());
@@ -317,19 +260,33 @@ fn render__bounceBall__onMouseEvent(state: *BounceBallState, b2: *B2.Beui2, ev: 
     }
 }
 
-const render__editor__Context = struct {
-    self: *App,
-    tab: *EditorTab,
-};
-fn render__editor(ctx: *const render__editor__Context, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
-    const tab = ctx.tab;
+const EditorState = struct {
+    view: Beui.EditorView,
+    zig_language: Beui.EditorView.Core.highlighters_zig.HlZig,
+    markdown_language: Beui.EditorView.Core.highlighters_markdown.HlMd,
+    const Cfg = struct { gpa: std.mem.Allocator, doc: db_mod.TypedComponentRef(bi.text_component.TextDocument) };
+    pub fn init(self: *EditorState, cfg: Cfg) void {
+        self.zig_language = Beui.EditorView.Core.highlighters_zig.HlZig.init(cfg.gpa);
+        self.markdown_language = Beui.EditorView.Core.highlighters_markdown.HlMd.init();
 
+        self.view.initFromDoc(cfg.gpa, cfg.doc);
+        self.view.core.setSynHl(self.zig_language.language());
+        self.view.core.executeCommand(.{ .set_cursor_pos = .{ .position = cfg.doc.value.positionFromDocbyte(0) } });
+    }
+    pub fn deinit(self: *EditorState) void {
+        self.zig_language.deinit();
+        self.markdown_language.deinit();
+        self.view.deinit();
+    }
+};
+fn render__editor(text: db_mod.TypedComponentRef(bi.text_component.TextDocument), call_info: B2.StandardCallInfo) *B2.RepositionableDrawList {
     const tctx = tracy.traceNamed(@src(), "App editor");
     defer tctx.end();
 
     const ui = call_info.ui(@src());
+    const state = ui.id.b2.state2(ui.id.sub(@src()), EditorState.Cfg{ .doc = text, .gpa = ui.id.b2.persistent.gpa }, EditorState);
 
-    const res = tab.editor_view.gui(ui.sub(@src()), ui.id.b2.persistent.beui1);
+    const res = state.view.gui(ui.sub(@src()), ui.id.b2.persistent.beui1);
     return res.rdl;
 }
 
@@ -384,6 +341,16 @@ fn render__block(block: *db_mod.BlockRef, call_info: B2.StandardCallInfo, _: voi
         },
         bi.FileTreeViewer.uuid => {
             return render__tree({}, ui.sub(@src()), {});
+        },
+        bi.TextDocumentBlock.uuid => {
+            // TODO: this should be a TextEditor containing the TextDocumentBlock, not the TextDocumentBlock itself.
+            const text_component = block.typedComponent(bi.TextDocumentBlock).?;
+            defer text_component.unref();
+
+            return render__editor(text_component, ui.sub(@src()));
+        },
+        bi.BouncyBallViewer.uuid => {
+            return render__bounceBall(ui.sub(@src()));
         },
         else => {
             return B2.textLine(ui.sub(@src()), .{ .text = ui.id.b2.fmt("no ui provided for: {s}", .{std.mem.span(c.vtable.type_id)}) }).rdl;
