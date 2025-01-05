@@ -34,3 +34,5 @@ const TextureViewerBlock = struct {
 //   - a DebugWindow and a FpsWindow both have no update logic, no operations, no contents, ...
 //     so their hash would be the same
 //   - so that suggests using a uuid rather than a hash
+//   - so basically we have a hash & a uuid. the uuid says what type it is, and the hash is the hash of
+//     the implementation code.
