@@ -112,6 +112,7 @@ Tasks:
 - [ ] try using libghostty to add an integrated terminal emulator
 - [ ] consider switching to sdl3 https://ziggit.dev/t/sdl3-ported-to-the-zig-build-system-with-example-games/7606 (supports cross-compiling to windows & linux. not mac though :/) (also missing aarch64-linux)
 - [x] pdb is not outputted on windows for blockeditor.exe
+- [ ] maybe try https://github.com/benburkert/freestanding.zig?tab=readme-ov-file#freestandingdebuginfo for risc-v?
 
 wishlist:
 
