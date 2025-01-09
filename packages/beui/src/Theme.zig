@@ -47,12 +47,14 @@ const titlebar_height: f32 = border_width * 4;
 fn drawWindowFinal(man: *WM.Manager, rdl: *B2.RepositionableDrawList, window_content_id: WM.WM.FrameID, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
     const clip = man.id_for_frame.?.b2.draw();
     rdl.addClip(clip, .{ .pos = offset_pos, .size = offset_size });
-    const slot = clip.reserve();
-    man.render_windows_ctx.getPtr(window_content_id).?.result = .{ .filled = .{
-        .pos = offset_pos,
-        .size = offset_size,
-        .reservation = slot,
-    } };
+    // const slot = clip.reserve();
+    // TODO: call render__block (which will be a passed in cb)
+    _ = window_content_id;
+    // man.render_windows_ctx.getPtr(window_content_id).?.result = .{ .filled = .{
+    //     .pos = offset_pos,
+    //     .size = offset_size,
+    //     .reservation = slot,
+    // } };
 }
 fn drawWindowTabbed_closeButtonClicked(data: *CollapseData, _: *B2.Beui2, _: void) void {
     if (!data.man.wm.existsFrame(data.frame)) return;

@@ -94,6 +94,7 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
         const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(self.gpa, bi.FileTreeViewer.default) catch @panic("oom"));
         const bouncy_ball = self.db.createBlock(bi.BouncyBallViewer.deserialize(self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
         for (&[_]*db_mod.BlockRef{ debug_1, debug_2, minigamer_viewer, filetree_viewer, bouncy_ball, self.addTab(@embedFile("App.zig")) }) |itm| {
+            std.log.info("adding ref: {x}", .{@intFromPtr(itm)});
             self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = itm } }));
         }
     }
@@ -106,19 +107,23 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
     // const wm = b2.windowManager();
     // b2.windows.add()
 
-    const id_loop_2 = id.pushLoop(@src(), *db_mod.BlockRef);
-    for (self.wm.wm.frames.items) |fi| {
-        if (fi.self == .final and fi.self.final.ref != null) {
-            const bwi = fi.self.final.ref.?;
-            const id_sub = id_loop_2.pushLoopValue(@src(), bwi);
-            if (bwi.contents().?.vtable.uuid == bi.BouncyBallViewer.uuid) {
-                // temporary hack, not sure what the final solution will be
-                self.wm.addFullscreenOverlay(id.sub(@src()), .from(bwi, render__block));
-            } else {
-                self.wm.addWindow(id_sub.sub(@src()), "Block Window", .from(bwi, render__block));
-            }
-        }
-    }
+    // const id_loop_2 = id.pushLoop(@src(), *db_mod.BlockRef);
+    // for (self.wm.wm.frames.items) |fi| {
+    //     // the crash here is because self.wm.wm.frames.items is getting invalidated during self.wm.addWindow / self.wm.addFullscreenOverlay
+    //     // we need to have Theme directly call our render fn directly.
+    //     std.log.info("frame: {s}", .{@tagName(fi.self)});
+    //     if (fi.self == .final and fi.self.final.ref != null) {
+    //         std.log.info("  reading back ref: {x}", .{@intFromPtr(fi.self.final.ref)});
+    //         const bwi = fi.self.final.ref.?;
+    //         const id_sub = id_loop_2.pushLoopValue(@src(), bwi);
+    //         if (bwi.contents().?.vtable.uuid == bi.BouncyBallViewer.uuid) {
+    //             // temporary hack, not sure what the final solution will be
+    //             self.wm.addFullscreenOverlay(id.sub(@src()), .from(bwi, render__block));
+    //         } else {
+    //             self.wm.addWindow(id_sub.sub(@src()), "Block Window", .from(bwi, render__block));
+    //         }
+    //     }
+    // }
 
     const result = self.wm.endFrame();
     return result;
