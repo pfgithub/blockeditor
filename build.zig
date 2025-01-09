@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) void {
     const blockeditor_dep = b.dependency("blockeditor", .{ .opts = opts.passIn(b) });
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize, .tracy = opts.tracy });
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
+    const cvl_dep = b.dependency("cvl", .{ .target = target, .optimize = optimize });
     const loadimage_dep = b.dependency("loadimage", .{ .target = target, .optimize = optimize });
     const minigamer_3ds_dep = b.dependency("minigamer_3ds", .{ .optimize = optimize });
     // const root_dep = b.dependency("root", .{ .target = target, .optimize = optimize });
@@ -54,6 +55,7 @@ pub fn build(b: *std.Build) void {
     if (!opts.target(b).result.abi.isAndroid()) test_step.dependOn(&b.addRunArtifact(blockeditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(blocks_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(blocks_net_dep.artifact("test")).step);
+    test_step.dependOn(&b.addRunArtifact(cvl_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(loadimage_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(sheen_bidi_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);

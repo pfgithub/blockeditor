@@ -1,0 +1,7 @@
+// the file context is std.type.struct
+
+#std @std;
+
+#[std.build.main] [ // std.build.Folder
+    "sample.txt": "Example",
+];

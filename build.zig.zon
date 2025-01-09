@@ -11,6 +11,7 @@
         .blockeditor = .{ .path = "packages/blockeditor" },
         .blocks = .{ .path = "packages/blocks" },
         .blocks_net = .{ .path = "packages/blocks_net" },
+        .cvl = .{ .path = "packages/cvl" },
         .loadimage = .{ .path = "packages/loadimage" },
         .minigamer_3ds = .{ .path = "packages/minigamer/3ds" },
         .root = .{ .path = "packages/root" },
