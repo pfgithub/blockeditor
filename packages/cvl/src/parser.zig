@@ -61,7 +61,7 @@ fn flipResult(tags: []AstNode.Tag, values: []AstNode.Value, src_index: usize, sh
     return ch_len;
 }
 
-fn printAstRaw(tags: []const AstNode.Tag, values: []const AstNode.Value, w: std.io.AnyWriter) !void {
+fn dumpAstNodes(tags: []const AstNode.Tag, values: []const AstNode.Value, w: std.io.AnyWriter) !void {
     for (tags, values) |tag, value| {
         try w.print("[{s} {x}]", .{ @tagName(tag), if (tag.isAtom()) value.atom_value else value.expr_len });
     }
@@ -70,7 +70,49 @@ fn orderU32(context: u32, item: u32) std.math.Order {
     return std.math.order(context, item);
 }
 
-fn printAst(tree: *const AstTree, root: AstExpr, w: std.io.AnyWriter, positions: []const u32) !void {
+const Printer = struct {
+    tree: *const AstTree,
+    w: std.io.AnyWriter,
+    is_err: bool = false,
+    indent: usize = 0,
+
+    fn fmt(p: *Printer, comptime f: []const u8, a: anytype) void {
+        p.w.print(f, a) catch {
+            p.is_err = true;
+        };
+    }
+    fn newline(p: *Printer) void {
+        p.w.writeByteNTimes(' ', 4 * p.indent);
+    }
+
+    fn printExpr(p: *Printer, fc: AstExpr) void {
+        switch (p.tree.tag(fc)) {
+            else => |k| {
+                p.fmt("<todo: {s}>", .{@tagName(k)});
+            },
+        }
+    }
+
+    fn printMapContents(p: *Printer, parent: AstExpr) void {
+        var fch = p.tree.firstChild(parent);
+        while (fch) |fc| : (fch = p.tree.firstChild(fch.?)) {
+            p.printExpr(fc);
+            p.fmt(";", .{});
+            p.newline();
+        }
+    }
+    // validate this by reprinting and asserting the dest ast is === to the src ast excluding srclocs
+    // for(src_ast_k, src_ast_v, dest_ast_k, dest_ast_v) |sa, sb, da, db| { std.debug.assert(sa == da); if(sa != .srcloc) std.debug.assert(sb == db); }
+    fn printAst(p: *Printer, root: AstExpr) void {
+        if (p.tree.tag(root) != .map) {
+            p.is_err = true;
+            return;
+        }
+        p.printMapContents(root);
+    }
+};
+
+fn dumpAst(tree: *const AstTree, root: AstExpr, w: std.io.AnyWriter, positions: []const u32, skip_outer: bool) !void {
     // custom value handling
     switch (tree.tag(root)) {
         .srcloc => {
@@ -84,14 +126,17 @@ fn printAst(tree: *const AstTree, root: AstExpr, w: std.io.AnyWriter, positions:
         },
         else => {},
     }
-    try w.print("[{s}", .{@tagName(tree.tag(root))});
+    if (!skip_outer) try w.print("[{s}", .{@tagName(tree.tag(root))});
     switch (tree.isAtom(root)) {
         true => {
             try w.print(" 0x{X}", .{tree.atomValue(root)});
         },
         false => {
             var fch = tree.firstChild(root);
+            var is_first = true;
             while (fch) |ch| {
+                if (!is_first or !skip_outer) try w.print(" ", .{});
+                is_first = false;
                 // string printing
                 switch (tree.tag(ch)) {
                     .string_offset => {
@@ -101,19 +146,18 @@ fn printAst(tree: *const AstTree, root: AstExpr, w: std.io.AnyWriter, positions:
                         std.debug.assert(fch != null);
                         std.debug.assert(tree.tag(fch.?) == .string_len);
                         const str_len = tree.atomValue(fch.?);
-                        try w.print(" \"{}\"", .{std.zig.fmtEscapes(tree.string_buf[str_offset..][0..str_len])});
+                        try w.print("\"{}\"", .{std.zig.fmtEscapes(tree.string_buf[str_offset..][0..str_len])});
                     },
                     else => {
                         // default handling
-                        try w.print(" ", .{});
-                        try printAst(tree, ch, w, positions);
+                        try dumpAst(tree, ch, w, positions, false);
                     },
                 }
                 fch = tree.next(fch.?);
             }
         },
     }
-    try w.print("]", .{});
+    if (!skip_outer) try w.print("]", .{});
 }
 
 const AstNode = struct {
@@ -129,6 +173,8 @@ const AstNode = struct {
         err, // [err [...extra junk string_offset string_len]]
         err_skip, // ignore the contents of this
         ref,
+        access, // a.b.c => [access [access a @0 b] @1 c]
+        key,
 
         // atom
         string_offset,
@@ -318,18 +364,8 @@ const Parser = struct {
         p.postAtom(.string_offset, str_data.offset);
         p.postAtom(.string_len, str_data.len);
     }
-    fn tryParseExpr(p: *Parser) bool {
-        const start = p.here();
+    fn tryParseIdent(p: *Parser) ?StringMapKey {
         switch (p.peek()) {
-            '"' => {
-                p.eat("\"");
-                p.parseStrInner(start.src);
-                if (!p.tryEat("\"")) {
-                    p.wrapErr(start.node, p.here().src, "Expected \" to end string", .{});
-                    return true;
-                }
-                return true;
-            },
             'a'...'z', 'A'...'Z', '_' => {
                 const rem = p.remaining();
                 const next_interesting = for (rem, 0..) |c, i| switch (c) {
@@ -341,15 +377,99 @@ const Parser = struct {
                 const str_val = str.end();
                 p.eat(rem[0..next_interesting]);
 
-                p.postAtom(.srcloc, start.src);
-                p.postString(str_val);
-                p.wrapExpr(.ref, start.node);
+                return str_val;
+            },
+            else => return null,
+        }
+    }
+    fn tryParseExprFinal(p: *Parser) bool {
+        const start = p.here();
+        switch (p.peek()) {
+            '"' => {
+                p.eat("\"");
+                p.parseStrInner(start.src);
+                if (!p.tryEat("\"")) {
+                    p.wrapErr(start.node, p.here().src, "Expected \" to end string", .{});
+                    return true;
+                }
                 return true;
             },
             else => {
+                if (p.tryParseIdent()) |ident| {
+                    p.postAtom(.srcloc, start.src);
+                    p.postString(ident);
+                    p.wrapExpr(.ref, start.node);
+                    return true;
+                }
                 return false; // no expr
             },
         }
+    }
+    fn tryParseExprWithSuffixes(p: *Parser) bool {
+        const start = p.here();
+        if (!p.tryParseExprFinal()) return false;
+        while (true) {
+            _ = p.tryEatWhitespace();
+            switch (p.peek()) {
+                ':' => {
+                    p.postAtom(.srcloc, p.here().src);
+                    p.eat(":");
+                    _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
+                    if (p.tryParseExpr()) {
+                        p.wrapExpr(.call, start.node);
+                        break;
+                    } else {
+                        p.wrapErr(start.node, p.here().src, "Expected expr after ':'", .{});
+                        break;
+                    }
+                },
+                '.' => {
+                    p.postAtom(.srcloc, p.here().src);
+                    p.eat(".");
+                    _ = p.tryEatWhitespace();
+                    const afterdot = p.here();
+                    if (!p.tryParseExprFinal()) {
+                        p.wrapErr(p.here().node, p.here().src, "Expected expr after '.'", .{});
+                    }
+                    p.ensureExprValidAccessor(afterdot);
+                    p.wrapExpr(.access, start.node);
+                    continue;
+                },
+                else => break,
+            }
+        }
+        return true;
+    }
+    fn ensureExprValidAccessor(p: *Parser, start: Here) void {
+        var err = AstNode.Tag.err;
+        const last_posted_expr = if (p.out_nodes.len > 0) &p.out_nodes.items(.tag)[p.out_nodes.len - 1] else &err;
+        switch (last_posted_expr.*) {
+            .ref => {
+                // change to 'key'
+                last_posted_expr.* = .key;
+            },
+            else => |t| {
+                p.wrapErr(start.node, start.src, "Invalid expr type for access: {s}", .{@tagName(t)});
+            },
+        }
+    }
+    fn tryParseExpr(p: *Parser) bool {
+        return p.tryParseExprWithSuffixes();
+    }
+    fn tryParseMapExpr(p: *Parser) bool {
+        const begin = p.here();
+        if (!p.tryParseExpr()) return false;
+        _ = p.tryEatWhitespace();
+        const eql_loc = p.here();
+        if (!p.tryEat("=")) return true;
+        p.ensureExprValidAccessor(begin);
+        p.postAtom(.srcloc, eql_loc.src);
+        _ = p.tryEatWhitespace();
+        if (!p.tryParseExpr()) {
+            p.wrapErr(p.here().node, p.here().src, "Expected expr here", .{});
+        }
+        p.wrapExpr(.map_entry, begin.node);
+        return true;
     }
     fn tryEatComma(p: *Parser) bool {
         if (p.tryEat(",")) return true;
@@ -370,7 +490,7 @@ const Parser = struct {
         p.postAtom(.srcloc, start_src);
 
         _ = p.tryEatWhitespace();
-        while (p.tryParseExpr()) {
+        while (p.tryParseMapExpr()) {
             _ = p.tryEatWhitespace();
             if (!p.tryEatComma()) break;
             _ = p.tryEatWhitespace();
@@ -426,19 +546,27 @@ fn testParser(gpa: std.mem.Allocator, val: ?[]const u8, src_in: []const u8) !voi
         if (fe == .oom) return error.OutOfMemory;
         try fmt_buf.appendSlice(gpa, @tagName(fe));
     } else if (tree.tags.len > 0) {
-        try printAst(&tree, .{ .idx = 0, .parent_end = @intCast(tree.tags.len) }, fmt_buf.writer(gpa).any(), positions.items);
+        const node: AstExpr = .{ .idx = 0, .parent_end = @intCast(tree.tags.len) };
+        const skip_outer = tree.tag(node) == .map;
+        try dumpAst(&tree, node, fmt_buf.writer(gpa).any(), positions.items, skip_outer);
     }
     if (val == null) return; // fuzz
     try std.testing.expectEqualStrings(val.?, fmt_buf.items);
 }
 
 fn doTestParser(gpa: std.mem.Allocator) !void {
-    try testParser(gpa, "[map @0 [string @0 \"Hello, world!\"]]", "|\"Hello, world!\"");
-    try testParser(gpa, "[map @0 [err [err_skip [string @0 \"Hello, world!\"]] @1 \"Expected \\\" to end string\"]]", "|\"Hello, world!|");
-    try testParser(gpa, "[map @0 [err [err_skip] @1 \"String literal cannot contain byte '0x1b'\"]]", "|\"Hello, world!|\x1b\"");
-    try testParser(gpa, "[map @0 [ref @0 \"abc\"]]", "|abc");
+    try testParser(gpa, "@0 [string @0 \"Hello, world!\"]", "|\"Hello, world!\"");
+    try testParser(gpa, "@0 [err [err_skip [string @0 \"Hello, world!\"]] @1 \"Expected \\\" to end string\"]", "|\"Hello, world!|");
+    try testParser(gpa, "@0 [err [err_skip] @1 \"String literal cannot contain byte '0x1b'\"]", "|\"Hello, world!|\x1b\"");
+    try testParser(gpa, "@0 [ref @0 \"abc\"]", "|abc");
     try testParser(gpa, "[err [err_skip [map @0 [ref @0 \"abc\"]]] @1 \"More remaining\"]", "|abc|}");
-    try testParser(gpa, "[map @0 [ref @1 \"abc\"] [ref @2 \"def\"] [ref @3 \"ghi\"]]", "|  |abc, |def   ;|ghi ");
+    try testParser(gpa, "@0 [ref @1 \"abc\"] [ref @2 \"def\"] [ref @3 \"ghi\"]", "|  |abc, |def   ;|ghi ");
+    try testParser(gpa,
+        \\@0 [call [access [access [ref @1 "std"] @2 [key @3 "math"]] @4 [key @5 "pow"]] @6 [string @7 "abc"]]
+    , "|  |std|.|math|.|pow|: |\"abc\" ");
+    try testParser(gpa,
+        \\@0 [map_entry [key @1 "key"] @2 [ref @3 "value"]]
+    , "|  |key |= |value ");
 }
 fn fuzzParser(input: []const u8) anyerror!void {
     try testParser(std.testing.allocator, null, input);
