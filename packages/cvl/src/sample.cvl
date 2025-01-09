@@ -3,5 +3,14 @@
 #std @std;
 
 #[std.build.main] [ // std.build.Folder
-    "sample.txt": "Example",
+    "sample.txt" = "Example",
 ];
+
+// within code, '=' is assignment
+// within map, '=' is pair
+
+#demo myfn: myarg
+#demo2 myfn: [mymap]
+
+// only call syntax is colon for now.
+// we can add mapcall & codecall later.
