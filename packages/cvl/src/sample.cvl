@@ -2,8 +2,15 @@
 
 #std @std;
 
+#start @(std.noreturn) (
+    #world (std.slice: std.u8): "world";
+    std.log.info: "Hello \(world)!"; // arg is fmtstr which accepts \(). most don't.
+    std.process.exit: 1;
+)
+
 #[std.build.main] [ // std.build.Folder
     "sample.txt" = "Example",
+    "app" = std.compile: [.riscv64.linux, [ "_start" = start ] ]
 ];
 
 // within code, '=' is assignment
