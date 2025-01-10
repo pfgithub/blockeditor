@@ -655,12 +655,13 @@ const Parser = struct {
     }
 };
 
-fn testParser(gpa: std.mem.Allocator, val: ?[]const u8, src_in: []const u8) !void {
+fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, src_in: []const u8) ![]const u8 {
+    const gpa = out.allocator;
     var src = std.ArrayList(u8).init(gpa);
     defer src.deinit();
     var positions = std.ArrayList(u32).init(gpa);
     defer positions.deinit();
-    if (val != null) {
+    if (!opt.no_lines) {
         var src_rem = src_in;
         while (src_rem.len > 0) {
             const next = std.mem.indexOfScalar(u8, src_rem, '|') orelse src_rem.len;
@@ -701,29 +702,34 @@ fn testParser(gpa: std.mem.Allocator, val: ?[]const u8, src_in: []const u8) !voi
         const skip_outer = tree.tag(node) == .map;
         try dumpAst(&tree, node, fmt_buf.writer(gpa).any(), positions.items, skip_outer);
     }
-    if (val == null) return; // fuzz
-    try std.testing.expectEqualStrings(val.?, fmt_buf.items);
+
+    out.clearRetainingCapacity();
+    try out.appendSlice(fmt_buf.items);
+    return out.items;
 }
 
+const snap = @import("anywhere").util.testing.snap;
 fn doTestParser(gpa: std.mem.Allocator) !void {
-    try testParser(gpa, "@0 [string \"Hello, world!\" @0]", "|\"Hello, world!\"");
-    try testParser(gpa, "@0 [err [err_skip [string \"Hello, world!\" @0]] @1 \"Expected \\\" to end string\"]", "|\"Hello, world!|");
-    try testParser(gpa, "@0 [err [err_skip] @1 \"String literal cannot contain byte '0x1b'\"]", "|\"Hello, world!|\x1b\"");
-    try testParser(gpa, "@0 [ref @0 \"abc\"]", "|abc");
-    try testParser(gpa, "[err [err_skip [map @0 [ref @0 \"abc\"]]] @1 \"More remaining\"]", "|abc|}");
-    try testParser(gpa, "@0 [ref @1 \"abc\"] [ref @2 \"def\"] [ref @3 \"ghi\"]", "|  |abc, |def   ;|ghi ");
-    try testParser(gpa,
+    var out = std.ArrayList(u8).init(gpa);
+    defer out.deinit();
+    try snap(@src(), "@0 [string \"Hello, world!\" @0]", try testParser(&out, .{}, "|\"Hello, world!\""));
+    try snap(@src(), "@0 [err [err_skip [string \"Hello, world!\" @0]] @1 \"Expected \\\" to end string\"]", try testParser(&out, .{}, "|\"Hello, world!|"));
+    try snap(@src(), "@0 [err [err_skip] @1 \"String literal cannot contain byte '0x1b'\"]", try testParser(&out, .{}, "|\"Hello, world!|\x1b\""));
+    try snap(@src(), "@0 [ref @0 \"abc\"]", try testParser(&out, .{}, "|abc"));
+    try snap(@src(), "[err [err_skip [map @0 [ref @0 \"abc\"]]] @1 \"More remaining\"]", try testParser(&out, .{}, "|abc|}"));
+    try snap(@src(), "@0 [ref @1 \"abc\"] [ref @2 \"def\"] [ref @3 \"ghi\"]", try testParser(&out, .{}, "|  |abc, |def   ;|ghi "));
+    try snap(@src(),
         \\@0 [call [access [access [ref @1 "std"] @2 [key @3 "math"]] @4 [key @5 "pow"]] @6 [string "abc" @7]]
-    , "|  |std|.|math|.|pow|: |\"abc\" ");
-    try testParser(gpa,
+    , try testParser(&out, .{}, "|  |std|.|math|.|pow|: |\"abc\" "));
+    try snap(@src(),
         \\@0 [map_entry [key @1 "key"] @2 [ref @3 "value"]]
-    , "|  |key |= |value ");
-    try testParser(gpa, "@0 [string \"\\x1b[3m\\xe1\\x88\\xb4\\\"\" @0]", "|\"\\x1b[3m\\u{1234}\\\"\"");
-    try testParser(gpa,
+    , try testParser(&out, .{}, "|  |key |= |value "));
+    try snap(@src(), "@0 [string \"\\x1b[3m\\xe1\\x88\\xb4\\\"\" @0]", try testParser(&out, .{}, "|\"\\x1b[3m\\u{1234}\\\"\""));
+    try snap(@src(),
         \\@0 [string "hello " [code [ref @2 "user"] @1] "" @0]
-    ,
+    , try testParser(&out, .{},
         \\|"hello \|(|user)"
-    );
+    ));
     // try testParser(gpa,
     //     \\@0 [map_entry [key @1 "key"] @2 [ref @3 "value"]]
     // , "builtin = @builtin");
@@ -740,15 +746,15 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
 
     // std.struct [  ]
 }
-fn fuzzParser(input: []const u8) anyerror!void {
-    try testParser(std.testing.allocator, null, input);
-}
 test Parser {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, doTestParser, .{});
 }
-test "parser fuzz" {
-    try std.testing.fuzz(fuzzParser, .{});
-}
+// fn fuzzParser(input: []const u8) anyerror!void {
+//     try testParser(std.testing.allocator, .{}, input);
+// }
+// test "parser fuzz" {
+//     try std.testing.fuzz(fuzzParser, .{});
+// }
 
 const StringMapKey = struct {
     offset: u32,

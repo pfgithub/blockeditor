@@ -9,6 +9,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/parser.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "anywhere", .module = b.dependency("anywhere", .{}).module("anywhere") },
+            },
         }),
     });
     b.installArtifact(test_exe);
