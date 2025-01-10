@@ -26,7 +26,6 @@ db_sync: ?blocks_net.TcpSync,
 counter_block: *db_mod.BlockRef,
 counter_component: db_mod.TypedComponentRef(bi.CounterComponent),
 
-initialized: bool = false,
 wm: WM.Manager,
 
 pub fn init(self: *App, gpa: std.mem.Allocator) void {
@@ -82,27 +81,46 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
     self.db.tickBegin();
     defer self.db.tickEnd();
 
-    if (!self.initialized) {
-        self.initialized = true;
-        const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
-        const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
-        {
-            const debug_2_component = debug_2.typedComponent(bi.DebugViewer).?;
-            defer debug_2_component.unref();
-            debug_2_component.applySimpleOperation(.{ .set = 1 }, null);
-        }
-        const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(self.gpa, bi.MinigamerViewer.default) catch @panic("oom"));
-        const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(self.gpa, bi.FileTreeViewer.default) catch @panic("oom"));
-        const bouncy_ball = self.db.createBlock(bi.BouncyBallViewer.deserialize(self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
-        for (&[_]*db_mod.BlockRef{ debug_1, debug_2, minigamer_viewer, filetree_viewer, bouncy_ball, self.addTab(@embedFile("App.zig")) }) |itm| {
-            std.log.info("adding ref: {x}", .{@intFromPtr(itm)});
-            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = itm } }));
-        }
-    }
-
     if (zgui.beginWindow("My counter (editor 1)", .{})) {
         defer zgui.endWindow();
         renderCounter(self.counter_component);
+    }
+
+    if (zgui.beginWindow("App launcher", .{})) {
+        defer zgui.endWindow();
+        if (zgui.button("Debug 1", .{})) {
+            const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debug_1 } }));
+        }
+        if (zgui.button("Debug 2", .{})) {
+            const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
+            {
+                const debug_2_component = debug_2.typedComponent(bi.DebugViewer).?;
+                defer debug_2_component.unref();
+                debug_2_component.applySimpleOperation(.{ .set = 1 }, null);
+            }
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debug_2 } }));
+        }
+        if (zgui.button("Minigamer", .{})) {
+            const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(self.gpa, bi.MinigamerViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = minigamer_viewer } }));
+        }
+        if (zgui.button("File Tree", .{})) {
+            const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(self.gpa, bi.FileTreeViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = filetree_viewer } }));
+        }
+        if (zgui.button("Bouncy Ball", .{})) {
+            const bouncy_ball = self.db.createBlock(bi.BouncyBallViewer.deserialize(self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = bouncy_ball } }));
+        }
+        if (zgui.button("Editor (App.zig)", .{})) {
+            const editor_full = self.addTab(@embedFile("App.zig"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = editor_full } }));
+        }
+        if (zgui.button("Editor (Empty)", .{})) {
+            const editor_empty = self.addTab("");
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = editor_empty } }));
+        }
     }
 
     // const wm = b2.windowManager();
