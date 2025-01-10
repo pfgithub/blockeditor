@@ -83,6 +83,7 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
     defer self.db.tickEnd();
 
     if (!self.initialized) {
+        self.initialized = true;
         const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
         const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
         {
@@ -125,7 +126,7 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
     //     }
     // }
 
-    const result = self.wm.endFrame();
+    const result = self.wm.endFrame(.from(&{}, render__block));
     return result;
 }
 
@@ -326,8 +327,12 @@ const RenderTreeIndex = struct {
         return .{ .i = itm.i + 1 };
     }
 };
-fn render__block(block: *db_mod.BlockRef, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
-    const ui = call_info.ui(@src());
+fn render__block(_: *const void, arg: WM.Manager.RenderBlockArg) *B2.RepositionableDrawList {
+    const ui = arg.call_info.ui(@src());
+
+    const block = arg.block orelse {
+        return B2.textLine(ui.sub(@src()), .{ .text = "placeholder" }).rdl;
+    };
 
     if (block.contents()) |c| switch (c.vtable.uuid) {
         bi.DebugViewer.uuid => {

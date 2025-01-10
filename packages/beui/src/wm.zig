@@ -2,6 +2,7 @@ const std = @import("std");
 const B2 = @import("beui_experiment.zig");
 const Theme = @import("Theme.zig");
 const blocks_mod = @import("blocks");
+const util = @import("anywhere").util;
 const bi = blocks_mod.blockinterface2;
 const db_mod = blocks_mod.blockdb;
 
@@ -31,7 +32,7 @@ pub const Dir = B2.Direction;
 //     - [x] FileViewerBlock (void, not yet holding the map of (block ids => isopen) or the scroll state)
 //   - [x] we'll update wm Final to hold a block reference
 //   - [ ] we'll add render methods to these blocks
-//   - [ ] we'll remove addWindow and instead render from the block's render method
+//   - [x] we'll remove addWindow and instead render from the block's render method
 //   - [ ] we'll move WM to be operation-based
 //   - [ ] we'll add serialization/deserialization to WM (remember to use the gist! add it to anywhere/util)
 //   - [ ] we'll add support for blocks to hold references to other blocks
@@ -642,8 +643,6 @@ pub const Manager = struct {
         cb: B2.Component(B2.StandardCallInfo, void, *B2.RepositionableDrawList),
     }),
 
-    /// empty except inside endFrame() call
-    render_windows_ctx: RenderWindowResult,
     final_rdl: ?*B2.RepositionableDrawList,
     id_for_frame: ?B2.ID,
 
@@ -681,7 +680,6 @@ pub const Manager = struct {
             .id_to_final_map = .empty,
             .final_to_id_map = .empty,
             .this_frame = .empty,
-            .render_windows_ctx = .empty,
             .current_window = null,
             .active = null,
             .final_rdl = null,
@@ -694,7 +692,6 @@ pub const Manager = struct {
         }
         self.id_to_final_map.deinit(self.wm.gpa);
         self.final_to_id_map.deinit(self.wm.gpa);
-        self.render_windows_ctx.deinit(self.wm.gpa);
         self.top_level_window_positions_and_sizes.deinit(self.wm.gpa);
         self.this_frame.deinit(self.wm.gpa);
         self.wm.deinit();
@@ -788,7 +785,12 @@ pub const Manager = struct {
         self.final_rdl = cfg.id.b2.draw();
         self.id_for_frame = cfg.id.pushLoop(@src(), WM.FrameID);
     }
-    pub fn endFrame(self: *Manager) *B2.RepositionableDrawList {
+    pub const RenderBlockArg = struct {
+        call_info: B2.StandardCallInfo,
+        block: ?*db_mod.BlockRef,
+    };
+    pub const RenderBlockCB = util.Callback(RenderBlockArg, *B2.RepositionableDrawList);
+    pub fn endFrame(self: *Manager, cb: RenderBlockCB) *B2.RepositionableDrawList {
         std.debug.assert(self.active != null);
         const cfg = self.active.?;
         self.active = null;
@@ -817,37 +819,9 @@ pub const Manager = struct {
         //       - ideally most windows are closed between frames rather than during a frame. a window
         //         that is closed during a frame could have been closed by an if statement, which is weird.
         //     - save titles
-        std.debug.assert(self.render_windows_ctx.count() == 0);
-        defer self.render_windows_ctx.clearRetainingCapacity();
-        for (self.this_frame.items) |item| {
-            self.render_windows_ctx.putNoClobber(self.wm.gpa, item.frame_id, .{
-                .title = item.title,
-                .result = .empty,
-            }) catch @panic("oom");
-            // TODO notice closed windows, etc
-        }
 
         // 2. call Theme.renderWindows();
-        const rdl = Theme.renderWindows(cfg.id.b2, cfg.size, self);
-
-        // 3. loop over this_frame.items, call callbacks, and fill reservations
-        for (self.this_frame.items) |item| {
-            // 4. get the final_window_slot for the final frame id
-            const window_ctx = self.render_windows_ctx.get(item.frame_id).?;
-            const filled = switch (window_ctx.result) {
-                .filled => |f| f,
-                .empty => continue, // window is collapsed
-            };
-
-            // 5. call cb() using the size and fill the reservation with the result
-            const cb_res = blk: {
-                std.debug.assert(self.current_window == null);
-                self.current_window = item.id_unowned;
-                defer self.current_window = null;
-                break :blk item.cb.call(.{ .caller_id = item.id_unowned, .constraints = .{ .available_size = .{ .w = filled.size[0], .h = filled.size[1] } } }, {});
-            };
-            filled.reservation.for_draw_list.fill(filled.reservation, cb_res, .{ .offset = filled.pos });
-        }
+        const rdl = Theme.renderWindows(.{ .b2 = cfg.id.b2, .cb = cb, .man = self }, cfg.size);
 
         self.this_frame.clearRetainingCapacity();
 
