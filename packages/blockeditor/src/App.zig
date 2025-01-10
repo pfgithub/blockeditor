@@ -126,7 +126,7 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
     //     }
     // }
 
-    const result = self.wm.endFrame(.from(&{}, render__block));
+    const result = self.wm.endFrame(.from(self, render__block));
     return result;
 }
 
@@ -327,7 +327,7 @@ const RenderTreeIndex = struct {
         return .{ .i = itm.i + 1 };
     }
 };
-fn render__block(_: *const void, arg: WM.Manager.RenderBlockArg) *B2.RepositionableDrawList {
+fn render__block(self: *App, arg: WM.Manager.RenderBlockArg) *B2.RepositionableDrawList {
     const ui = arg.call_info.ui(@src());
 
     const block = arg.block orelse {
@@ -363,7 +363,7 @@ fn render__block(_: *const void, arg: WM.Manager.RenderBlockArg) *B2.Repositiona
             return @import("mini.zig").render(&{}, ui.sub(@src()), {});
         },
         bi.FileTreeViewer.uuid => {
-            return render__tree({}, ui.sub(@src()), {});
+            return render__tree(self, ui.sub(@src()), {});
         },
         bi.TextDocumentBlock.uuid => {
             // TODO: this should be a TextEditor containing the TextDocumentBlock, not the TextDocumentBlock itself.
@@ -399,13 +399,14 @@ const TreeState = struct {
         self.tree.deinit();
     }
 };
-fn render__tree(_: void, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
+fn render__tree(self: *App, call_info: B2.StandardCallInfo, _: void) *B2.RepositionableDrawList {
     const ui = call_info.ui(@src());
     const state = ui.id.b2.state2(ui.id.sub(@src()), ui.id.b2.persistent.gpa, TreeState);
     const tree = &state.tree;
 
     const rdl = ui.id.b2.draw();
-    const chres = B2.virtualScroller(ui.sub(@src()), tree, FsTree2.Index, .from(tree, render__tree__child));
+    const tco = ui.id.b2.dupeOne(TreeChildOpts{ .tree = tree, .app = self });
+    const chres = B2.virtualScroller(ui.sub(@src()), tree, FsTree2.Index, .from(tco, render__tree__child));
     rdl.place(chres.rdl, .{});
     rdl.addRect(.{
         .pos = .{ 0, 0 },
@@ -415,16 +416,20 @@ fn render__tree(_: void, call_info: B2.StandardCallInfo, _: void) *B2.Reposition
     });
     return rdl;
 }
-fn render__tree__child(tree: *FsTree2, call_info: B2.StandardCallInfo, index: FsTree2.Index) B2.StandardChild {
+const TreeChildOpts = struct { tree: *FsTree2, app: *App };
+fn render__tree__child(tco: *TreeChildOpts, call_info: B2.StandardCallInfo, index: FsTree2.Index) B2.StandardChild {
     const tctx = tracy.trace(@src());
     defer tctx.end();
 
     const ui = call_info.ui(@src());
 
+    const tree = tco.tree;
+    const app = tco.app;
+
     const tree_node = index.current_node orelse unreachable;
 
     const tree_data = ui.id.b2.frame.arena.create(render__tree__child_onClick_data) catch @panic("oom");
-    tree_data.* = .{ .tree = tree, .tree_node = tree_node };
+    tree_data.* = .{ .tree = tree, .tree_node = tree_node, .app = app };
     const ehdl: B2.ButtonEhdl = .{
         .onClick = .from(tree_data, render__tree__child_onClick),
     };
@@ -433,6 +438,7 @@ fn render__tree__child(tree: *FsTree2, call_info: B2.StandardCallInfo, index: Fs
 const render__tree__child_onClick_data = struct {
     tree: *FsTree2,
     tree_node: *FsTree2.Node,
+    app: *App,
 };
 fn render__tree__child_onClick(data: *render__tree__child_onClick_data, b2: *B2.Beui2, _: void) void {
     const tree = data.tree;
@@ -448,9 +454,7 @@ fn render__tree__child_onClick(data: *render__tree__child_onClick_data, b2: *B2.
         var file_path = std.ArrayList(u8).init(b2.frame.arena);
         tree.getPath(tree_node, &file_path);
         if (std.fs.cwd().readFileAlloc(b2.frame.arena, file_path.items, std.math.maxInt(usize))) |file_cont| {
-            _ = file_cont;
-            // self.addTab(file_cont);
-            @panic("todo open file after blocks change");
+            data.app.wm.wm.moveFrameNewWindow(data.app.wm.wm.addFrame(.{ .final = .{ .ref = data.app.addTab(file_cont) } }));
         } else |e| {
             std.log.err("Failed to open file: {s}", .{@errorName(e)});
         }

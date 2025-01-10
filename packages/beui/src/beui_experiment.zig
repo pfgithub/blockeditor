@@ -426,6 +426,12 @@ pub const Beui2 = struct {
         return res;
     }
 
+    pub fn dupeOne(self: *Beui2, value: anytype) *@TypeOf(value) {
+        const res = self.frame.arena.create(@TypeOf(value)) catch @panic("oom");
+        res.* = value;
+        return res;
+    }
+
     pub fn mouseCaptureResults(self: *Beui2, capture_id: ID) MouseCaptureResults {
         var mouse_left_held = false;
         if (self.persistent.click_target) |ct| {

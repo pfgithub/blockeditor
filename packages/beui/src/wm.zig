@@ -31,6 +31,9 @@ pub const Dir = B2.Direction;
 //     - [x] DebugTextureBlock (just holding an index for now)
 //     - [x] FileViewerBlock (void, not yet holding the map of (block ids => isopen) or the scroll state)
 //   - [x] we'll update wm Final to hold a block reference
+//     - i don't think this is quite what we want, how is a final supposed to be a fullscreen
+//       overlay window then? we would like each thing to have a render fn
+//       that can return a window with attributes. like "title", "kind", ...
 //   - [ ] we'll add render methods to these blocks
 //   - [x] we'll remove addWindow and instead render from the block's render method
 //   - [ ] we'll move WM to be operation-based
