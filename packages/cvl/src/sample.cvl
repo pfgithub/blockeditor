@@ -53,3 +53,5 @@ std.build.main = [ // std.build.Folder
     // wm.init().add_window = bound_fn(add_window)
     // wm.init().add_window() => (error: constant but expected mutable)
 ]
+
+// maybe for now we should use normal syntax and from there we can figure out what to modify
