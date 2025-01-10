@@ -8,7 +8,7 @@
     std.process.exit: 1;
 )
 
-#[std.build.main] [ // std.build.Folder
+std.build.main = [ // std.build.Folder
     "sample.txt" = "Example",
     "app" = std.compile: [.riscv64.linux, [ "_start" = start ] ]
 ];
@@ -21,3 +21,35 @@
 
 // only call syntax is colon for now.
 // we can add mapcall & codecall later.
+
+
+// current type definition syntax
+#wm std.custom_type: [
+    .fields = [
+        .defineField: [.window_count, std.int, 0],
+    ],
+    .decls = [
+        .init = @(std.void) wm: [],
+    ],
+    .getters = [
+        .window_count = @(contents) contents.window_count,
+        #add_window @(contents) (contents.window_count += 1),
+        .add_window = @(contents) std.bound_fn(add_window, contents),
+    ],
+    .setters = [
+        .window_count = @[contents, value = std.int] (contents.window_count = value),
+    ],
+]
+
+// ideal type definition syntax
+#wm std.custom_type: [
+    window_count: std.int = 0,
+    type init = @[] wm: [];
+    value add_window = @(self: *wm) self.window_count += 1;
+    // wm.init : bound_fn(init)
+    // wm.init() -> wm: []
+    // (wm: []).init not defined
+    // wm.add_window not defined
+    // wm.init().add_window = bound_fn(add_window)
+    // wm.init().add_window() => (error: constant but expected mutable)
+]

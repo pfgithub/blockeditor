@@ -164,7 +164,7 @@ const AstNode = struct {
     const Tag = enum(u8) {
         // expr
         map, // [a, b, c]
-        decl, // #a b : [decl a b]
+        bind, // #a b : [decl a b]
         code, // {a; b; c} : [code [a] [b] [c]] ||| {a; b;} : [code [a] [b] [void]]
         builtin_std, // [builtin_std]
         map_entry, // "a": "b" : [map_entry [string "a"] [string "b"]]
@@ -592,8 +592,36 @@ const Parser = struct {
     fn tryParseExpr(p: *Parser) bool {
         return p.tryParseExprWithSuffixes();
     }
-    fn tryParseCodeExpr(p: *Parser) bool {
+    fn tryParseCodeOrMapExpr(p: *Parser, mode: enum { code, map }) bool {
         const begin = p.here();
+
+        switch (p.peek()) {
+            '#' => {
+                p.eat("#");
+                _ = p.tryEatWhitespace();
+                const ident_start = p.here();
+                if (p.tryParseIdent()) |ident| {
+                    p.postAtom(.srcloc, ident_start.src);
+                    p.postString(ident);
+                    p.wrapExpr(.ref, ident_start.node);
+                } else {
+                    p.wrapErr(ident_start.node, ident_start.src, "expected identifier after '#'", .{});
+                }
+
+                _ = p.tryEatWhitespace();
+
+                if (!p.tryParseExpr()) {
+                    p.wrapErr(p.here().node, p.here().src, "expected identifier after name", .{});
+                }
+
+                p.postAtom(.srcloc, begin.src);
+                p.wrapExpr(.bind, begin.node);
+
+                return true;
+            },
+            else => {},
+        }
+
         if (!p.tryParseExpr()) return false;
         _ = p.tryEatWhitespace();
         const eql_loc = p.here();
@@ -604,23 +632,17 @@ const Parser = struct {
         if (!p.tryParseExpr()) {
             p.wrapErr(p.here().node, p.here().src, "Expected expr here", .{});
         }
-        p.wrapExpr(.code_eql, begin.node);
+        p.wrapExpr(switch (mode) {
+            .code => .code_eql,
+            .map => .map_entry,
+        }, begin.node);
         return true;
     }
+    fn tryParseCodeExpr(p: *Parser) bool {
+        return p.tryParseCodeOrMapExpr(.code);
+    }
     fn tryParseMapExpr(p: *Parser) bool {
-        const begin = p.here();
-        if (!p.tryParseExpr()) return false;
-        _ = p.tryEatWhitespace();
-        const eql_loc = p.here();
-        if (!p.tryEat("=")) return true;
-        p.ensureExprValidAccessor(begin);
-        p.postAtom(.srcloc, eql_loc.src);
-        _ = p.tryEatWhitespace();
-        if (!p.tryParseExpr()) {
-            p.wrapErr(p.here().node, p.here().src, "Expected expr here", .{});
-        }
-        p.wrapExpr(.map_entry, begin.node);
-        return true;
+        return p.tryParseCodeOrMapExpr(.map);
     }
     fn tryEatComma(p: *Parser) bool {
         if (p.tryEat(",")) return true;
@@ -730,9 +752,9 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     , try testParser(&out, .{},
         \\|"hello \|(|user)"
     ));
-    // try testParser(gpa,
-    //     \\@0 [map_entry [key @1 "key"] @2 [ref @3 "value"]]
-    // , "builtin = @builtin");
+    try snap(@src(),
+        \\@0 [bind [ref @1 "builtin"] [ref @2 "__builtin__"] @0]
+    , try testParser(&out, .{}, "|#|builtin |__builtin__"));
 
     // extending a = b syntax
     // a = b defines a map_entry
