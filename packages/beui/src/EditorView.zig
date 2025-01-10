@@ -54,7 +54,7 @@ const ScrollIndex = struct {
     pub fn next(itm: ScrollIndex, self: *EditorView) ?ScrollIndex {
         const block = self.core.document.value;
         const next_line = itm.thisLine(self);
-        if (block.docbyteFromPosition(next_line) == block.length()) {
+        if (block.docbyteFromPosition(next_line) == block.docbyteFromPosition(self.core.getLineStart(block.positionFromDocbyte(block.length())))) {
             return null;
         }
         return .{ .is_first_line = .no, .line_before_this_line = next_line };
@@ -269,7 +269,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
             const offset = line_state.offset_from_screen_ul - lfs.offset_from_screen_ul;
             const lps = line_state.cast(LinePostedState);
 
-            if (j != 0 and (click_info.mouse_pos[1] < offset[1] or click_info.mouse_pos[1] >= offset[1] + lps.line_height)) {
+            if ((j != 0 and click_info.mouse_pos[1] < offset[1]) or (j != data.items.len - 1 and click_info.mouse_pos[1] >= offset[1] + lps.line_height)) {
                 continue; // not this line
             }
             for (lps.chars, 0..) |char_itm, i| {

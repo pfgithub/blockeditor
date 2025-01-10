@@ -118,7 +118,7 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
             self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = editor_full } }));
         }
         if (zgui.button("Editor (Empty)", .{})) {
-            const editor_empty = self.addTab("");
+            const editor_empty = self.addTab("abc\ndef\nghi");
             self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = editor_empty } }));
         }
     }
