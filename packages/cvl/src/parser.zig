@@ -168,6 +168,7 @@ const AstNode = struct {
         code, // {a; b; c} : [code [a] [b] [c]] ||| {a; b;} : [code [a] [b] [void]]
         builtin_std, // [builtin_std]
         map_entry, // "a": "b" : [map_entry [string "a"] [string "b"]]
+        code_eql,
         string, // [string [string_offset string_len]]
         call, // a b : [call [a] [b]]
         err, // [err [...extra junk string_offset string_len]]
@@ -274,6 +275,14 @@ const Parser = struct {
         p.srcloc += @intCast(target.len);
         return true;
     }
+    fn asHex(c: u8) ?u4 {
+        return switch (c) {
+            '0'...'9' => @intCast(c - '0'),
+            'a'...'f' => @intCast(c - 'a' + 10),
+            'A'...'F' => @intCast(c - 'A' + 10),
+            else => null,
+        };
+    }
 
     fn parseStrInner(p: *Parser, start_src: u32) void {
         var str = p.stringBegin();
@@ -291,7 +300,113 @@ const Parser = struct {
             switch (p.peek()) {
                 '\"' => break,
                 '\\' => {
-                    @panic("todo parse escape sequence");
+                    p.eat("\\");
+                    switch (p.peek()) {
+                        'x' => blk: {
+                            p.eat("x");
+                            var h: [2]u8 = undefined;
+                            for (&h) |*hv| {
+                                const b1 = p.peek();
+                                const h1 = asHex(b1);
+                                if (h1 == null) {
+                                    if (!has_errored) {
+                                        str.discard();
+                                        p.wrapErr(start.node, p.here().src, "Expected 0-9a-zA-Z in hex escape", .{});
+                                        has_errored = true;
+                                    }
+                                    break :blk;
+                                }
+                                p.eat(&.{b1});
+                                hv.* = h1.?;
+                            }
+                            if (!has_errored) str.append(h[0] << 4 | h[1]);
+                        },
+                        'u' => blk: {
+                            const u_esc_src = p.here().src;
+                            p.eat("u");
+                            if (!p.tryEat("{")) {
+                                if (!has_errored) {
+                                    str.discard();
+                                    p.wrapErr(start.node, p.here().src, "Expected \"\\u{{...}}\"", .{});
+                                    has_errored = true;
+                                }
+                                break :blk;
+                            }
+                            var u: [6]u32 = undefined;
+                            const len = for (&u, 0..) |*uv, i| {
+                                const b1 = p.peek();
+                                const h1 = asHex(b1);
+                                if (h1 == null) break i;
+                                p.eat(&.{b1});
+                                uv.* = h1.?;
+                            } else 6;
+                            if (len == 0) {
+                                if (!has_errored) {
+                                    str.discard();
+                                    p.wrapErr(start.node, p.here().src, "Expected at least one hex char inside unicode escape", .{});
+                                    has_errored = true;
+                                }
+                                break :blk;
+                            }
+                            if (!p.tryEat("}")) {
+                                if (!has_errored) {
+                                    str.discard();
+                                    p.wrapErr(start.node, p.here().src, "Expected '}}' to end unicode escape", .{});
+                                    has_errored = true;
+                                }
+                                break :blk;
+                            }
+                            var dec: u32 = 0;
+                            for (u[0..len]) |c| {
+                                dec <<= 4;
+                                dec |= c;
+                            }
+                            const casted: u21 = std.math.cast(u21, dec) orelse {
+                                if (!has_errored) {
+                                    str.discard();
+                                    p.wrapErr(start.node, u_esc_src, "Invalid unicode codepoint: U+{X}", .{dec});
+                                    has_errored = true;
+                                }
+                                break :blk;
+                            };
+                            var enc_res: [4]u8 = undefined;
+                            const enc_len = std.unicode.utf8Encode(casted, &enc_res) catch |e| switch (e) {
+                                error.Utf8CannotEncodeSurrogateHalf => {
+                                    if (!has_errored) {
+                                        str.discard();
+                                        p.wrapErr(start.node, u_esc_src, "Surrogate half U+{X} is not allowed.", .{dec});
+                                        has_errored = true;
+                                    }
+                                    break :blk;
+                                },
+                                error.CodepointTooLarge => {
+                                    if (!has_errored) {
+                                        str.discard();
+                                        p.wrapErr(start.node, u_esc_src, "Invalid unicode codepoint: U+{X}", .{dec});
+                                        has_errored = true;
+                                    }
+                                    break :blk;
+                                },
+                            };
+                            if (!has_errored) str.appendSlice(enc_res[0..enc_len]);
+                        },
+                        '\"', '\\' => |c| {
+                            p.eat(&.{c});
+                            if (!has_errored) str.append(c);
+                        },
+                        '(' => {
+                            if (!has_errored) p.postString(str.end());
+                            std.debug.assert(p.tryParseExpr());
+                            str = p.stringBegin();
+                        },
+                        else => |char| {
+                            if (!has_errored) {
+                                str.discard();
+                                p.wrapErr(start.node, p.here().src, "Invalid escape char: \'{'}\'", .{std.zig.fmtEscapes(&.{char})});
+                                has_errored = true;
+                            }
+                        },
+                    }
                 },
                 '\n' => break,
                 else => |c| {
@@ -308,8 +423,8 @@ const Parser = struct {
             }
         }
         if (has_errored) return;
-        p.postAtom(.srcloc, start_src);
         p.postString(str.end());
+        p.postAtom(.srcloc, start_src);
         p.wrapExpr(.string, start.node);
     }
     fn stringBegin(p: *Parser) StringBuilder {
@@ -329,6 +444,10 @@ const Parser = struct {
         fn appendSlice(str: *StringBuilder, txt: []const u8) void {
             std.debug.assert(str.p.string_active);
             str.p.strings.appendSlice(str.p.gpa, txt) catch str.p.oom();
+        }
+        fn append(str: *StringBuilder, byte: u8) void {
+            std.debug.assert(str.p.string_active);
+            str.p.strings.append(str.p.gpa, byte) catch str.p.oom();
         }
         fn print(str: *StringBuilder, comptime fmt: []const u8, args: anytype) void {
             std.debug.assert(str.p.string_active);
@@ -394,6 +513,23 @@ const Parser = struct {
                 }
                 return true;
             },
+            '(' => {
+                p.eat("(");
+
+                _ = p.tryEatWhitespace();
+                while (p.tryParseMapExpr()) {
+                    _ = p.tryEatWhitespace();
+                    if (!p.tryEatComma()) break;
+                    _ = p.tryEatWhitespace();
+                }
+
+                p.postAtom(.srcloc, start.src);
+                if (!p.tryEat(")")) {
+                    p.wrapErr(start.node, p.here().src, "Expected ')' to end code block", .{});
+                }
+                p.wrapExpr(.code, start.node);
+                return true;
+            },
             else => {
                 if (p.tryParseIdent()) |ident| {
                     p.postAtom(.srcloc, start.src);
@@ -455,6 +591,21 @@ const Parser = struct {
     }
     fn tryParseExpr(p: *Parser) bool {
         return p.tryParseExprWithSuffixes();
+    }
+    fn tryParseCodeExpr(p: *Parser) bool {
+        const begin = p.here();
+        if (!p.tryParseExpr()) return false;
+        _ = p.tryEatWhitespace();
+        const eql_loc = p.here();
+        if (!p.tryEat("=")) return true;
+        p.ensureExprValidAccessor(begin);
+        p.postAtom(.srcloc, eql_loc.src);
+        _ = p.tryEatWhitespace();
+        if (!p.tryParseExpr()) {
+            p.wrapErr(p.here().node, p.here().src, "Expected expr here", .{});
+        }
+        p.wrapExpr(.code_eql, begin.node);
+        return true;
     }
     fn tryParseMapExpr(p: *Parser) bool {
         const begin = p.here();
@@ -555,18 +706,39 @@ fn testParser(gpa: std.mem.Allocator, val: ?[]const u8, src_in: []const u8) !voi
 }
 
 fn doTestParser(gpa: std.mem.Allocator) !void {
-    try testParser(gpa, "@0 [string @0 \"Hello, world!\"]", "|\"Hello, world!\"");
-    try testParser(gpa, "@0 [err [err_skip [string @0 \"Hello, world!\"]] @1 \"Expected \\\" to end string\"]", "|\"Hello, world!|");
+    try testParser(gpa, "@0 [string \"Hello, world!\" @0]", "|\"Hello, world!\"");
+    try testParser(gpa, "@0 [err [err_skip [string \"Hello, world!\" @0]] @1 \"Expected \\\" to end string\"]", "|\"Hello, world!|");
     try testParser(gpa, "@0 [err [err_skip] @1 \"String literal cannot contain byte '0x1b'\"]", "|\"Hello, world!|\x1b\"");
     try testParser(gpa, "@0 [ref @0 \"abc\"]", "|abc");
     try testParser(gpa, "[err [err_skip [map @0 [ref @0 \"abc\"]]] @1 \"More remaining\"]", "|abc|}");
     try testParser(gpa, "@0 [ref @1 \"abc\"] [ref @2 \"def\"] [ref @3 \"ghi\"]", "|  |abc, |def   ;|ghi ");
     try testParser(gpa,
-        \\@0 [call [access [access [ref @1 "std"] @2 [key @3 "math"]] @4 [key @5 "pow"]] @6 [string @7 "abc"]]
+        \\@0 [call [access [access [ref @1 "std"] @2 [key @3 "math"]] @4 [key @5 "pow"]] @6 [string "abc" @7]]
     , "|  |std|.|math|.|pow|: |\"abc\" ");
     try testParser(gpa,
         \\@0 [map_entry [key @1 "key"] @2 [ref @3 "value"]]
     , "|  |key |= |value ");
+    try testParser(gpa, "@0 [string \"\\x1b[3m\\xe1\\x88\\xb4\\\"\" @0]", "|\"\\x1b[3m\\u{1234}\\\"\"");
+    try testParser(gpa,
+        \\@0 [string "hello " [code [ref @2 "user"] @1] "" @0]
+    ,
+        \\|"hello \|(|user)"
+    );
+    // try testParser(gpa,
+    //     \\@0 [map_entry [key @1 "key"] @2 [ref @3 "value"]]
+    // , "builtin = @builtin");
+
+    // extending a = b syntax
+    // a = b defines a map_entry
+    // in a struct definition we want to be able to define:
+    // - fields, with a type and default value. field name is a 'key' (or a symbol for private fields)
+    // - public decls, accessible with T.decl. field name is a 'key' or a symbol
+    // - name bindings, accessible inside the struct with the name. field name is a 'var'
+    // in a code, we want to be able to define:
+    // - name binding decls, accessible within the code with the name.
+    // - name binding non-decls
+
+    // std.struct [  ]
 }
 fn fuzzParser(input: []const u8) anyerror!void {
     try testParser(std.testing.allocator, null, input);
