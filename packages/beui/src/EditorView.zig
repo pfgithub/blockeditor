@@ -262,6 +262,13 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     const click_info = &self.mouse_info;
 
     var click_target: ?Core.Position = null;
+    // ok this is complicated
+    // here's an alternative:
+    // for each line, put a y top, y bottom
+    //   within the line, for each char put an x left and x right
+    // now, sort these both and find the nearest to the mouse cursor
+    // that way clicking halfway through works, last char works, top and bottom
+    // select works implicitly, ...
     if (last_frame_state) |lfs| {
         const data = lfs.cast(std.ArrayList(B2.ID));
         for (data.items, 0..) |item, j| {
