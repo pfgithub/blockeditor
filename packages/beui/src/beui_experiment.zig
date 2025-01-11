@@ -1301,6 +1301,22 @@ pub fn button(call_info: StandardCallInfo, ehdl: ButtonEhdl, child_component: Co
     });
     return .{ .size = child.size, .rdl = draw };
 }
+pub fn contextMenuHolder(call_info: StandardCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
+    _ = call_info;
+    _ = child_component;
+    // this thing has state
+    // on right click: set context menu true
+    // when context menu true: add a context menu render to the global draw list
+    // inside the context menu: render it with max width & max height = to the screen size
+    // also behind it we render a rectangle where clicks fall through but if you click it it closes the menu
+    // if this component is deleted, the menu closes instantly (because it's no longer being rendered)
+}
+pub fn contextMenuEntry(call_info: StandardCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
+    // this will have a default renderer in Theme
+    // this one just exists to provide the hover style, keyboard nav, ...
+    _ = call_info;
+    _ = child_component;
+}
 pub const MouseEvent = struct {
     capture_pos: @Vector(2, f32),
     capture_size: @Vector(2, f32),
