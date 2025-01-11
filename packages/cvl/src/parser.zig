@@ -178,6 +178,7 @@ const AstNode = struct {
         key,
         slot,
         defer_expr,
+        builtin,
 
         // atom
         string_offset,
@@ -225,6 +226,7 @@ const Token = enum {
     inline_comment,
     hashtag,
     kw_defer,
+    kw_builtin,
     string_identifier_start,
 
     // string only
@@ -248,6 +250,7 @@ const reserved_symbols_map = std.StaticStringMap(Token).initComptime(.{
 });
 const keywords_map = std.StaticStringMap(Token).initComptime(.{
     .{ "defer", .kw_defer },
+    .{ "builtin", .kw_builtin },
 });
 const Tokenizer = struct {
     // TODO: consider enforcing correct indentation of code
@@ -626,7 +629,6 @@ const Parser = struct {
                 if (!p.tryEatToken(.double_quote, .root)) {
                     p.wrapErr(start.node, p.here().src, "Expected \" to end string, found {s}", .{p.tokenizer.token.name()});
                 }
-                return true;
             },
             .lparen => {
                 p.assertEatToken(.lparen, .root);
@@ -643,7 +645,11 @@ const Parser = struct {
                     p.wrapErr(start.node, p.here().src, "Expected ')' to end code block", .{});
                 }
                 p.wrapExpr(.code, start.node);
-                return true;
+            },
+            .kw_builtin => {
+                p.assertEatToken(.kw_builtin, .root);
+                p.postAtom(.srcloc, start.src);
+                p.wrapExpr(.builtin, start.node);
             },
             else => {
                 if (p.tryParseIdent()) |ident| {
@@ -655,6 +661,7 @@ const Parser = struct {
                 return false; // no expr
             },
         }
+        return true;
     }
     fn tryParseExprWithSuffixes(p: *Parser) bool {
         const start = p.here();
@@ -922,6 +929,9 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     try snap(@src(),
         \\@0 [access [ref @0 "my identifier"] @1 [key @2 "my field"]]
     , try testParser(&out, .{}, "|#\"my identifier\"|.|#\"my field\""));
+    // try snap(@src(),
+    //     \\
+    // , try testParser(&out, .{}, @embedFile("sample.cvl")));
 
     // extending a = b syntax
     // a = b defines a map_entry

@@ -7,7 +7,8 @@
 // first it asks A and then it asks the extension. if A:has('m') false, checks Extension:has(a, m)
 // %extend myextensions;
 
-std := @std;
+builtin := #builtin;
+std := builtin.import: .std;
 start := %fn(std.void) std.noreturn: (
     (
         %defer std.log.info: "at end of scope";
