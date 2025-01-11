@@ -883,8 +883,8 @@ const snap = @import("anywhere").util.testing.snap;
 fn doTestParser(gpa: std.mem.Allocator) !void {
     var out = std.ArrayList(u8).init(gpa);
     defer out.deinit();
-    try snap(@src(), "@0 [string \"Hello, world!\" @0]", try testParser(&out, .{}, "|\"Hello, world!\""));
-    try snap(@src(), "@0 [err [err_skip [string \"Hello, world!\" @0]] @1 \"Expected \\\" to end string, found eof\"]", try testParser(&out, .{}, "|\"Hello, world!|"));
+    try snap(@src(), "[string \"Hello, world!\" @0] @0", try testParser(&out, .{}, "|\"Hello, world!\""));
+    try snap(@src(), "[err [err_skip [string \"Hello, world!\" @0]] @1 \"Expected \\\" to end string, found eof\"] @0", try testParser(&out, .{}, "|\"Hello, world!|"));
     try snap(@src(),
         \\[err [err_skip [map @0 [string "Hello, world!" @0]]] @1 "Invalid byte in file: 0x1B"]
     , try testParser(&out, .{}, "|\"Hello, world!|\x1b\""));
