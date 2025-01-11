@@ -1,9 +1,19 @@
 // the file context is std.type.struct
 
+// only allowed in the top level map. pauses parsing and calls mysyntax(...remaining_text)
+// %usesyntax mysyntax;
+
+// run before everything. adds an extension to the scope, so when checking if 'a.b' exists
+// first it asks A and then it asks the extension. if A:has('m') false, checks Extension:has(a, m)
+// %extend myextensions;
+
 std := @std;
 start := %fn(std.void) std.noreturn: (
-    world := (std.slice: std.u8): "world";
-    std.log.info: "Hello \(world)!";
+    (
+        %defer std.log.info: "at end of scope";
+        world := (std.slice: std.u8): "world";
+        std.log.info: "Hello \(world)!";
+    )
     std.process.exit: 0;
 );
 std.build.main = [ // std.build.Folder

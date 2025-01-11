@@ -177,6 +177,7 @@ const AstNode = struct {
         access, // a.b.c => [access [access a @0 b] @1 c]
         key,
         slot,
+        defer_expr,
 
         // atom
         string_offset,
@@ -223,6 +224,7 @@ const Token = enum {
     colon_equals,
     inline_comment,
     hashtag,
+    kw_defer,
 
     // string only
     string,
@@ -677,26 +679,17 @@ const Parser = struct {
         const begin = p.here();
 
         switch (p.tokenizer.token) {
-            .hashtag => {
-                p.assertEatToken(.hashtag, .root);
+            .kw_defer => {
+                p.assertEatToken(.kw_defer, .root);
                 _ = p.tryEatWhitespace();
-                const ident_start = p.here();
-                if (p.tryParseIdent()) |ident| {
-                    p.postAtom(.srcloc, ident_start.src);
-                    p.postString(ident);
-                    p.wrapExpr(.ref, ident_start.node);
-                } else {
-                    p.wrapErr(ident_start.node, ident_start.src, "expected identifier after '#'", .{});
-                }
-
-                _ = p.tryEatWhitespace();
-
                 if (!p.tryParseExpr()) {
-                    p.wrapErr(p.here().node, p.here().src, "expected identifier after name", .{});
+                    p.wrapErr(begin.node, begin.src, "expected identifier after '#'", .{});
                 }
-
                 p.postAtom(.srcloc, begin.src);
-                p.wrapExpr(.bind, begin.node);
+                p.wrapExpr(.defer_expr, begin.node);
+                if (mode != .code) {
+                    p.wrapErr(begin.node, begin.src, "defer is not allowed here", .{});
+                }
 
                 return true;
             },
