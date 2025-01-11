@@ -805,6 +805,8 @@ fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, s
             p.wrapErr(start.node, tkz_err.pos, "Invalid character: '{'}'", .{std.zig.fmtEscapes(&.{tkz_err.byte})});
         } else if (tkz_err.byte >= 0x80) {
             p.wrapErr(start.node, tkz_err.pos, "Unicode characters are not allowed outside of strings", .{});
+        } else if (tkz_err.byte == '\r' or tkz_err.byte == '\n') {
+            p.wrapErr(start.node, tkz_err.pos, "Newline is not allowed here", .{});
         } else {
             p.wrapErr(start.node, tkz_err.pos, "Invalid byte in file: 0x{X:0>2}", .{tkz_err.byte});
         }
@@ -856,6 +858,13 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
         \\@0 [string "hello " [code [ref @2 "user"] @1] "" @0]
     , try testParser(&out, .{},
         \\|"hello \|(|user)"
+    ));
+    try snap(@src(),
+        \\[err [err_skip [map @0 [string "hello " [code [ref @2 "user"] @1] "" @0]]] @<9> "Newline is not allowed here"]
+    , try testParser(&out, .{},
+        \\|"hello \|(
+        \\  |user
+        \\)"
     ));
     try snap(@src(),
         \\@0 [bind [ref @0 "builtin"] @1 [ref @2 "__builtin__"]]
