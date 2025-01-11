@@ -225,10 +225,14 @@ const Token = enum {
     inline_comment,
     hashtag,
     kw_defer,
+    string_identifier_start,
 
     // string only
     string,
     string_backslash,
+
+    // for tokenizer only
+    _maybe_keyword,
 
     pub const izer = Tokenizer;
     pub fn name(t: Token) []const u8 {
@@ -240,7 +244,10 @@ const reserved_symbols_map = std.StaticStringMap(Token).initComptime(.{
     .{ ":=", .colon_equals },
     .{ ":", .colon },
     .{ "//", .inline_comment },
-    .{ "#", .hashtag },
+    .{ "#", ._maybe_keyword },
+});
+const keywords_map = std.StaticStringMap(Token).initComptime(.{
+    .{ "defer", .kw_defer },
 });
 const Tokenizer = struct {
     // TODO: consider enforcing correct indentation of code
@@ -250,8 +257,9 @@ const Tokenizer = struct {
 
     source: []const u8,
 
-    has_error: ?struct { pos: u32, byte: u8 },
+    has_error: ?struct { pos: u32, byte: u8, msg: Emsg },
     in_string: bool,
+    const Emsg = enum { invalid_byte, invalid_identifier, newline_not_allowed_in_string };
 
     fn init(src: []const u8, state: State) Tokenizer {
         std.debug.assert(src.len < std.math.maxInt(u32));
@@ -292,7 +300,7 @@ const Tokenizer = struct {
                             ' ', '\t', '\r' => {},
                             '\n' => {
                                 if (self.in_string) {
-                                    if (self.has_error == null) self.has_error = .{ .pos = @intCast(self.token_start_srcloc + i), .byte = '\n' };
+                                    if (self.has_error == null) self.has_error = .{ .pos = @intCast(self.token_start_srcloc + i), .byte = '\n', .msg = .newline_not_allowed_in_string };
                                 }
                                 self.token = .whitespace_newline;
                             },
@@ -325,7 +333,7 @@ const Tokenizer = struct {
                             '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '|', '<', '>', '/', '?' => {},
                             else => break @intCast(i),
                         } else @intCast(rem.len);
-                        self.token = reserved_symbols_map.get(self.source[self.token_start_srcloc..self.token_end_srcloc]) orelse .symbols;
+                        self.token = reserved_symbols_map.get(self.slice()) orelse .symbols;
                         if (self.token == .inline_comment) {
                             const rem2 = self.source[self.token_end_srcloc..];
                             self.token_end_srcloc += for (rem2, 0..) |byte, i| switch (byte) {
@@ -333,16 +341,35 @@ const Tokenizer = struct {
                                 '\r' => {},
                                 else => {
                                     if (byte < ' ' or byte == 0x7F) {
-                                        if (self.has_error == null) self.has_error = .{ .byte = byte, .pos = @intCast(self.token_end_srcloc + i) };
+                                        if (self.has_error == null) self.has_error = .{ .byte = byte, .pos = @intCast(self.token_end_srcloc + i), .msg = .invalid_byte };
                                     }
                                 },
                             } else @intCast(rem2.len);
+                        } else if (self.token == ._maybe_keyword) {
+                            const rem2 = self.source[self.token_end_srcloc..];
+                            if (rem2.len > 0 and rem2[0] == '"') {
+                                // string identifier
+                                self.token = .string_identifier_start;
+                                self.token_end_srcloc += 1;
+                            } else {
+                                self.token_end_srcloc += for (rem2[0..], 0..) |byte, i| switch (byte) {
+                                    'a'...'z', 'A'...'Z', '0'...'9', '_' => {},
+                                    else => break @intCast(i),
+                                } else @intCast(rem.len);
+                                if (keywords_map.get(self.slice()[1..])) |kw| {
+                                    self.token = kw;
+                                } else {
+                                    if (self.slice().len > 1) self.has_error = .{ .pos = self.token_start_srcloc, .byte = '\x00', .msg = .invalid_identifier };
+                                    self.token_end_srcloc = self.token_start_srcloc + 1;
+                                    self.token = .symbols;
+                                }
+                            }
                         }
                     },
                     else => |b| {
                         @branchHint(.cold);
                         // mark an error and ignore the byte
-                        if (self.has_error == null) self.has_error = .{ .pos = self.token_start_srcloc, .byte = b };
+                        if (self.has_error == null) self.has_error = .{ .pos = self.token_start_srcloc, .byte = b, .msg = .invalid_byte };
                         self.token_start_srcloc += 1;
                         self.token_end_srcloc = self.token_start_srcloc;
                         continue;
@@ -362,7 +389,7 @@ const Tokenizer = struct {
                         if (b < ' ' or b == 0x7F) {
                             @branchHint(.cold);
                             // mark an error and ignore the byte
-                            if (self.has_error == null) self.has_error = .{ .pos = self.token_start_srcloc, .byte = b };
+                            if (self.has_error == null) self.has_error = .{ .pos = self.token_start_srcloc, .byte = b, .msg = .invalid_byte };
                             self.token_start_srcloc += 1;
                             self.token_end_srcloc = self.token_start_srcloc;
                             continue;
@@ -453,19 +480,32 @@ const Parser = struct {
     }
 
     fn parseStrInner(p: *Parser, start_src: u32) void {
-        var str = p.stringBegin();
         const start = p.here();
+        p.postString(p.parseStrInner_returnLastSegment(true));
+        p.postAtom(.srcloc, start_src);
+        p.wrapExpr(.string, start.node);
+    }
+    fn parseStrInner_returnLastSegment(p: *Parser, allow_paren_escape: bool) StringMapKey {
+        var str = p.stringBegin();
         while (true) switch (p.tokenizer.token) {
             .string => {
                 const txt = p.tokenizer.slice();
                 p.assertEatToken(.string, .inside_string);
                 str.appendSlice(txt);
             },
+            // maybe instead of string_backslash we could have:
+            // - escape_hex: '\xNN'
+            // - escape_unicode: '\u{NNNN}'
+            // - escape_backslash: '\\'
+            // - escape_double_quote: '\"'
+            // - escape_n: '\n',
+            // - escape_r: '\r',
+            // - escape_invalid: '\' : tokenizer marks an error and we just treat it as a strseg
             .string_backslash => {
                 // string escape. tokenizer doesn't support this so here's a mess:
                 p.tokenizer.token_start_srcloc = p.tokenizer.token_end_srcloc;
                 const rem = p.tokenizer.source[p.tokenizer.token_start_srcloc..];
-                if (rem.len > 0 and rem[0] == '(') {
+                if (rem.len > 0 and rem[0] == '(' and allow_paren_escape) {
                     p.tokenizer.next(.root);
                     std.debug.assert(p.tokenizer.token == .lparen);
                     p.postString(str.end());
@@ -476,6 +516,7 @@ const Parser = struct {
                     switch (p.tokenizer.token) {
                         .string => {
                             @panic("TODO impl string x, u, r, n escapes");
+                            // and indicate '(' is not allowed here if needed
                         },
                         .string_backslash => {
                             p.tokenizer.next(.inside_string);
@@ -496,9 +537,7 @@ const Parser = struct {
             .double_quote, .eof => break,
             else => |a| std.debug.panic("unreachable: {s}", .{@tagName(a)}),
         };
-        p.postString(str.end());
-        p.postAtom(.srcloc, start_src);
-        p.wrapExpr(.string, start.node);
+        return str.end();
     }
     fn stringBegin(p: *Parser) StringBuilder {
         std.debug.assert(!p.string_active);
@@ -558,7 +597,20 @@ const Parser = struct {
     }
     fn tryParseIdent(p: *Parser) ?StringMapKey {
         const tok_txt = p.tokenizer.slice();
-        if (!p.tryEatToken(.identifier, .root)) return null;
+        if (!p.tryEatToken(.identifier, .root)) {
+            p.tokenizer.in_string = true;
+            defer p.tokenizer.in_string = false;
+            if (p.tryEatToken(.string_identifier_start, .inside_string)) {
+                const last_seg = p.parseStrInner_returnLastSegment(false);
+                if (!p.tryEatToken(.double_quote, .root)) {
+                    // we're not really supposed to post an error in a random place like this
+                    // this should be added to the error list instead
+                    p.wrapErr(p.here().node, p.here().src, "Expected \" to end string identifier, found {s}", .{p.tokenizer.token.name()});
+                }
+                return last_seg;
+            }
+            return null;
+        }
         var str = p.stringBegin();
         str.appendSlice(tok_txt);
         return str.end();
@@ -571,17 +623,16 @@ const Parser = struct {
                 defer p.tokenizer.in_string = false;
                 p.assertEatToken(.double_quote, .inside_string);
                 p.parseStrInner(start.src);
-                if (p.tokenizer.token != .double_quote) {
+                if (!p.tryEatToken(.double_quote, .root)) {
                     p.wrapErr(start.node, p.here().src, "Expected \" to end string, found {s}", .{p.tokenizer.token.name()});
                 }
-                p.tokenizer.next(.root);
                 return true;
             },
             .lparen => {
                 p.assertEatToken(.lparen, .root);
 
                 _ = p.tryEatWhitespace();
-                while (p.tryParseMapExpr()) {
+                while (p.tryParseCodeExpr()) {
                     _ = p.tryEatWhitespace();
                     if (!p.tryEatToken(.sep, .root)) break;
                     _ = p.tryEatWhitespace();
@@ -683,7 +734,7 @@ const Parser = struct {
                 p.assertEatToken(.kw_defer, .root);
                 _ = p.tryEatWhitespace();
                 if (!p.tryParseExpr()) {
-                    p.wrapErr(begin.node, begin.src, "expected identifier after '#'", .{});
+                    p.wrapErr(begin.node, begin.src, "expected expression after 'defer'", .{});
                 }
                 p.postAtom(.srcloc, begin.src);
                 p.wrapExpr(.defer_expr, begin.node);
@@ -793,17 +844,17 @@ fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, s
     if (p.tokenizer.token_start_srcloc < p.tokenizer.source.len) {
         p.wrapErr(start.node, p.tokenizer.token_start_srcloc, "Unexpected token: {s}", .{p.tokenizer.token.name()});
     }
-    if (p.tokenizer.has_error) |tkz_err| {
-        if (tkz_err.byte >= ' ' and tkz_err.byte < 0x7F) {
+    if (p.tokenizer.has_error) |tkz_err| switch (tkz_err.msg) {
+        .newline_not_allowed_in_string => p.wrapErr(start.node, tkz_err.pos, "Newline not allowed inside string", .{}),
+        .invalid_identifier => p.wrapErr(start.node, tkz_err.pos, "Invalid identifier", .{}),
+        .invalid_byte => if (tkz_err.byte >= ' ' and tkz_err.byte < 0x7F) {
             p.wrapErr(start.node, tkz_err.pos, "Invalid character: '{'}'", .{std.zig.fmtEscapes(&.{tkz_err.byte})});
         } else if (tkz_err.byte >= 0x80) {
             p.wrapErr(start.node, tkz_err.pos, "Unicode characters are not allowed outside of strings", .{});
-        } else if (tkz_err.byte == '\r' or tkz_err.byte == '\n') {
-            p.wrapErr(start.node, tkz_err.pos, "Newline is not allowed here", .{});
         } else {
             p.wrapErr(start.node, tkz_err.pos, "Invalid byte in file: 0x{X:0>2}", .{tkz_err.byte});
-        }
-    }
+        },
+    };
     // now serialize and test snapshot
     const tree: AstTree = .{ .tags = p.out_nodes.items(.tag), .values = p.out_nodes.items(.value), .string_buf = p.strings.items };
     if (p.out_nodes.len > 0 and p.has_fatal_error == null) {
@@ -853,7 +904,7 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
         \\|"hello \|(|user)"
     ));
     try snap(@src(),
-        \\[err [err_skip [map @0 [string "hello " [code [ref @2 "user"] @1] "" @0]]] @<9> "Newline is not allowed here"]
+        \\[err [err_skip [map @0 [string "hello " [code [ref @2 "user"] @1] "" @0]]] @<9> "Newline not allowed inside string"]
     , try testParser(&out, .{},
         \\|"hello \|(
         \\  |user
@@ -865,6 +916,12 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     try snap(@src(),
         \\@0 [call [code [call [access [slot] @1 [key @2 "implicit"]] @3 [access [slot] @4 [key @5 "arg1"]]] @0] @6 [access [slot] @7 [key @8 "arg2"]]]
     , try testParser(&out, .{}, "|(|.|implicit|: |.|arg1)|: |.|arg2"));
+    try snap(@src(),
+        \\@0 [code [defer_expr [ref @2 "error"] @1] @0]
+    , try testParser(&out, .{}, "|(|#defer |error)"));
+    try snap(@src(),
+        \\@0 [access [ref @0 "my identifier"] @1 [key @2 "my field"]]
+    , try testParser(&out, .{}, "|#\"my identifier\"|.|#\"my field\""));
 
     // extending a = b syntax
     // a = b defines a map_entry
