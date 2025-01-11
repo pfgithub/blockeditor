@@ -1,57 +1,26 @@
 // the file context is std.type.struct
 
-#std @std;
-
-#start @(std.noreturn) (
-    #world (std.slice: std.u8): "world";
-    std.log.info: "Hello \(world)!"; // arg is fmtstr which accepts \(). most don't.
-    std.process.exit: 1;
-)
-
+std := @std;
+start := %fn(std.void) std.noreturn: (
+    world := (std.slice: std.u8): "world";
+    std.log.info: "Hello \(world)!";
+    std.process.exit: 0;
+);
 std.build.main = [ // std.build.Folder
     "sample.txt" = "Example",
-    "app" = std.compile: [.riscv64.linux, [ "_start" = start ] ]
+    "app" = std.compile: [.riscv64.linux, [ "_start" = start ]],
 ];
 
-// within code, '=' is assignment
-// within map, '=' is pair
-
-#demo myfn: myarg
-#demo2 myfn: [mymap]
-
-// only call syntax is colon for now.
-// we can add mapcall & codecall later.
-
-
-// current type definition syntax
-#wm std.custom_type: [
+my_type := std.struct: [
     .fields = [
-        .defineField: [.window_count, std.int, 0],
+        .x = std.f32,
+        .y = std.f32,
+        // to make a private field, use a symbol key. these are all public.
     ],
+
+    some_decl := std.f32: 25;
     .decls = [
-        .init = @(std.void) wm: [],
+        .some_decl = some_decl,
     ],
-    .getters = [
-        .window_count = @(contents) contents.window_count,
-        #add_window @(contents) (contents.window_count += 1),
-        .add_window = @(contents) std.bound_fn(add_window, contents),
-    ],
-    .setters = [
-        .window_count = @[contents, value = std.int] (contents.window_count = value),
-    ],
-]
+];
 
-// ideal type definition syntax
-#wm std.custom_type: [
-    window_count: std.int = 0,
-    type init = @[] wm: [];
-    value add_window = @(self: *wm) self.window_count += 1;
-    // wm.init : bound_fn(init)
-    // wm.init() -> wm: []
-    // (wm: []).init not defined
-    // wm.add_window not defined
-    // wm.init().add_window = bound_fn(add_window)
-    // wm.init().add_window() => (error: constant but expected mutable)
-]
-
-// maybe for now we should use normal syntax and from there we can figure out what to modify
