@@ -440,12 +440,15 @@ const Parser = struct {
     }
 
     fn postAtom(p: *Parser, atom: AstNode.Tag, value: u32) void {
+        std.debug.assert(atom.isAtom());
         p.out_nodes.append(p.gpa, .{
             .tag = atom,
             .value = .{ .atom_value = value },
         }) catch p.oom();
     }
-    fn wrapExpr(p: *Parser, expr: AstNode.Tag, start_node: usize) void {
+    fn wrapExpr(p: *Parser, expr: AstNode.Tag, start_node: usize, src: u32) void {
+        std.debug.assert(!expr.isAtom());
+        p.postAtom(.srcloc, src); // we could maybe maintain a second array just for srclocs that's only on exprs. and have [start, middle, end] for every.
         p.out_nodes.append(p.gpa, .{
             .tag = expr,
             .value = .{ .expr_len = @intCast(p.here().node - start_node) },
@@ -458,10 +461,9 @@ const Parser = struct {
         return p._wrapErrFormatted(node, srcloc, &str);
     }
     fn _wrapErrFormatted(p: *Parser, node: usize, srcloc: u32, str: *StringBuilder) void {
-        p.wrapExpr(.err_skip, node); // wrap the previous junk in an error node so it can be easily skipped over
-        p.postAtom(.srcloc, srcloc);
+        p.wrapExpr(.err_skip, node, srcloc); // wrap the previous junk in an error node so it can be easily skipped over
         p.postString(str.end());
-        p.wrapExpr(.err, node);
+        p.wrapExpr(.err, node, srcloc);
     }
     fn oom(p: *Parser) void {
         p.has_errors = true;
@@ -485,8 +487,7 @@ const Parser = struct {
     fn parseStrInner(p: *Parser, start_src: u32) void {
         const start = p.here();
         p.postString(p.parseStrInner_returnLastSegment(true));
-        p.postAtom(.srcloc, start_src);
-        p.wrapExpr(.string, start.node);
+        p.wrapExpr(.string, start.node, start_src);
     }
     fn parseStrInner_returnLastSegment(p: *Parser, allow_paren_escape: bool) StringMapKey {
         var str = p.stringBegin();
@@ -640,22 +641,19 @@ const Parser = struct {
                     _ = p.tryEatWhitespace();
                 }
 
-                p.postAtom(.srcloc, start.src);
                 if (!p.tryEatToken(.rparen, .root)) {
                     p.wrapErr(start.node, p.here().src, "Expected ')' to end code block", .{});
                 }
-                p.wrapExpr(.code, start.node);
+                p.wrapExpr(.code, start.node, start.src);
             },
             .kw_builtin => {
                 p.assertEatToken(.kw_builtin, .root);
-                p.postAtom(.srcloc, start.src);
-                p.wrapExpr(.builtin, start.node);
+                p.wrapExpr(.builtin, start.node, start.src);
             },
             else => {
                 if (p.tryParseIdent()) |ident| {
-                    p.postAtom(.srcloc, start.src);
                     p.postString(ident);
-                    p.wrapExpr(.ref, start.node);
+                    p.wrapExpr(.ref, start.node, start.src);
                     return true;
                 }
                 return false; // no expr
@@ -668,7 +666,7 @@ const Parser = struct {
         if (!p.tryParseExprFinal()) {
             if (p.tokenizer.token == .dot) {
                 // continue to suffix parsing
-                p.wrapExpr(.slot, start.node);
+                p.wrapExpr(.slot, start.node, start.src);
             } else {
                 return false;
             }
@@ -677,11 +675,10 @@ const Parser = struct {
             _ = p.tryEatWhitespace();
             switch (p.tokenizer.token) {
                 .colon => {
-                    p.postAtom(.srcloc, p.here().src);
                     p.assertEatToken(.colon, .root);
                     _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
                     if (p.tryParseExpr()) {
-                        p.wrapExpr(.call, start.node);
+                        p.wrapExpr(.call, start.node, p.here().src);
                         break;
                     } else {
                         p.wrapErr(start.node, p.here().src, "Expected expr after ':'", .{});
@@ -689,7 +686,7 @@ const Parser = struct {
                     }
                 },
                 .dot => {
-                    p.postAtom(.srcloc, p.here().src);
+                    const srcloc = p.here().src;
                     p.assertEatToken(.dot, .root);
                     _ = p.tryEatWhitespace();
                     const afterdot = p.here();
@@ -697,7 +694,7 @@ const Parser = struct {
                         p.wrapErr(p.here().node, p.here().src, "Expected expr after '.'", .{});
                     }
                     p.ensureExprValidAccessor(afterdot);
-                    p.wrapExpr(.access, start.node);
+                    p.wrapExpr(.access, start.node, srcloc);
                     continue;
                 },
                 else => break,
@@ -743,8 +740,7 @@ const Parser = struct {
                 if (!p.tryParseExpr()) {
                     p.wrapErr(begin.node, begin.src, "expected expression after 'defer'", .{});
                 }
-                p.postAtom(.srcloc, begin.src);
-                p.wrapExpr(.defer_expr, begin.node);
+                p.wrapExpr(.defer_expr, begin.node, begin.src);
                 if (mode != .code) {
                     p.wrapErr(begin.node, begin.src, "defer is not allowed here", .{});
                 }
@@ -760,7 +756,6 @@ const Parser = struct {
         switch (p.tokenizer.token) {
             .equals, .colon_equals => |t| {
                 p.assertEatToken(t, .root);
-                p.postAtom(.srcloc, eql_loc.src);
                 _ = p.tryEatWhitespace();
                 if (!p.tryParseExpr()) {
                     p.wrapErr(p.here().node, p.here().src, "Expected expr here", .{});
@@ -771,7 +766,7 @@ const Parser = struct {
                         .code => .code_eql,
                         .map => .map_entry,
                     },
-                }, begin.node);
+                }, begin.node, eql_loc.src);
                 return true;
             },
             else => return true,
@@ -804,7 +799,6 @@ const Parser = struct {
     }
     fn parseMapContents(p: *Parser, start_src: u32) void {
         const start = p.here();
-        p.postAtom(.srcloc, start_src);
 
         _ = p.tryEatWhitespace();
         while (p.tryParseMapExpr()) {
@@ -813,7 +807,7 @@ const Parser = struct {
             _ = p.tryEatWhitespace();
         }
 
-        p.wrapExpr(.map, start.node);
+        p.wrapExpr(.map, start.node, start_src);
     }
     fn parseFile(p: *Parser) void {
         const start = p.here();
