@@ -686,18 +686,25 @@ const Parser = struct {
         if (!p.tryParseExpr()) return false;
         _ = p.tryEatWhitespace();
         const eql_loc = p.here();
-        if (!p.tryEatToken(.equals, .root)) return true;
-        p.ensureExprValidAccessor(begin);
-        p.postAtom(.srcloc, eql_loc.src);
-        _ = p.tryEatWhitespace();
-        if (!p.tryParseExpr()) {
-            p.wrapErr(p.here().node, p.here().src, "Expected expr here", .{});
+        switch (p.tokenizer.token) {
+            .equals, .colon_equals => |t| {
+                p.assertEatToken(t, .root);
+                p.postAtom(.srcloc, eql_loc.src);
+                _ = p.tryEatWhitespace();
+                if (!p.tryParseExpr()) {
+                    p.wrapErr(p.here().node, p.here().src, "Expected expr here", .{});
+                }
+                p.wrapExpr(switch (t) {
+                    .colon_equals => .bind,
+                    else => switch (mode) {
+                        .code => .code_eql,
+                        .map => .map_entry,
+                    },
+                }, begin.node);
+                return true;
+            },
+            else => return true,
         }
-        p.wrapExpr(switch (mode) {
-            .code => .code_eql,
-            .map => .map_entry,
-        }, begin.node);
-        return true;
     }
     fn tryParseCodeExpr(p: *Parser) bool {
         return p.tryParseCodeOrMapExpr(.code);
@@ -771,7 +778,7 @@ fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, s
     const start = p.here();
     p.parseFile();
     if (p.tokenizer.token_start_srcloc < p.tokenizer.source.len) {
-        p.wrapErr(start.node, p.tokenizer.token_start_srcloc, "More remaining", .{});
+        p.wrapErr(start.node, p.tokenizer.token_start_srcloc, "Unexpected token: {s}", .{p.tokenizer.token.name()});
     }
     if (p.tokenizer.has_error) |tkz_err| {
         if (tkz_err.byte >= ' ' and tkz_err.byte < 0x7F) {
@@ -815,14 +822,16 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
         \\[err [err_skip [map @0 [string "Hello, world!" @0]]] @1 "Invalid byte in file: 0x1B"]
     , try testParser(&out, .{}, "|\"Hello, world!|\x1b\""));
     try snap(@src(), "@0 [ref @0 \"abc\"]", try testParser(&out, .{}, "|abc"));
-    try snap(@src(), "[err [err_skip [map @0 [ref @0 \"abc\"]]] @1 \"More remaining\"]", try testParser(&out, .{}, "|abc|}"));
+    try snap(@src(), "[err [err_skip [map @0 [ref @0 \"abc\"]]] @1 \"Unexpected token: rcurly\"]", try testParser(&out, .{}, "|abc|}"));
     try snap(@src(), "@0 [ref @1 \"abc\"] [ref @2 \"def\"] [ref @3 \"ghi\"]", try testParser(&out, .{}, "|  |abc, |def   ;|ghi "));
     try snap(@src(),
         \\@0 [call [access [access [ref @1 "std"] @2 [key @3 "math"]] @4 [key @5 "pow"]] @6 [string "abc" @7]]
     , try testParser(&out, .{}, "|  |std|.|math|.|pow|: |\"abc\" "));
-    try snap(@src(),
-        \\@0 [map_entry [key @1 "key"] @2 [ref @3 "value"]]
-    , try testParser(&out, .{}, "|  |key |= |value "));
+    // TODO: implicit access
+    // try snap(@src(),
+    //     \\@0 [map_entry [key @1 "key"] @2 [ref @3 "value"]]
+    // , try testParser(&out, .{}, "|  |.key |= |value "));
+    // TODO: string escapes
     // try snap(@src(), "@0 [string \"\\x1b[3m\\xe1\\x88\\xb4\\\"\" @0]", try testParser(&out, .{}, "|\"\\x1b[3m\\u{1234}\\\"\""));
     try snap(@src(),
         \\@0 [string "hello " [code [ref @2 "user"] @1] "" @0]
@@ -830,8 +839,8 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
         \\|"hello \|(|user)"
     ));
     try snap(@src(),
-        \\@0 [bind [ref @1 "builtin"] [ref @2 "__builtin__"] @0]
-    , try testParser(&out, .{}, "|#|builtin |__builtin__"));
+        \\@0 [bind [ref @0 "builtin"] @1 [ref @2 "__builtin__"]]
+    , try testParser(&out, .{}, "|builtin |:= |__builtin__"));
 
     // extending a = b syntax
     // a = b defines a map_entry
