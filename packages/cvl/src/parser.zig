@@ -176,6 +176,7 @@ const AstNode = struct {
         ref,
         access, // a.b.c => [access [access a @0 b] @1 c]
         key,
+        slot,
 
         // atom
         string_offset,
@@ -604,7 +605,14 @@ const Parser = struct {
     }
     fn tryParseExprWithSuffixes(p: *Parser) bool {
         const start = p.here();
-        if (!p.tryParseExprFinal()) return false;
+        if (!p.tryParseExprFinal()) {
+            if (p.tokenizer.token == .dot) {
+                // continue to suffix parsing
+                p.wrapExpr(.slot, start.node);
+            } else {
+                return false;
+            }
+        }
         while (true) {
             _ = p.tryEatWhitespace();
             switch (p.tokenizer.token) {
@@ -661,13 +669,6 @@ const Parser = struct {
                 p.wrapErr(start.node, start.src, "Invalid expr type for decl ref: {s}", .{@tagName(t)});
             },
         }
-    }
-    fn ensureValidEqualsLhs(p: *Parser, start: Here) void {
-        _ = p;
-        _ = start;
-        @panic("TODO transform:  `a.b.c = d` => `[set_prop a.b c d]`");
-        // if set lhs must be a pointer, then we don't even need to do this
-        // all vars are constant. `=` implies pointer set.
     }
     fn tryParseExpr(p: *Parser) bool {
         return p.tryParseExprWithSuffixes();
@@ -846,10 +847,9 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     try snap(@src(),
         \\@0 [call [access [access [ref @1 "std"] @2 [key @3 "math"]] @4 [key @5 "pow"]] @6 [string "abc" @7]]
     , try testParser(&out, .{}, "|  |std|.|math|.|pow|: |\"abc\" "));
-    // TODO: implicit access
-    // try snap(@src(),
-    //     \\@0 [map_entry [key @1 "key"] @2 [ref @3 "value"]]
-    // , try testParser(&out, .{}, "|  |.key |= |value "));
+    try snap(@src(),
+        \\@0 [map_entry [access [slot] @1 [key @2 "key"]] @3 [ref @4 "value"]]
+    , try testParser(&out, .{}, "|  |.|key |= |value "));
     // TODO: string escapes
     // try snap(@src(), "@0 [string \"\\x1b[3m\\xe1\\x88\\xb4\\\"\" @0]", try testParser(&out, .{}, "|\"\\x1b[3m\\u{1234}\\\"\""));
     try snap(@src(),
@@ -860,6 +860,9 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     try snap(@src(),
         \\@0 [bind [ref @0 "builtin"] @1 [ref @2 "__builtin__"]]
     , try testParser(&out, .{}, "|builtin |:= |__builtin__"));
+    try snap(@src(),
+        \\@0 [call [code [call [access [slot] @1 [key @2 "implicit"]] @3 [access [slot] @4 [key @5 "arg1"]]] @0] @6 [access [slot] @7 [key @8 "arg2"]]]
+    , try testParser(&out, .{}, "|(|.|implicit|: |.|arg1)|: |.|arg2"));
 
     // extending a = b syntax
     // a = b defines a map_entry
