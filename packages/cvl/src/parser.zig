@@ -650,6 +650,25 @@ const Parser = struct {
             },
         }
     }
+    fn ensureValidDeclLhs(p: *Parser, start: Here) void {
+        var err = AstNode.Tag.err;
+        const last_posted_expr = if (p.out_nodes.len > 0) &p.out_nodes.items(.tag)[p.out_nodes.len - 1] else &err;
+        switch (last_posted_expr.*) {
+            .ref => {
+                // ok
+            },
+            else => |t| {
+                p.wrapErr(start.node, start.src, "Invalid expr type for decl ref: {s}", .{@tagName(t)});
+            },
+        }
+    }
+    fn ensureValidEqualsLhs(p: *Parser, start: Here) void {
+        _ = p;
+        _ = start;
+        @panic("TODO transform:  `a.b.c = d` => `[set_prop a.b c d]`");
+        // if set lhs must be a pointer, then we don't even need to do this
+        // all vars are constant. `=` implies pointer set.
+    }
     fn tryParseExpr(p: *Parser) bool {
         return p.tryParseExprWithSuffixes();
     }
