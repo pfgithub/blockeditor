@@ -7,6 +7,30 @@
 // first it asks A and then it asks the extension. if A:has('m') false, checks Extension:has(a, m)
 // %extend myextensions;
 
+Vector2 := [%comptime T] => struct [
+%fields;
+    .x: T = 0,
+    .y: T = 0,
+
+%on_type;
+    .init = [] => Vector2[];
+
+    + = onEach: [a, b] => a + b; // slot or lhs
+    - = onEach: [a, b] => a - b; // slot or lhs
+    * = onEach: [a, b] => a * b; // slot or lhs
+    / = onEach: [a, b] => a / b; // slot or lhs
+    == = onEach: [a, b] => a == b; // lhs only
+    != = onEach: [a, b] => a != b; // lhs only
+
+    // a := Vector2[f32]: [1, 1] + [2, 2]; // Vector2[T].+[a, b]
+    // a := Vector2[f32][1, 1] + [2, 2]; // a.+[b]
+    // a := [1, 1] + Vector2[f32][2, 2]; // 'unknown' does not support builtin.fromMap
+
+    // a := Vector2[bool]: [1, 1] == [2, 2]; // neither 'unknown' nor 'bool' supports '=='
+    // a := Vector2[i32][1, 1] == [2, 2]; // ok
+    // a := [1, 1] == Vector2[i32][2, 2]; // 'unknown' does not support builtin.fromMap
+];
+
 builtin := #builtin;
 std := builtin.import: .std;
 start := [] => std.noreturn: (
