@@ -61,7 +61,12 @@ pub fn IdArrayMapUnmanaged(comptime V: type) type {
 const Beui2FrameCfg = struct {
     size: @Vector(2, f32),
 };
-const Beui2Frame = struct { arena: std.mem.Allocator, frame_cfg: Beui2FrameCfg, scroll_target: ?ScrollTarget };
+const Beui2Frame = struct {
+    arena: std.mem.Allocator,
+    frame_cfg: Beui2FrameCfg,
+    scroll_target: ?ScrollTarget,
+    overlay_rdl: *RepositionableDrawList,
+};
 const ScrollTarget = struct {
     id: ID,
     scroll: @Vector(2, f32),
@@ -399,7 +404,9 @@ pub const Beui2 = struct {
             .arena = next_arena.allocator(),
             .frame_cfg = frame_cfg,
             .scroll_target = scroll_target,
+            .overlay_rdl = undefined,
         };
+        self.frame.overlay_rdl = self.draw();
 
         const res_id: ID = .{
             .b2 = self,
@@ -410,6 +417,7 @@ pub const Beui2 = struct {
         return res_id;
     }
     pub fn endFrame(self: *Beui2, rdl: *RepositionableDrawList, renderlist: ?*render_list.RenderList) void {
+        rdl.place(self.frame.overlay_rdl, .{});
         self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
         rdl.finalize(.{
             .out_list = renderlist,
@@ -1301,9 +1309,37 @@ pub fn button(call_info: StandardCallInfo, ehdl: ButtonEhdl, child_component: Co
     });
     return .{ .size = child.size, .rdl = draw };
 }
+const CxState = struct {
+    anchor_pos: ?@Vector(2, f32),
+    fn init(res: *CxState, _: void) void {
+        res.* = .{ .anchor_pos = null };
+    }
+    fn deinit(res: *CxState, _: void) void {
+        _ = res;
+    }
+};
 pub fn contextMenuHolder(call_info: StandardCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
-    _ = call_info;
-    _ = child_component;
+    const ui = call_info.ui(@src());
+    const cxs = ui.id.b2.state2(ui.id.sub(@src()), {}, CxState);
+    if (cxs.anchor_pos) |anchor_pos| {
+        var res_pos = anchor_pos;
+        const screen_size = ui.id.b2.frame.frame_cfg.size;
+        // consider:
+        // - based on anchor_pos, limit size to @max( res_pos, screen_size - res_pos )
+        // - then, based on size choose whether to place the thing above or below the anchor pos, prefer below
+        // - we will have one frame delay if we want the unrounded corner to show up in the right place unless
+        //   we make it draw the contents first and then draw the background in a second call, which we could
+        //   do if we want
+
+        // append a render to the final rdl
+        const render_res = child_component.call(.{ .caller_id = ui.id.sub(@src()), .constraints = .{ .available_size = .{ .w = screen_size[0], .h = screen_size[1] } } }, {});
+        // position
+        for (0..2) |i| if (res_pos[i] + render_res.size[i] > screen_size[i]) {
+            res_pos[i] = screen_size[i] - render_res.size[i];
+        };
+        // place in the final
+        ui.id.b2.frame.overlay_rdl.place(render_res.rdl, .{ .offset = res_pos });
+    }
     // this thing has state
     // on right click: set context menu true
     // when context menu true: add a context menu render to the global draw list

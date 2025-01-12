@@ -449,6 +449,8 @@ pub fn renderWindows(ctx: RenderWindowCtx, size: @Vector(2, f32)) *B2.Reposition
         } else null, win_info.pos, win_info.size);
     }
 
+    // bg right click handler
+    // b2.contextMenuHolder(.{});
     // background
     rdl.addRect(.{ .pos = .{ 0, 0 }, .size = size, .tint = colors.window_bg });
 
