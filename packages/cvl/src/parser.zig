@@ -124,6 +124,10 @@ fn dumpAst(tree: *const AstTree, root: AstExpr, w: std.io.AnyWriter, positions: 
             try w.print("@{d}", .{idx});
             return;
         },
+        .slot => {
+            try w.print("slot", .{});
+            return;
+        },
         else => {},
     }
     if (!skip_outer) try w.print("[{s}", .{@tagName(tree.tag(root))});
@@ -176,7 +180,6 @@ const AstNode = struct {
         ref,
         access, // a.b.c => [access [access a @0 b] @1 c]
         key,
-        slot,
         defer_expr,
         builtin,
 
@@ -184,12 +187,14 @@ const AstNode = struct {
         string_offset,
         string_len,
         srcloc,
+        slot,
 
         fn isAtom(tag: Tag) bool {
             return switch (tag) {
                 .string_offset => true,
                 .string_len => true,
                 .srcloc => true,
+                .slot => true,
                 else => false,
             };
         }
@@ -666,7 +671,7 @@ const Parser = struct {
         if (!p.tryParseExprFinal()) {
             if (p.tokenizer.token == .dot) {
                 // continue to suffix parsing
-                p.wrapExpr(.slot, start.node, start.src);
+                p.postAtom(.slot, 0);
             } else {
                 return false;
             }
@@ -675,10 +680,11 @@ const Parser = struct {
             _ = p.tryEatWhitespace();
             switch (p.tokenizer.token) {
                 .colon => {
+                    const call_src = p.here().src;
                     p.assertEatToken(.colon, .root);
                     _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
                     if (p.tryParseExpr()) {
-                        p.wrapExpr(.call, start.node, p.here().src);
+                        p.wrapExpr(.call, start.node, call_src);
                         break;
                     } else {
                         p.wrapErr(start.node, p.here().src, "Expected expr after ':'", .{});
@@ -883,45 +889,55 @@ const snap = @import("anywhere").util.testing.snap;
 fn doTestParser(gpa: std.mem.Allocator) !void {
     var out = std.ArrayList(u8).init(gpa);
     defer out.deinit();
-    try snap(@src(), "[string \"Hello, world!\" @0] @0", try testParser(&out, .{}, "|\"Hello, world!\""));
-    try snap(@src(), "[err [err_skip [string \"Hello, world!\" @0]] @1 \"Expected \\\" to end string, found eof\"] @0", try testParser(&out, .{}, "|\"Hello, world!|"));
     try snap(@src(),
-        \\[err [err_skip [map @0 [string "Hello, world!" @0]]] @1 "Invalid byte in file: 0x1B"]
+        \\[string "Hello, world!" @0] @0
+    , try testParser(&out, .{}, "|\"Hello, world!\""));
+    try snap(@src(),
+        \\[err [err_skip [string "Hello, world!" @0] @1] "Expected \" to end string, found eof" @1] @0
+    , try testParser(&out, .{}, "|\"Hello, world!|"));
+    try snap(@src(),
+        \\[err [err_skip [map [string "Hello, world!" @0] @0] @1] "Invalid byte in file: 0x1B" @1]
     , try testParser(&out, .{}, "|\"Hello, world!|\x1b\""));
-    try snap(@src(), "@0 [ref @0 \"abc\"]", try testParser(&out, .{}, "|abc"));
-    try snap(@src(), "[err [err_skip [map @0 [ref @0 \"abc\"]]] @1 \"Unexpected token: rcurly\"]", try testParser(&out, .{}, "|abc|}"));
-    try snap(@src(), "@0 [ref @1 \"abc\"] [ref @2 \"def\"] [ref @3 \"ghi\"]", try testParser(&out, .{}, "|  |abc, |def   ;|ghi "));
     try snap(@src(),
-        \\@0 [call [access [access [ref @1 "std"] @2 [key @3 "math"]] @4 [key @5 "pow"]] @6 [string "abc" @7]]
+        \\[ref "abc" @0] @0
+    , try testParser(&out, .{}, "|abc"));
+    try snap(@src(),
+        \\[err [err_skip [map [ref "abc" @0] @0] @1] "Unexpected token: rcurly" @1]
+    , try testParser(&out, .{}, "|abc|}"));
+    try snap(@src(),
+        \\[ref "abc" @1] [ref "def" @2] [ref "ghi" @3] @0
+    , try testParser(&out, .{}, "|  |abc, |def   ;|ghi "));
+    try snap(@src(),
+        \\[call [access [access [ref "std" @1] [key "math" @3] @2] [key "pow" @5] @4] [string "abc" @7] @6] @0
     , try testParser(&out, .{}, "|  |std|.|math|.|pow|: |\"abc\" "));
     try snap(@src(),
-        \\@0 [map_entry [access [slot] @1 [key @2 "key"]] @3 [ref @4 "value"]]
+        \\[map_entry [access slot [key "key" @2] @1] [ref "value" @4] @3] @0
     , try testParser(&out, .{}, "|  |.|key |= |value "));
     // TODO: string escapes
     // try snap(@src(), "@0 [string \"\\x1b[3m\\xe1\\x88\\xb4\\\"\" @0]", try testParser(&out, .{}, "|\"\\x1b[3m\\u{1234}\\\"\""));
     try snap(@src(),
-        \\@0 [string "hello " [code [ref @2 "user"] @1] "" @0]
+        \\[string "hello " [code [ref "user" @2] @1] "" @0] @0
     , try testParser(&out, .{},
         \\|"hello \|(|user)"
     ));
     try snap(@src(),
-        \\[err [err_skip [map @0 [string "hello " [code [ref @2 "user"] @1] "" @0]]] @<9> "Newline not allowed inside string"]
+        \\[err [err_skip [map [string "hello " [code [ref "user" @3] @1] "" @0] @0] @2] "Newline not allowed inside string" @2]
     , try testParser(&out, .{},
-        \\|"hello \|(
+        \\|"hello \|(|
         \\  |user
         \\)"
     ));
     try snap(@src(),
-        \\@0 [bind [ref @0 "builtin"] @1 [ref @2 "__builtin__"]]
+        \\[bind [ref "builtin" @0] [ref "__builtin__" @2] @1] @0
     , try testParser(&out, .{}, "|builtin |:= |__builtin__"));
     try snap(@src(),
-        \\@0 [call [code [call [access [slot] @1 [key @2 "implicit"]] @3 [access [slot] @4 [key @5 "arg1"]]] @0] @6 [access [slot] @7 [key @8 "arg2"]]]
+        \\[call [code [call [access slot [key "implicit" @2] @1] [access slot [key "arg1" @5] @4] @3] @0] [access slot [key "arg2" @8] @7] @6] @0
     , try testParser(&out, .{}, "|(|.|implicit|: |.|arg1)|: |.|arg2"));
     try snap(@src(),
-        \\@0 [code [defer_expr [ref @2 "error"] @1] @0]
+        \\[code [defer_expr [ref "error" @2] @1] @0] @0
     , try testParser(&out, .{}, "|(|#defer |error)"));
     try snap(@src(),
-        \\@0 [access [ref @0 "my identifier"] @1 [key @2 "my field"]]
+        \\[access [ref "my identifier" @0] [key "my field" @2] @1] @0
     , try testParser(&out, .{}, "|#\"my identifier\"|.|#\"my field\""));
     // try snap(@src(),
     //     \\
