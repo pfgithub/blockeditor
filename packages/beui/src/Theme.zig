@@ -214,7 +214,8 @@ fn drawWindowNode(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, parent_
         },
         .split => |s| {
             const len_f: f32 = @floatFromInt(s.children.items.len);
-            const rem_space: f32 = s.axis.flip(offset_size)[0] - (len_f - 1.0) * border_width;
+            const w = border_width * 2;
+            const rem_space: f32 = s.axis.flip(offset_size)[0] - (len_f - 1.0) * w;
             const per_child_space: f32 = @floor(rem_space / len_f);
             var child_size = s.axis.flip(offset_size);
             child_size[0] = per_child_space;
@@ -226,12 +227,12 @@ fn drawWindowNode(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, parent_
             for (s.children.items, 0..) |ch, i| {
                 if (i != 0) {
                     if (child_top) |t| {
-                        drawDropPoint(man, man.idForFrame(@src(), ch), ch, .left, t.rdl, s.axis.flip(@Vector(2, f32){ pos[0] - border_width, pos[1] }), s.axis.flip(@Vector(2, f32){ border_width, child_size[1] }));
+                        drawDropPoint(man, man.idForFrame(@src(), ch), ch, .left, t.rdl, s.axis.flip(@Vector(2, f32){ pos[0] - w, pos[1] }), s.axis.flip(@Vector(2, f32){ w, child_size[1] }));
                     }
                     captureResize(rdl, man, man.idForFrame(@src(), ch), .{ .resize = .{ .window = man.wm.findRoot(win), .sides = .all, .cursor = switch (s.axis) {
                         .x => .resize_ew,
                         .y => .resize_ns,
-                    } } }, s.axis.flip(@Vector(2, f32){ pos[0] - border_width, pos[1] }), s.axis.flip(@Vector(2, f32){ border_width, child_size[1] }));
+                    } } }, s.axis.flip(@Vector(2, f32){ pos[0] - w, pos[1] }), s.axis.flip(@Vector(2, f32){ w, child_size[1] }));
                 }
                 drawWindowNode(
                     ctx,
@@ -242,7 +243,7 @@ fn drawWindowNode(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, parent_
                     s.axis.flip(child_size),
                     .{ .parent_is_tabs = false },
                 );
-                pos[0] += per_child_space + border_width;
+                pos[0] += per_child_space + w;
             }
         },
         else => std.debug.panic("TODO: {s}", .{@tagName(frame.self)}),
