@@ -9,11 +9,13 @@
 
 builtin := #builtin;
 std := builtin.import: .std;
-start := %fn(std.void) std.noreturn: (
+start := [] => std.noreturn: (
     (
         %defer std.log.info: "at end of scope";
         world := (std.slice: std.u8): "world";
         std.log.info: "Hello \(world)!";
+
+        std.for[ ["abc", "def"] ]: val(std.void) => std.log.info: "abc\(val)";
     )
     std.process.exit: 0;
 );

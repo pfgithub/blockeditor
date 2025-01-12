@@ -182,6 +182,8 @@ const AstNode = struct {
         key,
         defer_expr,
         builtin,
+        fn_def,
+        init_void,
 
         // atom
         string_offset,
@@ -228,6 +230,7 @@ const Token = enum {
     bracket,
     equals,
     colon_equals,
+    equals_gt,
     inline_comment,
     hashtag,
     kw_defer,
@@ -252,6 +255,7 @@ const reserved_symbols_map = std.StaticStringMap(Token).initComptime(.{
     .{ ":", .colon },
     .{ "//", .inline_comment },
     .{ "#", ._maybe_keyword },
+    .{ "=>", .equals_gt },
 });
 const keywords_map = std.StaticStringMap(Token).initComptime(.{
     .{ "defer", .kw_defer },
@@ -640,16 +644,24 @@ const Parser = struct {
                 p.assertEatToken(.lparen, .root);
 
                 _ = p.tryEatWhitespace();
-                while (p.tryParseCodeExpr()) {
+                const needs_injected_void = while (p.tryParseCodeExpr()) {
                     _ = p.tryEatWhitespace();
-                    if (!p.tryEatToken(.sep, .root)) break;
+                    if (!p.tryEatToken(.sep, .root)) break false;
                     _ = p.tryEatWhitespace();
-                }
+                } else true;
 
+                if (needs_injected_void) p.wrapExpr(.init_void, p.here().node, p.here().src);
                 if (!p.tryEatToken(.rparen, .root)) {
                     p.wrapErr(start.node, p.here().src, "Expected ')' to end code block", .{});
                 }
                 p.wrapExpr(.code, start.node, start.src);
+            },
+            .lbracket => {
+                p.assertEatToken(.lbracket, .root);
+                p.parseMapContents(start.src);
+                if (!p.tryEatToken(.rbracket, .root)) {
+                    p.wrapErr(start.node, p.here().src, "Expected ']' to end map", .{});
+                }
             },
             .kw_builtin => {
                 p.assertEatToken(.kw_builtin, .root);
@@ -679,17 +691,33 @@ const Parser = struct {
         while (true) {
             _ = p.tryEatWhitespace();
             switch (p.tokenizer.token) {
-                .colon => {
+                .colon, .equals_gt => |x| {
                     const call_src = p.here().src;
-                    p.assertEatToken(.colon, .root);
+                    if (x == .equals_gt) p.ensureValidDeclLhs(start);
+                    p.assertEatToken(x, .root);
                     _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
+                    const before_exprparse = p.here();
                     if (p.tryParseExpr()) {
-                        p.wrapExpr(.call, start.node, call_src);
+                        switch (x) {
+                            .colon => {
+                                p.ensureExprValidColoncallTarget(before_exprparse);
+                                // if we support map call & code call, consider disallowing those with a colon
+                                // ie `a: [b]` disallowed, requires `a[b]`. same `a: (b)` disallowed.
+                                p.wrapExpr(.call, start.node, call_src);
+                            },
+                            .equals_gt => p.wrapExpr(.fn_def, start.node, call_src),
+                            else => unreachable,
+                        }
                         break;
                     } else {
                         p.wrapErr(start.node, p.here().src, "Expected expr after ':'", .{});
                         break;
                     }
+                },
+                .lparen, .lcurly => {
+                    const call_src = p.here().src;
+                    std.debug.assert(p.tryParseExprFinal());
+                    p.wrapExpr(.call, start.node, call_src);
                 },
                 .dot => {
                     const srcloc = p.here().src;
@@ -721,6 +749,19 @@ const Parser = struct {
             },
         }
     }
+    fn ensureExprValidColoncallTarget(p: *Parser, start: Here) void {
+        var err = AstNode.Tag.err;
+        const last_posted_expr = if (p.out_nodes.len > 0) &p.out_nodes.items(.tag)[p.out_nodes.len - 1] else &err;
+        switch (last_posted_expr.*) {
+            .map, .code => |t| {
+                // a: (b)[c] is ok but `a: (b)` is not; must do `a(b)`
+                p.wrapErr(start.node, start.src, "Cannot colon call with {s}, must {s} call instead.", .{ @tagName(t), @tagName(t) });
+            },
+            else => {
+                // ok
+            },
+        }
+    }
     fn ensureValidDeclLhs(p: *Parser, start: Here) void {
         var err = AstNode.Tag.err;
         const last_posted_expr = if (p.out_nodes.len > 0) &p.out_nodes.items(.tag)[p.out_nodes.len - 1] else &err;
@@ -728,7 +769,22 @@ const Parser = struct {
             .ref => {
                 // ok
             },
+            .call => {
+                // name(type)
+                // or `name: type` where allowed
+            },
+            // .map => {
+            // we want to support:
+            // - required: bind name
+            // - optional: type, default value,
+            // we're trying to make like struct def syntax & destructure syntax in one. let's hold off for later
+            // this isn't just `const [a, b, c] = mystruct[1, 2, 3]`, it's `const [a: i32] = [25]` and `const [a: i32 = 5] = []`
+            //    and `const [.named a: i32] = [.named = 36]; print(a)`
+            // maybe we should figure out struct def syntax first
+            // },
             else => |t| {
+                // TODO: support destructuring
+                // not entirely sure how to do it well. especially to handle like args and stuff.
                 p.wrapErr(start.node, start.src, "Invalid expr type for decl ref: {s}", .{@tagName(t)});
             },
         }
@@ -761,6 +817,9 @@ const Parser = struct {
         const eql_loc = p.here();
         switch (p.tokenizer.token) {
             .equals, .colon_equals => |t| {
+                if (t == .colon_equals) {
+                    p.ensureValidDeclLhs(p.here());
+                }
                 p.assertEatToken(t, .root);
                 _ = p.tryEatWhitespace();
                 if (!p.tryParseExpr()) {
@@ -939,6 +998,9 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     try snap(@src(),
         \\[access [ref "my identifier" @0] [key "my field" @2] @1] @0
     , try testParser(&out, .{}, "|#\"my identifier\"|.|#\"my field\""));
+    try snap(@src(),
+        \\[fn_def [call [ref "arg" @0] [code [ref "ArgType" @2] @1] @1] [ref "body" @4] @3] @0
+    , try testParser(&out, .{}, "|arg|(|ArgType) |=> |body"));
     // try snap(@src(),
     //     \\
     // , try testParser(&out, .{}, @embedFile("sample.cvl")));
