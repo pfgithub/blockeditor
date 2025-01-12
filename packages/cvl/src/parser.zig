@@ -1041,3 +1041,33 @@ pub const StringContext = struct {
         return std.mem.eql(u8, self.strings_buf[item_key.offset..][0..item_key.len], self.strings_buf[fetch_key.offset..][0..fetch_key.len]);
     }
 };
+
+// struct syntax:
+//   fields:
+//   - (destructuring only): required binding name
+//   - optional name (none = tuple)
+//   - required type (optional when destructuring)
+//   - optional default value
+//   publics: type vs value
+//   - all decls define getters
+//   - there are no setters because setting requires a pointer. so a setter is just a
+//     getter that returns a mutable pointer
+//   - a public value is a comptime field in zig. same thing
+//   decls:
+//   - it would be nice to be able to define a decl and a public at the same time
+//
+// so destructuring is:
+//    bind ?.name :: ?type := ?value
+// regular is
+//    ?.name :: type = ?value
+// accessor is
+//    %comptime ?.name = value
+// decl is
+//    bind := value
+// binding type accessor is
+//    bind ?.name := value
+// binding value accessor is
+//    bind ?.name := value
+//
+// maybe we seperate static and value things?
+// ??????????
