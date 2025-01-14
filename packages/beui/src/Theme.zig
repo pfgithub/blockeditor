@@ -6,9 +6,10 @@ const WM = @import("wm.zig");
 const std = @import("std");
 
 pub const window_padding: f32 = border_width * 2;
-const border_width: f32 = 6.0;
+pub const border_width: f32 = 6.0;
 
 pub const colors = struct {
+    pub const window_border: Beui.Color = .fromHexRgb(0x000000);
     pub const window_bg: Beui.Color = .fromHexRgb(0x2e2e2e);
     pub const window_active_tab: Beui.Color = .fromHexRgb(0x4D4D4D);
     pub const window_drop_spot: Beui.Color = .fromHexRgb(0xA5D8FF);
@@ -75,7 +76,7 @@ fn drawWindowTabbed_closeButtonChild(_: *CollapseData, call_info: B2.StandardCal
             .pos = .{ 2, 2 },
             .size = .{ titlebar_height - 4, titlebar_height - 4 },
             .tint = colors.window_active_tab,
-            .rounding = .{ .corners = .all, .radius = 6.0 },
+            .rounding = .{ .corners = .all, .radius = border_width },
         });
     }
     return .{ .rdl = rdl, .size = .{ titlebar_height, titlebar_height } };
@@ -102,7 +103,7 @@ fn drawWindowTabbed_collapseButtonChild(data: *CollapseData, call_info: B2.Stand
             .pos = .{ 2, 2 },
             .size = .{ titlebar_height - 4, titlebar_height - 4 },
             .tint = colors.window_active_tab,
-            .rounding = .{ .corners = .all, .radius = 6.0 },
+            .rounding = .{ .corners = .all, .radius = border_width },
         });
     }
     return .{ .rdl = rdl, .size = .{ titlebar_height, titlebar_height } };
@@ -140,7 +141,7 @@ fn drawWindowTabbed(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, top: 
         .pos = tab_pos,
         .size = tab_size,
         .tint = colors.window_active_tab,
-        .rounding = .{ .corners = .all, .radius = 6.0 },
+        .rounding = .{ .corners = .all, .radius = border_width },
     });
     // const user_state_id = window_id.sub(@src());
     // rdl.addUserState(user_state_id, void, &{});
@@ -151,7 +152,7 @@ fn drawWindowTabbed(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, top: 
         .pos = offset_pos,
         .size = .{ offset_size[0], titlebar_height },
         .tint = colors.window_bg,
-        .rounding = .{ .corners = .all, .radius = 6.0 },
+        .rounding = .{ .corners = .all, .radius = border_width },
     });
     captureResize(rdl, man, window_id.sub(@src()), .{ .resize = .{ .window = man.wm.findRoot(win), .sides = .all } }, offset_pos, .{ offset_size[0], titlebar_height + border_width });
     const current_tab_node = for (tabs) |tab| {
@@ -395,8 +396,8 @@ pub fn drawFloatingContainer(ctx: RenderWindowCtx, frame: WM.WM.FrameID, rdl: *B
     rdl.addRect(.{
         .pos = whole_pos,
         .size = whole_size,
-        .tint = .fromHexRgb(0x000000),
-        .rounding = .{ .corners = .all, .radius = 12.0 },
+        .tint = colors.window_border,
+        .rounding = .{ .corners = .all, .radius = border_width * 2 },
     });
 
     // add the fallthrough capture so events don't fall through the black rectangle
@@ -420,6 +421,7 @@ pub const RenderWindowCtx = struct {
 };
 pub fn renderWindows(ctx: RenderWindowCtx, size: @Vector(2, f32)) *B2.RepositionableDrawList {
     const rdl = ctx.b2.draw();
+    _ = size;
 
     const incl_top = ctx.man.wm.dragging != WM.WM.FrameID.not_set;
 
@@ -448,11 +450,6 @@ pub fn renderWindows(ctx: RenderWindowCtx, size: @Vector(2, f32)) *B2.Reposition
             .skip = .none,
         } else null, win_info.pos, win_info.size);
     }
-
-    // bg right click handler
-    // b2.contextMenuHolder(.{});
-    // background
-    rdl.addRect(.{ .pos = .{ 0, 0 }, .size = size, .tint = colors.window_bg });
 
     return rdl;
 }

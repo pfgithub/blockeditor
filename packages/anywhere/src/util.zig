@@ -239,6 +239,7 @@ pub fn Queue(comptime T: type) type {
 }
 
 pub fn Callback(comptime Arg_: type, comptime Ret_: type) type {
+    // callback2: pub const ArgsTuple = std.meta.Tuple(Args);
     return struct {
         const Self = @This();
         cb: *const fn (data: usize, arg: Arg) Ret,

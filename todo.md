@@ -113,6 +113,15 @@ Tasks:
 - [ ] consider switching to sdl3 https://ziggit.dev/t/sdl3-ported-to-the-zig-build-system-with-example-games/7606 (supports cross-compiling to windows & linux. not mac though :/) (also missing aarch64-linux)
 - [x] pdb is not outputted on windows for blockeditor.exe
 - [ ] maybe try https://github.com/benburkert/freestanding.zig?tab=readme-ov-file#freestandingdebuginfo for risc-v?
+- [ ] make risc-v emulator fully serializable & reproducible
+  - all syscalls that mutate memory have to save what they changed
+  - this gives us fun stuff: capturing a stack trace in debug is as simple
+    as `mytrace = emu.getTime()` and then when it's needed, we can
+    say `emu.getStacktraces(trace_1, trace_2, ...)` and it will sort them
+    and replay the emu to get the traces.
+    - in zig, gpa incurs a high cost saving all those stacktraces
+    - in rvemu, saving stacktraces is practically free. but getting them
+      back takes some time.
 
 wishlist:
 

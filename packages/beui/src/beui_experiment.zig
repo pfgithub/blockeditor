@@ -417,9 +417,9 @@ pub const Beui2 = struct {
         return res_id;
     }
     pub fn endFrame(self: *Beui2, rdl: *RepositionableDrawList, renderlist: ?*render_list.RenderList) void {
-        rdl.place(self.frame.overlay_rdl, .{});
+        self.frame.overlay_rdl.place(rdl, .{});
         self.persistent.prev_frame_draw_list_states.clearRetainingCapacity();
-        rdl.finalize(.{
+        self.frame.overlay_rdl.finalize(.{
             .out_list = renderlist,
             .out_events = &self.persistent.last_frame_mouse_events,
             .out_mouse_events = &self.persistent.last_frame_mouse2_events,
@@ -1197,6 +1197,10 @@ const ListIndex = struct {
     }
 };
 
+const ContextMenuConstraints = struct {
+    screen_size: @Vector(2, f32),
+    click_pos: @Vector(2, f32),
+};
 const StandardConstraints = struct {
 
     // so for each axis, we have:
@@ -1224,28 +1228,39 @@ pub const StandardChild = struct {
     rdl: *RepositionableDrawList,
 };
 
-pub const StandardCallInfo = struct {
-    caller_id: ID,
-    constraints: StandardConstraints,
-    pub fn ui(self: StandardCallInfo, src: std.builtin.SourceLocation) StandardUI {
-        return .{ .id = self.caller_id.sub(src), .constraints = self.constraints };
-    }
-};
-pub const StandardUI = struct {
-    id: ID,
-    constraints: StandardConstraints,
-    pub fn sub(self: StandardUI, src: std.builtin.SourceLocation) StandardCallInfo {
-        return .{ .caller_id = self.id.sub(src), .constraints = self.constraints };
-    }
-    pub fn subWithOffset(self: StandardUI, src: std.builtin.SourceLocation, subtract_size: @Vector(2, f32)) StandardCallInfo {
-        var res_constraints = self.constraints;
-        if (res_constraints.available_size.w) |*w| w.* -= subtract_size[0];
-        if (res_constraints.available_size.h) |*h| h.* -= subtract_size[1];
-        return .{ .caller_id = self.id.sub(src), .constraints = res_constraints };
-    }
-};
+pub fn ConstrainedCallInfo(comptime Constraints: type) type {
+    return struct {
+        pub const CallInfo = struct {
+            caller_id: ID,
+            constraints: Constraints,
+            pub fn ui(self: CallInfo, src: std.builtin.SourceLocation) UI {
+                return .{ .id = self.caller_id.sub(src), .constraints = self.constraints };
+            }
+        };
+        pub const UI = struct {
+            id: ID,
+            constraints: Constraints,
+            pub fn sub(self: UI, src: std.builtin.SourceLocation) CallInfo {
+                return .{ .caller_id = self.id.sub(src), .constraints = self.constraints };
+            }
+            pub fn subWithOffset(self: UI, src: std.builtin.SourceLocation, subtract_size: @Vector(2, f32)) StandardCallInfo {
+                var res_constraints = self.constraints;
+                if (res_constraints.available_size.w) |*w| w.* -= subtract_size[0];
+                if (res_constraints.available_size.h) |*h| h.* -= subtract_size[1];
+                return .{ .caller_id = self.id.sub(src), .constraints = res_constraints };
+            }
+        };
+    };
+}
+pub const SizedCallInfo = ConstrainedCallInfo(@Vector(2, f32)).CallInfo;
+pub const SizedUI = ConstrainedCallInfo(@Vector(2, f32)).UI;
+pub const StandardCallInfo = ConstrainedCallInfo(StandardConstraints).CallInfo;
+pub const StandardUI = ConstrainedCallInfo(StandardConstraints).UI;
+pub const ContextMenuCallInfo = ConstrainedCallInfo(ContextMenuConstraints).CallInfo;
+pub const ContextMenuUI = ConstrainedCallInfo(ContextMenuConstraints).UI;
 pub const BetweenFrameCallback = Component;
 pub fn Component(comptime Arg1: type, comptime Arg2: type, comptime Ret: type) type {
+    // TODO: replace with anywhere.util.Callback
     return struct {
         ctx: *anyopaque,
         fn_ptr: *const fn (ctx: *anyopaque, arg1: Arg1, arg2: Arg2) Ret,
@@ -1314,11 +1329,28 @@ const CxState = struct {
     fn init(res: *CxState, _: void) void {
         res.* = .{ .anchor_pos = null };
     }
-    fn deinit(res: *CxState, _: void) void {
+    fn deinit(res: *CxState) void {
         _ = res;
     }
 };
-pub fn contextMenuHolder(call_info: StandardCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
+fn contextMenuHolder__overlay__onMouseEvent(cxs: *CxState, b2: *Beui2, ev: MouseEvent) ?Beui.Cursor {
+    if (ev.action == .down) {
+        cxs.anchor_pos = null;
+    }
+    _ = b2;
+    return .arrow;
+}
+fn contextMenuHolder__clickArea__onMouseEvent(cxs: *CxState, b2: *Beui2, ev: MouseEvent) ?Beui.Cursor {
+    _ = b2;
+    if (ev.action == .down) {
+        cxs.anchor_pos = ev.pos.?;
+    }
+    if (ev.action == .up) {
+        // if held for more than ?ms, allow click-and-release
+    }
+    return .arrow;
+}
+pub fn contextMenuHolder(call_info: SizedCallInfo, context_menu: Component(ContextMenuCallInfo, void, StandardChild)) *RepositionableDrawList {
     const ui = call_info.ui(@src());
     const cxs = ui.id.b2.state2(ui.id.sub(@src()), {}, CxState);
     if (cxs.anchor_pos) |anchor_pos| {
@@ -1332,22 +1364,51 @@ pub fn contextMenuHolder(call_info: StandardCallInfo, child_component: Component
         //   do if we want
 
         // append a render to the final rdl
-        const render_res = child_component.call(.{ .caller_id = ui.id.sub(@src()), .constraints = .{ .available_size = .{ .w = screen_size[0], .h = screen_size[1] } } }, {});
+        const render_res = context_menu.call(.{ .caller_id = ui.id.sub(@src()), .constraints = .{ .screen_size = screen_size, .click_pos = res_pos } }, {});
         // position
         for (0..2) |i| if (res_pos[i] + render_res.size[i] > screen_size[i]) {
             res_pos[i] = screen_size[i] - render_res.size[i];
         };
         // place in the final
-        ui.id.b2.frame.overlay_rdl.place(render_res.rdl, .{ .offset = res_pos });
+        ui.id.b2.frame.overlay_rdl.place(render_res.rdl, .{});
+        // place click eater
+        ui.id.b2.frame.overlay_rdl.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, screen_size, .{
+            .onMouseEvent = .from(cxs, contextMenuHolder__overlay__onMouseEvent),
+        });
     }
+    const rdl = ui.id.b2.draw();
+    rdl.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, ui.constraints, .{
+        .onMouseEvent = .from(cxs, contextMenuHolder__clickArea__onMouseEvent),
+    });
+
     // this thing has state
     // on right click: set context menu true
     // when context menu true: add a context menu render to the global draw list
     // inside the context menu: render it with max width & max height = to the screen size
     // also behind it we render a rectangle where clicks fall through but if you click it it closes the menu
     // if this component is deleted, the menu closes instantly (because it's no longer being rendered)
+    return rdl;
 }
-pub fn contextMenuEntry(call_info: StandardCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
+// child: contextMenuEntry[ disabled, label, onclick ]
+pub fn contextMenuList(call_info: ContextMenuCallInfo) StandardChild {
+    const ui = call_info.ui(@src());
+    const rdl = ui.id.b2.draw();
+    // this should be done in theme and the caller should get to set it
+    rdl.addRect(.{
+        .pos = ui.constraints.click_pos + @Vector(2, f32){ Theme.border_width, Theme.border_width },
+        .size = .{ 200 - Theme.border_width * 2, 300 - Theme.border_width * 2 },
+        .tint = Theme.colors.window_bg,
+        .rounding = .{ .corners = .{ .top_right = true, .bottom_left = true, .bottom_right = true }, .radius = Theme.border_width },
+    });
+    rdl.addRect(.{
+        .pos = ui.constraints.click_pos,
+        .size = .{ 200, 300 },
+        .tint = Theme.colors.window_border,
+        .rounding = .{ .corners = .{ .top_right = true, .bottom_left = true, .bottom_right = true }, .radius = Theme.border_width * 2 },
+    });
+    return .{ .size = @splat(0), .rdl = rdl };
+}
+pub fn contextMenuEntry(call_info: ContextMenuCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
     // this will have a default renderer in Theme
     // this one just exists to provide the hover style, keyboard nav, ...
     _ = call_info;

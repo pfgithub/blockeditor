@@ -145,7 +145,16 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
     // }
 
     const result = self.wm.endFrame(.from(self, render__block));
+    // bg right click handler
+    result.place(B2.contextMenuHolder(.{ .constraints = id.b2.frame.frame_cfg.size, .caller_id = id.sub(@src()) }, .from(self, render__contextMenu)), .{});
+    result.addRect(.{ .pos = .{ 0, 0 }, .size = id.b2.frame.frame_cfg.size, .tint = B2.Theme.colors.window_bg });
     return result;
+}
+
+fn render__contextMenu(self: *App, sci: B2.ContextMenuCallInfo, _: void) B2.StandardChild {
+    _ = self;
+    const ui = sci.ui(@src());
+    return B2.contextMenuList(ui.sub(@src()));
 }
 
 const BounceBallState = struct {
