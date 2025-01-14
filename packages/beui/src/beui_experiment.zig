@@ -970,15 +970,16 @@ pub const RepositionableDrawList = struct {
         },
     ) void {
         var opts = opts_in;
-        if (opts.rounding.style == .round) {
+        if (opts.rounding.style == .round and opts.rounding.radius > 0.0 and (opts.rounding.corners.top_left or opts.rounding.corners.top_right or opts.rounding.corners.bottom_left or opts.rounding.corners.bottom_right)) {
             const maximum_round: f32 = @reduce(.Min, opts.size / @Vector(2, f32){ 2, 2 });
             const actual_round = @min(maximum_round, opts.rounding.radius);
-            // TODO preserve UVs
+            // TODO support UVs
 
+            const round_none: [4]@Vector(2, f32) = .{ .{ 0, 0 }, .{ 0, 0 }, .{ 0, 0 }, .{ 0, 0 } };
             self.addRect(.{
                 .pos = opts.pos,
                 .size = .{ actual_round, actual_round },
-                .circle = .{ .{ 1, 1 }, .{ 1, 0 }, .{ 0, 1 }, .{ 0, 0 } },
+                .circle = if (opts.rounding.corners.top_left) .{ .{ 1, 1 }, .{ 1, 0 }, .{ 0, 1 }, .{ 0, 0 } } else round_none,
                 .tint = opts.tint,
             });
             self.addRect(.{
@@ -989,7 +990,7 @@ pub const RepositionableDrawList = struct {
             self.addRect(.{
                 .pos = opts.pos + @Vector(2, f32){ opts.size[0] - actual_round, 0 },
                 .size = .{ actual_round, actual_round },
-                .circle = .{ .{ 1, 0 }, .{ 1, 1 }, .{ 0, 0 }, .{ 0, 1 } },
+                .circle = if (opts.rounding.corners.top_right) .{ .{ 1, 0 }, .{ 1, 1 }, .{ 0, 0 }, .{ 0, 1 } } else round_none,
                 .tint = opts.tint,
             });
             self.addRect(.{
@@ -1000,7 +1001,7 @@ pub const RepositionableDrawList = struct {
             self.addRect(.{
                 .pos = opts.pos + @Vector(2, f32){ 0, opts.size[1] - actual_round },
                 .size = .{ actual_round, actual_round },
-                .circle = .{ .{ 1, 0 }, .{ 0, 0 }, .{ 1, 1 }, .{ 0, 1 } },
+                .circle = if (opts.rounding.corners.bottom_left) .{ .{ 1, 0 }, .{ 0, 0 }, .{ 1, 1 }, .{ 0, 1 } } else round_none,
                 .tint = opts.tint,
             });
             self.addRect(.{
@@ -1011,7 +1012,7 @@ pub const RepositionableDrawList = struct {
             self.addRect(.{
                 .pos = opts.pos + @Vector(2, f32){ opts.size[0] - actual_round, opts.size[1] - actual_round },
                 .size = .{ actual_round, actual_round },
-                .circle = .{ .{ 0, 0 }, .{ 0, 1 }, .{ 1, 0 }, .{ 1, 1 } },
+                .circle = if (opts.rounding.corners.bottom_right) .{ .{ 0, 0 }, .{ 0, 1 }, .{ 1, 0 }, .{ 1, 1 } } else round_none,
                 .tint = opts.tint,
             });
             return;
