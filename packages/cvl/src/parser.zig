@@ -1075,3 +1075,68 @@ pub const StringContext = struct {
 //
 // maybe we seperate static and value things?
 // ??????????
+
+const PrecParse = struct {
+    fn tokenToLevel(token: Token, mode: enum { prefix, binary, suffix }) ?i32 {
+        return switch (mode) {
+            .prefix => switch (token) {
+                .sub => 1,
+            },
+            .binary => switch (token) {
+                .mul, .div => 2,
+                .add, .sub => 3,
+                else => null,
+            },
+        };
+    }
+    fn parseExprFinal() void {}
+    fn parseExpr(p: *PrecParse) void {
+        const start = p.here();
+        p.parseExprFinal();
+        p.parseExprOp(start.node, 10);
+    }
+    fn parseOperator(p: *PrecParse) ?i32 {
+        const before_ws = p.tryEatWhitespace();
+        const lvl = p.tokenToLevel(p.token, .binary) orelse {
+            return null;
+        };
+        const before_after_ws = p.here();
+        if (p.tryEatWhitespace() != before_ws) {
+            p.noteError(before_after_ws, "Whitespace must be on both sides of the operator or neither", .{});
+        }
+
+        return lvl;
+    }
+    fn parseExprOp(p: *PrecParse) void {
+        const StackEntry = struct { lvl: i32, start_node: usize };
+        var stack = std.ArrayListUnmanaged(StackEntry).empty;
+        defer stack.deinit(p.gpa);
+        stack.append(p.gpa, .{ .lvl = std.math.maxInt(i32), .start_node = 0 });
+
+        var b4_xpr = p.here();
+        p.parseExprFinal();
+        while (true) {
+            const lvl, const operator = p.parseOperator() orelse break;
+
+            while (lvl > stack.getLast().lvl) {
+                // end group
+                const ent = stack.pop();
+                p.wrapExpr(.operator_group, ent.start_node);
+            }
+            if (lvl < stack.getLast().lvl) {
+                // begin group
+                stack.append(p.gpa, .{ .lvl = lvl, .start_node = b4_xpr.node });
+            }
+            p.postAtom(.operator, operator);
+
+            b4_xpr = p.here();
+            p.parseExprFinal();
+        }
+
+        // is that it? is that the whole algorithm?
+        while (stack.getLast().lvl != std.math.maxInt(i32)) {
+            const ent = stack.pop();
+            p.wrapExpr(.operator_group, ent.start_node);
+        }
+    }
+};
