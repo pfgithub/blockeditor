@@ -184,6 +184,8 @@ const AstNode = struct {
         builtin,
         fn_def,
         init_void,
+        marker,
+        number,
 
         // atom
         string_offset,
@@ -334,12 +336,12 @@ const Tokenizer = struct {
                     '"' => self._setSingleByteToken(.double_quote),
                     '\'' => self._setSingleByteToken(.single_quote),
                     '.' => self._setSingleByteToken(.dot),
-                    '(' => self._setSingleByteToken(.code_begin),
-                    '[' => self._setSingleByteToken(.map_begin),
-                    '{' => self._setSingleByteToken(.unused_begin),
-                    '}' => self._setSingleByteToken(.unused_end),
-                    ']' => self._setSingleByteToken(.map_end),
-                    ')' => self._setSingleByteToken(.code_end),
+                    '{' => self._setSingleByteToken(.code_begin),
+                    '(' => self._setSingleByteToken(.map_begin),
+                    '[' => self._setSingleByteToken(.unused_begin),
+                    ']' => self._setSingleByteToken(.unused_end),
+                    ')' => self._setSingleByteToken(.map_end),
+                    '}' => self._setSingleByteToken(.code_end),
                     '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '|', '<', '>', '/', '?', ':' => {
                         self.token_end_srcloc += for (rem[1..], 1..) |byte, i| switch (byte) {
                             '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '|', '<', '>', '/', '?' => {},
@@ -498,7 +500,7 @@ const Parser = struct {
         p.postString(p.parseStrInner_returnLastSegment(true));
         p.wrapExpr(.string, start.node, start_src);
     }
-    fn parseStrInner_returnLastSegment(p: *Parser, allow_paren_escape: bool) StringMapKey {
+    fn parseStrInner_returnLastSegment(p: *Parser, allow_code_escape: bool) StringMapKey {
         var str = p.stringBegin();
         while (true) switch (p.tokenizer.token) {
             .string => {
@@ -518,11 +520,16 @@ const Parser = struct {
                 // string escape. tokenizer doesn't support this so here's a mess:
                 p.tokenizer.token_start_srcloc = p.tokenizer.token_end_srcloc;
                 const rem = p.tokenizer.source[p.tokenizer.token_start_srcloc..];
-                if (rem.len > 0 and rem[0] == '(' and allow_paren_escape) {
+                if (rem.len > 0 and rem[0] == '{' and allow_code_escape) {
+                    const start = p.here();
                     p.tokenizer.next(.root);
-                    std.debug.assert(p.tokenizer.token == .code_begin);
+                    p.assertEatToken(.code_begin, .root);
                     p.postString(str.end());
-                    std.debug.assert(p.tryParseExpr());
+                    p.parseCodeContents(start.src);
+                    if (p.tokenizer.token != .code_end) {
+                        p.wrapErr(start.node, start.src, "Expected {s}, found {s}", .{ Token.map_end.name(), p.tokenizer.token.name() });
+                    }
+                    p.tokenizer.next(.inside_string);
                     str = p.stringBegin();
                 } else {
                     p.tokenizer.next(.inside_string);
@@ -642,19 +649,10 @@ const Parser = struct {
             },
             .code_begin => {
                 p.assertEatToken(.code_begin, .root);
-
-                _ = p.tryEatWhitespace();
-                const needs_injected_void = while (p.tryParseCodeExpr()) {
-                    _ = p.tryEatWhitespace();
-                    if (!p.tryEatToken(.sep, .root)) break false;
-                    _ = p.tryEatWhitespace();
-                } else true;
-
-                if (needs_injected_void) p.wrapExpr(.init_void, p.here().node, p.here().src);
+                p.parseCodeContents(start.src);
                 if (!p.tryEatToken(.code_end, .root)) {
-                    p.wrapErr(start.node, p.here().src, "Expected '{s}' to end code block", .{Token.code_end.name()});
+                    p.wrapErr(start.node, p.here().src, "Expected '{s}' to end map", .{Token.map_end.name()});
                 }
-                p.wrapExpr(.code, start.node, start.src);
             },
             .map_begin => {
                 p.assertEatToken(.map_begin, .root);
@@ -666,6 +664,27 @@ const Parser = struct {
             .kw_builtin => {
                 p.assertEatToken(.kw_builtin, .root);
                 p.wrapExpr(.builtin, start.node, start.src);
+            },
+            .colon => {
+                p.assertEatToken(.colon, .root);
+                if (p.tryEatWhitespace()) p.wrapErr(start.node, p.here().src, "Expected no whitespace for marker", .{});
+                const ident_src = p.here().src;
+                if (p.tryParseIdent()) |iv| {
+                    p.postString(iv);
+                    p.wrapExpr(.ref, start.node, ident_src);
+                    _ = p.tryEatWhitespace();
+                    if (!p.tryParseExpr()) p.wrapErr(start.node, p.here().src, "Expected expression after marker", .{});
+                    p.wrapExpr(.marker, start.node, start.src);
+                } else {
+                    p.wrapErr(start.node, p.here().src, "Expected ident for marker", .{});
+                }
+            },
+            .number => {
+                var str = p.stringBegin();
+                str.appendSlice(p.tokenizer.slice());
+                p.postString(str.end());
+                p.assertEatToken(.number, .root);
+                p.wrapExpr(.number, start.node, start.src);
             },
             else => {
                 if (p.tryParseIdent()) |ident| {
@@ -693,7 +712,6 @@ const Parser = struct {
             switch (p.tokenizer.token) {
                 .colon, .equals_gt => |x| {
                     const call_src = p.here().src;
-                    if (x == .equals_gt) p.ensureValidDeclLhs(start);
                     p.assertEatToken(x, .root);
                     _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
                     const before_exprparse = p.here();
@@ -710,7 +728,7 @@ const Parser = struct {
                         }
                         break;
                     } else {
-                        p.wrapErr(start.node, p.here().src, "Expected expr after ':'", .{});
+                        p.wrapErr(start.node, p.here().src, "Expected expr after ':', found {s}", .{p.tokenizer.token.name()});
                         break;
                     }
                 },
@@ -762,33 +780,6 @@ const Parser = struct {
             },
         }
     }
-    fn ensureValidDeclLhs(p: *Parser, start: Here) void {
-        var err = AstNode.Tag.err;
-        const last_posted_expr = if (p.out_nodes.len > 0) &p.out_nodes.items(.tag)[p.out_nodes.len - 1] else &err;
-        switch (last_posted_expr.*) {
-            .ref => {
-                // ok
-            },
-            .call => {
-                // name(type)
-                // or `name: type` where allowed
-            },
-            // .map => {
-            // we want to support:
-            // - required: bind name
-            // - optional: type, default value,
-            // we're trying to make like struct def syntax & destructure syntax in one. let's hold off for later
-            // this isn't just `const [a, b, c] = mystruct[1, 2, 3]`, it's `const [a: i32] = [25]` and `const [a: i32 = 5] = []`
-            //    and `const [.named a: i32] = [.named = 36]; print(a)`
-            // maybe we should figure out struct def syntax first
-            // },
-            else => |t| {
-                // TODO: support destructuring
-                // not entirely sure how to do it well. especially to handle like args and stuff.
-                p.wrapErr(start.node, start.src, "Invalid expr type for decl ref: {s}", .{@tagName(t)});
-            },
-        }
-    }
     fn tryParseExpr(p: *Parser) bool {
         return p.tryParseExprWithSuffixes();
     }
@@ -817,9 +808,6 @@ const Parser = struct {
         const eql_loc = p.here();
         switch (p.tokenizer.token) {
             .equals, .colon_equals => |t| {
-                if (t == .colon_equals) {
-                    p.ensureValidDeclLhs(p.here());
-                }
                 p.assertEatToken(t, .root);
                 _ = p.tryEatWhitespace();
                 if (!p.tryParseExpr()) {
@@ -873,6 +861,19 @@ const Parser = struct {
         }
 
         p.wrapExpr(.map, start.node, start_src);
+    }
+    fn parseCodeContents(p: *Parser, start_src: u32) void {
+        const start = p.here();
+
+        _ = p.tryEatWhitespace();
+        const needs_injected_void = while (p.tryParseCodeExpr()) {
+            _ = p.tryEatWhitespace();
+            if (!p.tryEatToken(.sep, .root)) break false;
+            _ = p.tryEatWhitespace();
+        } else true;
+
+        if (needs_injected_void) p.wrapExpr(.init_void, p.here().node, p.here().src);
+        p.wrapExpr(.code, start.node, start_src);
     }
     fn parseFile(p: *Parser) void {
         const start = p.here();
@@ -962,7 +963,7 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     , try testParser(&out, .{}, "|abc"));
     try snap(@src(),
         \\[err [err_skip [map [ref "abc" @0] @0] @1] "Unexpected token: unused_end" @1]
-    , try testParser(&out, .{}, "|abc|}"));
+    , try testParser(&out, .{}, "|abc|]"));
     try snap(@src(),
         \\[ref "abc" @1] [ref "def" @2] [ref "ghi" @3] @0
     , try testParser(&out, .{}, "|  |abc, |def   ;|ghi "));
@@ -977,33 +978,36 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     try snap(@src(),
         \\[string "hello " [code [ref "user" @2] @1] "" @0] @0
     , try testParser(&out, .{},
-        \\|"hello \|(|user)"
+        \\|"hello \|{|user}"
     ));
     try snap(@src(),
         \\[err [err_skip [map [string "hello " [code [ref "user" @3] @1] "" @0] @0] @2] "Newline not allowed inside string" @2]
     , try testParser(&out, .{},
-        \\|"hello \|(|
+        \\|"hello \|{|
         \\  |user
-        \\)"
+        \\}"
     ));
     try snap(@src(),
         \\[bind [ref "builtin" @0] [ref "__builtin__" @2] @1] @0
     , try testParser(&out, .{}, "|builtin |:= |__builtin__"));
     try snap(@src(),
         \\[call [code [call [access slot [key "implicit" @2] @1] [access slot [key "arg1" @5] @4] @3] @0] [access slot [key "arg2" @8] @7] @6] @0
-    , try testParser(&out, .{}, "|(|.|implicit|: |.|arg1)|: |.|arg2"));
+    , try testParser(&out, .{}, "|{|.|implicit|: |.|arg1}|: |.|arg2"));
     try snap(@src(),
         \\[code [defer_expr [ref "error" @2] @1] @0] @0
-    , try testParser(&out, .{}, "|(|#defer |error)"));
+    , try testParser(&out, .{}, "|{|#defer |error}"));
     try snap(@src(),
         \\[access [ref "my identifier" @0] [key "my field" @2] @1] @0
     , try testParser(&out, .{}, "|#\"my identifier\"|.|#\"my field\""));
     try snap(@src(),
         \\[fn_def [call [ref "arg" @0] [code [ref "ArgType" @2] @1] @1] [ref "body" @4] @3] @0
-    , try testParser(&out, .{}, "|arg|(|ArgType) |=> |body"));
+    , try testParser(&out, .{}, "|arg|{|ArgType} |=> |body"));
+    try snap(@src(),
+        \\[marker [ref "return" @1] [code [call [ref "return" @3] [number "5" @5] @4] @2] @0] @0
+    , try testParser(&out, .{}, "|:|return |{|return|: |5}"));
     // try snap(@src(),
     //     \\
-    // , try testParser(&out, .{}, @embedFile("sample.cvl")));
+    // , try testParser(&out, .{}, @embedFile("sample2.cvl")));
 
     // extending a = b syntax
     // a = b defines a map_entry
