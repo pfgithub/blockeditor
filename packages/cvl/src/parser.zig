@@ -214,12 +214,12 @@ const Token = enum {
     symbols, // eg '=' or ':='
     sep, // ',' or ';'
     // '(', '[', '{', '}', ']', ')', '\'', ':', '.'
-    lparen,
-    lbracket,
-    lcurly,
-    rcurly,
-    rbracket,
-    rparen,
+    map_begin,
+    map_end,
+    code_begin,
+    code_end,
+    unused_begin,
+    unused_end,
     single_quote,
     double_quote,
     colon,
@@ -334,12 +334,12 @@ const Tokenizer = struct {
                     '"' => self._setSingleByteToken(.double_quote),
                     '\'' => self._setSingleByteToken(.single_quote),
                     '.' => self._setSingleByteToken(.dot),
-                    '(' => self._setSingleByteToken(.lparen),
-                    '[' => self._setSingleByteToken(.lbracket),
-                    '{' => self._setSingleByteToken(.lcurly),
-                    '}' => self._setSingleByteToken(.rcurly),
-                    ']' => self._setSingleByteToken(.rbracket),
-                    ')' => self._setSingleByteToken(.rparen),
+                    '(' => self._setSingleByteToken(.code_begin),
+                    '[' => self._setSingleByteToken(.map_begin),
+                    '{' => self._setSingleByteToken(.unused_begin),
+                    '}' => self._setSingleByteToken(.unused_end),
+                    ']' => self._setSingleByteToken(.map_end),
+                    ')' => self._setSingleByteToken(.code_end),
                     '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '|', '<', '>', '/', '?', ':' => {
                         self.token_end_srcloc += for (rem[1..], 1..) |byte, i| switch (byte) {
                             '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '|', '<', '>', '/', '?' => {},
@@ -520,7 +520,7 @@ const Parser = struct {
                 const rem = p.tokenizer.source[p.tokenizer.token_start_srcloc..];
                 if (rem.len > 0 and rem[0] == '(' and allow_paren_escape) {
                     p.tokenizer.next(.root);
-                    std.debug.assert(p.tokenizer.token == .lparen);
+                    std.debug.assert(p.tokenizer.token == .code_begin);
                     p.postString(str.end());
                     std.debug.assert(p.tryParseExpr());
                     str = p.stringBegin();
@@ -640,8 +640,8 @@ const Parser = struct {
                     p.wrapErr(start.node, p.here().src, "Expected \" to end string, found {s}", .{p.tokenizer.token.name()});
                 }
             },
-            .lparen => {
-                p.assertEatToken(.lparen, .root);
+            .code_begin => {
+                p.assertEatToken(.code_begin, .root);
 
                 _ = p.tryEatWhitespace();
                 const needs_injected_void = while (p.tryParseCodeExpr()) {
@@ -651,16 +651,16 @@ const Parser = struct {
                 } else true;
 
                 if (needs_injected_void) p.wrapExpr(.init_void, p.here().node, p.here().src);
-                if (!p.tryEatToken(.rparen, .root)) {
-                    p.wrapErr(start.node, p.here().src, "Expected ')' to end code block", .{});
+                if (!p.tryEatToken(.code_end, .root)) {
+                    p.wrapErr(start.node, p.here().src, "Expected '{s}' to end code block", .{Token.code_end.name()});
                 }
                 p.wrapExpr(.code, start.node, start.src);
             },
-            .lbracket => {
-                p.assertEatToken(.lbracket, .root);
+            .map_begin => {
+                p.assertEatToken(.map_begin, .root);
                 p.parseMapContents(start.src);
-                if (!p.tryEatToken(.rbracket, .root)) {
-                    p.wrapErr(start.node, p.here().src, "Expected ']' to end map", .{});
+                if (!p.tryEatToken(.map_end, .root)) {
+                    p.wrapErr(start.node, p.here().src, "Expected '{s}' to end map", .{Token.map_end.name()});
                 }
             },
             .kw_builtin => {
@@ -714,7 +714,7 @@ const Parser = struct {
                         break;
                     }
                 },
-                .lparen, .lcurly => {
+                .code_begin, .map_begin => {
                     const call_src = p.here().src;
                     std.debug.assert(p.tryParseExprFinal());
                     p.wrapExpr(.call, start.node, call_src);
@@ -961,7 +961,7 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
         \\[ref "abc" @0] @0
     , try testParser(&out, .{}, "|abc"));
     try snap(@src(),
-        \\[err [err_skip [map [ref "abc" @0] @0] @1] "Unexpected token: rcurly" @1]
+        \\[err [err_skip [map [ref "abc" @0] @0] @1] "Unexpected token: unused_end" @1]
     , try testParser(&out, .{}, "|abc|}"));
     try snap(@src(),
         \\[ref "abc" @1] [ref "def" @2] [ref "ghi" @3] @0
