@@ -879,6 +879,96 @@ const Parser = struct {
         const start = p.here();
         p.parseMapContents(start.src);
     }
+
+    fn tokenToLevel(token: Token, mode: enum { prefix, binary, suffix }) ?i32 {
+        return switch (mode) {
+            .prefix => switch (token) {
+                .sub => 1,
+            },
+            .binary => switch (token) {
+                .mul, .div => 2,
+                .add, .sub => 3,
+                else => null,
+            },
+        };
+        // interesting things:
+        // ':' should be level 0 -> 4. ie you're allowed to parse it at level 0 but when you parse it it sets your level to 4
+    }
+    const OperatorCfg = struct {
+        level_before: OperatorLevel,
+        level_after: OperatorLevel,
+        result: AstNode.Tag,
+
+        fn binary(level: OperatorLevel, result: AstNode.Tag) OperatorCfg {
+            return .{ .level_before = level, .level_after = level, .result = result };
+        }
+        fn single(level: OperatorLevel, result: AstNode.Tag) OperatorCfg {
+            return .{ .level_before = level, .level_after = level, .result = result };
+        }
+    };
+    const Operators = std.StaticStringMap(OperatorCfg).initComptime(.{
+        .{ ".", .binary(.final, .access) }, // should have the arg be converted to a dot rhs
+        .{ ":", .{ .level_before = .final, .level_after = .colon_equals, .result = .call } },
+        .{ "+", .binary(.add_sub, .add) },
+        .{ "-", .binary(.add_sub, .sub) },
+        .{ "*", .binary(.mul_div, .mul) },
+        .{ "/", .binary(.mul_div, .div) },
+        .{ "=", .single(.equals, .set) },
+        .{ ":=", .single(.colon_equals, .def) },
+    });
+    const OperatorLevel = enum {
+        final,
+        add_sub,
+        mul_div,
+
+        equals,
+        colon_equals,
+        anything,
+    };
+    fn parseOperator(p: *Parser) ?i32 {
+        const before_ws = p.tryEatWhitespace();
+        const lvl = p.tokenToLevel(p.token, .binary) orelse {
+            return null;
+        };
+        const before_after_ws = p.here();
+        if (p.tryEatWhitespace() != before_ws) {
+            p.noteError(before_after_ws, "Whitespace must be on both sides of the operator or neither", .{});
+        }
+
+        return lvl;
+    }
+    fn tryParseExpr2(p: *Parser) void {
+        const StackEntry = struct { lvl: i32, start_node: usize };
+        var stack = std.ArrayListUnmanaged(StackEntry).empty;
+        defer stack.deinit(p.gpa);
+        stack.append(p.gpa, .{ .lvl = std.math.maxInt(i32), .start_node = 0 });
+
+        var b4_xpr = p.here();
+        p.tryParseExprFinal();
+        while (true) {
+            const lvl, const operator = p.parseOperator() orelse break;
+
+            while (lvl > stack.getLast().lvl) {
+                // end group
+                const ent = stack.pop();
+                p.wrapExpr(.operator_group, ent.start_node);
+            }
+            if (lvl < stack.getLast().lvl) {
+                // begin group
+                stack.append(p.gpa, .{ .lvl = lvl, .start_node = b4_xpr.node });
+            }
+            p.postAtom(.operator, operator);
+
+            b4_xpr = p.here();
+            p.tryParseExprFinal();
+        }
+
+        // is that it? is that the whole algorithm?
+        while (stack.getLast().lvl != std.math.maxInt(i32)) {
+            const ent = stack.pop();
+            p.wrapExpr(.operator_group, ent.start_node);
+        }
+    }
 };
 
 fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, src_in: []const u8) ![]const u8 {
@@ -1075,68 +1165,3 @@ pub const StringContext = struct {
 //
 // maybe we seperate static and value things?
 // ??????????
-
-const PrecParse = struct {
-    fn tokenToLevel(token: Token, mode: enum { prefix, binary, suffix }) ?i32 {
-        return switch (mode) {
-            .prefix => switch (token) {
-                .sub => 1,
-            },
-            .binary => switch (token) {
-                .mul, .div => 2,
-                .add, .sub => 3,
-                else => null,
-            },
-        };
-    }
-    fn parseExprFinal() void {}
-    fn parseExpr(p: *PrecParse) void {
-        const start = p.here();
-        p.parseExprFinal();
-        p.parseExprOp(start.node, 10);
-    }
-    fn parseOperator(p: *PrecParse) ?i32 {
-        const before_ws = p.tryEatWhitespace();
-        const lvl = p.tokenToLevel(p.token, .binary) orelse {
-            return null;
-        };
-        const before_after_ws = p.here();
-        if (p.tryEatWhitespace() != before_ws) {
-            p.noteError(before_after_ws, "Whitespace must be on both sides of the operator or neither", .{});
-        }
-
-        return lvl;
-    }
-    fn parseExprOp(p: *PrecParse) void {
-        const StackEntry = struct { lvl: i32, start_node: usize };
-        var stack = std.ArrayListUnmanaged(StackEntry).empty;
-        defer stack.deinit(p.gpa);
-        stack.append(p.gpa, .{ .lvl = std.math.maxInt(i32), .start_node = 0 });
-
-        var b4_xpr = p.here();
-        p.parseExprFinal();
-        while (true) {
-            const lvl, const operator = p.parseOperator() orelse break;
-
-            while (lvl > stack.getLast().lvl) {
-                // end group
-                const ent = stack.pop();
-                p.wrapExpr(.operator_group, ent.start_node);
-            }
-            if (lvl < stack.getLast().lvl) {
-                // begin group
-                stack.append(p.gpa, .{ .lvl = lvl, .start_node = b4_xpr.node });
-            }
-            p.postAtom(.operator, operator);
-
-            b4_xpr = p.here();
-            p.parseExprFinal();
-        }
-
-        // is that it? is that the whole algorithm?
-        while (stack.getLast().lvl != std.math.maxInt(i32)) {
-            const ent = stack.pop();
-            p.wrapExpr(.operator_group, ent.start_node);
-        }
-    }
-};
