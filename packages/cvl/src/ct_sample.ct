@@ -37,6 +37,10 @@ demo := () => {
 stack_frame := n.ptr(8);
 s8 := n.s8;
 
+// when converting to riscv64, there's stuff eg:
+// - a local i64 needs to become 2x i32
+// - register allocation :/
+
 
 // the original idea was instead of comptemp, the actual int type could change based
 // on target
