@@ -1,0 +1,55 @@
+// cvl/qxc
+demo := () => {
+    stackframe := stack_alloc(myvar: struct(u8));
+    %30defer stack_free(stackframe);
+
+    myvar: *u8 := stackframe.myvar;
+    tmp: int(37, 37) := 25 + 12;
+    if(tmp > myvar.*) {
+        myvar = tmp;
+    } .else {}
+}
+
+// ct
+stack_frame_child := ct.struct(int_0_255);
+stack_frame := ct.ptr(stack_frame_child);
+int_0_255 := ct.int(0, 255);
+ptr_int_0_255 := ct.ptr(int_0_255);
+int_25_25 := ct.int(25, 25);
+int_12_12 := ct.int(12, 12);
+bool := ct.bool();
+demo := () => {
+    _stack_frame: stack_frame := ct.stack_alloc(stack_frame_child);
+    _0_myvar: ptr_int_0_255 := ct.ptr_struct_child(_stack_frame, 0);
+    _1: int_25_25 := ct.int_value(25, 25, 25);
+    _2_tmp: int_12_12 := ct.int_value(12, 12, 12);
+    _3: int_0_255 := ct.ptr_load(ptr_int_0_255, _0_myvar);
+    _4: bool := ct.gt(37, 37, 0, 255, _3);
+    _5: void := ct.if(_4, { // structured control flow for easier output
+        _5: void := ct.set(ptr_int_0_255, _0_myvar, _3);
+    }, {
+        _5: void := ct.void_value();
+    });
+    _6: void := ct.stack_free(_stack_frame);
+};
+
+// riscv32
+stack_frame := n.ptr(8);
+s8 := n.s8;
+
+
+
+// the original idea was instead of comptemp, the actual int type could change based
+// on target
+// should we still do that?
+// ie the target would define int:backing and provide the implementations for int:add and stuff
+// so there's no generic comptemp
+// what was the reason we chose not to? just bc we didn't have injection?
+// i like that better imo. it's more direct. "sizeof" can work.
+//
+// right, the reason is comptime. without it, you have to define both comptime and runtime
+// behaviour for your ct instructions. & why would you do that for like glsl. or even worse,
+// something like javascript. so if you have special stuff like `js_raw` that makes a js instr
+// directly, but other stuff makes ct instrs. & js_raw doesn't have a comptime impl.
+//
+// so what do we want to do?
