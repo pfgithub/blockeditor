@@ -38,7 +38,6 @@ stack_frame := n.ptr(8);
 s8 := n.s8;
 
 
-
 // the original idea was instead of comptemp, the actual int type could change based
 // on target
 // should we still do that?
@@ -53,3 +52,12 @@ s8 := n.s8;
 // directly, but other stuff makes ct instrs. & js_raw doesn't have a comptime impl.
 //
 // so what do we want to do?
+//
+// the code:
+// `myint: int[25, 25] := 20 + 5` :: `20 + 5` should comptime eval on any target to 25
+// if js target defines `+` as `js_f64_add(20, 5)` then it can't be comptime evaluated
+// ideally we comptime evaluate anything which does not require runtime to evaluate
+//
+// int.+ would be defined as %current_target.int_add() which each target could define itself
+// in terms of its ct instrs
+// but then if we try to execute at comptime it'll be trying to run rv64_add_int()
