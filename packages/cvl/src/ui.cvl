@@ -1,0 +1,41 @@
+Background := () {
+    ZStack(): (
+        .size: () Rect(.tint = Theme.colors.window_bg),
+        .fill: () ContextMenu(): () (
+            .background = ContextMenu.BackgroundCatcher(): () (
+                Theme.ContextMenu.BackgroundCatcher()
+            ),
+            .menu = ContextMenu.Menu(): () (
+                Theme.ContextMenu.Menu(): () (
+                    ContextMenu.Item(): () (
+                        Theme.ContextMenu.Item(): () (
+
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+};
+
+Background2 := () {
+    ZStack(): () (
+        .size: () Rect(.tint = Theme.colors.window_bg),
+        .fill: () Theme.ContextMenu(): () (
+            Theme.ContextMenuItem(.label = () Theme.Text("Launch Text Editor <App.zig>"), .onclick = () launch(Blocks.TextEditor)),
+            Theme.ContextMenuItem(.label = () Theme.Text("Launch Ball"), .onclick = () launch(Blocks.Ball)),
+            Theme.ContextMenuItem(.label = () Theme.Text("Launch Debugviewer1"), .onclick = () launch(Blocks.Debugviewer)),
+            Theme.ContextMenuItem(.label = () Theme.Text("Launch Debugviewer2"), .onclick = () launch(Blocks.Debugviewer)),
+            Theme.ContextMenuItem(.label = () Theme.Text("Launch Tree"), .onclick = () launch(Blocks.Tree)),
+            Theme.ContextMenuItem(.label = () Theme.Text("Launch Minigamer <sponge>"), .onclick = () launch(Blocks.Minigamer)),
+        ),
+    );
+};
+
+// parsing:
+// in parseexprwithsuffixes:
+// - if the expr was a map expr:
+//   - rather than parsing suffixes, just try parse another full expr
+//   - that way fn syntax can literally be (args) body
+//   - do we really want it to be that easy though?
+//   - and do we want to support fns with non-map args?
