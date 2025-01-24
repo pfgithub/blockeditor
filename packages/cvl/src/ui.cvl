@@ -1,8 +1,16 @@
-pkgs := std.package_manager [
+pkgs := std.package_manager (
     // any files loaded from the package manager are given implicit context
     // so they can use the global lockfile
+    // any package not in the lockfile must be downloaded and have its lockfile
+    // read and appended
     .lockfile = "",
-];
+    .dependencies = (
+        .ui = ("std/ui", "hash1"),
+    ),
+    .url_overrides = (
+        "hash1" = "/path/to/hash1",
+    ),
+);
 
 Background := () {
     ZStack(): (
