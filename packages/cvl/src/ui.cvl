@@ -1,3 +1,9 @@
+pkgs := std.package_manager [
+    // any files loaded from the package manager are given implicit context
+    // so they can use the global lockfile
+    .lockfile = "",
+];
+
 Background := () {
     ZStack(): (
         .size: () Rect(.tint = Theme.colors.window_bg),
