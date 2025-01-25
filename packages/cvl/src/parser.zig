@@ -707,6 +707,10 @@ const Parser = struct {
                 return false;
             }
         }
+        // if( just parsed parens ) {
+        //     tryParseExpr
+        //     return
+        // }
         while (true) {
             _ = p.tryEatWhitespace();
             switch (p.tokenizer.token) {

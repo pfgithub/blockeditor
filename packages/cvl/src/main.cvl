@@ -1,0 +1,4 @@
+builtin := #builtin;
+builtin.symbols.build := () [
+    "main.txt" = "Hello, world!",
+];
