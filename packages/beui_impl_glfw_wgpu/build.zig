@@ -53,11 +53,14 @@ pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *st
     exe.root_module.addImport("zglfw", zglfw.module("root"));
     exe.linkLibrary(zglfw.artifact("glfw"));
 
-    const zpool = b.dependency("zpool", .{ .target = target, .optimize = optimize });
-    exe.root_module.addImport("zpool", zpool.module("root"));
-
-    @import("zgpu").addLibraryPathsTo(exe);
     const zgpu = b.dependency("zgpu", .{ .target = target, .optimize = optimize });
+    {
+        // workaround so zgpu will fetch dawn from its own build.zig.zon
+        const prev_owner = exe.step.owner;
+        defer exe.step.owner = prev_owner;
+        exe.step.owner = zgpu.builder;
+        @import("zgpu").addLibraryPathsTo(exe);
+    }
     exe.root_module.addImport("zgpu", zgpu.module("root"));
     exe.linkLibrary(zgpu.artifact("zdawn"));
 

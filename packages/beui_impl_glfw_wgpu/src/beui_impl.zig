@@ -639,9 +639,9 @@ const callbacks = struct {
             beui.frame.mouse_offset += beui.persistent.mouse_pos - prev_pos;
         }
     }
-    fn cursorEnterCallback(window: *zglfw.Window, entered: i32) callconv(.C) void {
+    fn cursorEnterCallback(window: *zglfw.Window, entered: zglfw.Bool) callconv(.C) void {
         _ = window;
-        if (entered != 0) {
+        if (entered == zglfw.TRUE) {
             // entered
         } else {
             // left
@@ -687,11 +687,11 @@ const BeuiVtable = struct {
     window: *zglfw.Window,
     fn setClipboard(cfg: *const Beui.FrameCfg, text_utf8: [:0]const u8) void {
         const self = cfg.castUserData(BeuiVtable);
-        self.window.setClipboardString(text_utf8);
+        setClipboardString(self.window, text_utf8);
     }
     fn getClipboard(cfg: *const Beui.FrameCfg, clipboard_contents: *std.ArrayList(u8)) void {
         const self = cfg.castUserData(BeuiVtable);
-        clipboard_contents.appendSlice(self.window.getClipboardString() orelse "") catch @panic("oom");
+        clipboard_contents.appendSlice(getClipboardString(self.window) orelse "") catch @panic("oom");
     }
     pub const vtable: *const Beui.FrameCfgVtable = &.{
         .type_id = @typeName(BeuiVtable),
@@ -699,6 +699,18 @@ const BeuiVtable = struct {
         .get_clipboard = &getClipboard,
     };
 };
+
+pub fn getClipboardString(window: *zglfw.Window) ?[:0]const u8 {
+    if (@hasDecl(zglfw, "getClipboardString") or @hasDecl(zglfw.Window, "getClipboardString")) @compileError("gcs");
+    return std.mem.span(glfwGetClipboardString(window));
+}
+extern fn glfwGetClipboardString(window: *zglfw.Window) ?[*:0]const u8;
+
+pub inline fn setClipboardString(window: *zglfw.Window, string: [:0]const u8) void {
+    if (@hasDecl(zglfw, "setClipboardString") or @hasDecl(zglfw.Window, "setClipboardString")) @compileError("gcs");
+    return glfwSetClipboardString(window, string);
+}
+extern fn glfwSetClipboardString(window: *zglfw.Window, string: [*:0]const u8) void;
 
 pub fn main() !void {
     var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
@@ -725,7 +737,7 @@ pub fn main() !void {
         std.posix.chdir(path) catch {};
     }
 
-    zglfw.windowHintTyped(.client_api, .no_api);
+    zglfw.windowHint(.client_api, .no_api);
 
     const window = try zglfw.Window.create(800, 400, window_title, null);
     defer window.destroy();
@@ -743,13 +755,13 @@ pub fn main() !void {
     _ = window.setKeyCallback(&callbacks.keyCallback);
     _ = window.setSizeCallback(null);
     _ = window.setCharCallback(&callbacks.charCallback);
-    _ = window.setDropCallback(null);
-    _ = window.setScrollCallback(&callbacks.scrollCallback);
-    _ = window.setCursorPosCallback(&callbacks.cursorPosCallback);
-    _ = window.setCursorEnterCallback(&callbacks.cursorEnterCallback);
-    _ = window.setMouseButtonCallback(&callbacks.mouseButtonCallback);
+    _ = zglfw.setDropCallback(window, null);
+    _ = zglfw.setScrollCallback(window, &callbacks.scrollCallback);
+    _ = zglfw.setCursorPosCallback(window, &callbacks.cursorPosCallback);
+    _ = zglfw.setCursorEnterCallback(window, &callbacks.cursorEnterCallback);
+    _ = zglfw.setMouseButtonCallback(window, &callbacks.mouseButtonCallback);
     _ = window.setContentScaleCallback(null);
-    _ = window.setFramebufferSizeCallback(null);
+    _ = zglfw.setFramebufferSizeCallback(window, null);
 
     const demo = try create(gpa, window);
     defer destroy(gpa, demo);
