@@ -1,0 +1,3 @@
+#builtin.symbols.main = () {
+    #builtin.input();
+};

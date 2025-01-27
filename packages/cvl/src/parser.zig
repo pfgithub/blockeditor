@@ -635,7 +635,8 @@ const Parser = struct {
         str.appendSlice(tok_txt);
         return str.end();
     }
-    fn tryParseExprFinal(p: *Parser) bool {
+    const ExprFinal = enum { map, other };
+    fn tryParseExprFinal(p: *Parser) ?ExprFinal {
         const start = p.here();
         switch (p.tokenizer.token) {
             .double_quote => {
@@ -646,6 +647,7 @@ const Parser = struct {
                 if (!p.tryEatToken(.double_quote, .root)) {
                     p.wrapErr(start.node, p.here().src, "Expected \" to end string, found {s}", .{p.tokenizer.token.name()});
                 }
+                return .other;
             },
             .code_begin => {
                 p.assertEatToken(.code_begin, .root);
@@ -653,6 +655,7 @@ const Parser = struct {
                 if (!p.tryEatToken(.code_end, .root)) {
                     p.wrapErr(start.node, p.here().src, "Expected '{s}' to end map", .{Token.map_end.name()});
                 }
+                return .other;
             },
             .map_begin => {
                 p.assertEatToken(.map_begin, .root);
@@ -660,10 +663,12 @@ const Parser = struct {
                 if (!p.tryEatToken(.map_end, .root)) {
                     p.wrapErr(start.node, p.here().src, "Expected '{s}' to end map", .{Token.map_end.name()});
                 }
+                return .map;
             },
             .kw_builtin => {
                 p.assertEatToken(.kw_builtin, .root);
                 p.wrapExpr(.builtin, start.node, start.src);
+                return .other;
             },
             .colon => {
                 p.assertEatToken(.colon, .root);
@@ -678,6 +683,7 @@ const Parser = struct {
                 } else {
                     p.wrapErr(start.node, p.here().src, "Expected ident for marker", .{});
                 }
+                return .other;
             },
             .number => {
                 var str = p.stringBegin();
@@ -685,26 +691,35 @@ const Parser = struct {
                 p.postString(str.end());
                 p.assertEatToken(.number, .root);
                 p.wrapExpr(.number, start.node, start.src);
+                return .other;
             },
             else => {
                 if (p.tryParseIdent()) |ident| {
                     p.postString(ident);
                     p.wrapExpr(.ref, start.node, start.src);
-                    return true;
+                    return .other;
                 }
-                return false; // no expr
+                return null; // no expr
             },
         }
-        return true;
     }
     fn tryParseExprWithSuffixes(p: *Parser) bool {
         const start = p.here();
-        if (!p.tryParseExprFinal()) {
+        const parsed_expr_kind = p.tryParseExprFinal() orelse blk: {
             if (p.tokenizer.token == .dot) {
                 // continue to suffix parsing
                 p.postAtom(.slot, 0);
+                break :blk .other;
             } else {
                 return false;
+            }
+        };
+        if (parsed_expr_kind == .map) {
+            const call_src = p.here().src;
+            _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
+            if (p.tryParseExpr()) {
+                p.wrapExpr(.fn_def, start.node, call_src);
+                return true;
             }
         }
         // if( just parsed parens ) {
@@ -714,22 +729,16 @@ const Parser = struct {
         while (true) {
             _ = p.tryEatWhitespace();
             switch (p.tokenizer.token) {
-                .colon, .equals_gt => |x| {
+                .colon => |x| {
                     const call_src = p.here().src;
                     p.assertEatToken(x, .root);
                     _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
                     const before_exprparse = p.here();
                     if (p.tryParseExpr()) {
-                        switch (x) {
-                            .colon => {
-                                p.ensureExprValidColoncallTarget(before_exprparse);
-                                // if we support map call & code call, consider disallowing those with a colon
-                                // ie `a: [b]` disallowed, requires `a[b]`. same `a: (b)` disallowed.
-                                p.wrapExpr(.call, start.node, call_src);
-                            },
-                            .equals_gt => p.wrapExpr(.fn_def, start.node, call_src),
-                            else => unreachable,
-                        }
+                        p.ensureExprValidColoncallTarget(before_exprparse);
+                        // if we support map call & code call, consider disallowing those with a colon
+                        // ie `a: [b]` disallowed, requires `a[b]`. same `a: (b)` disallowed.
+                        p.wrapExpr(.call, start.node, call_src);
                         break;
                     } else {
                         p.wrapErr(start.node, p.here().src, "Expected expr after ':', found {s}", .{p.tokenizer.token.name()});
@@ -738,7 +747,7 @@ const Parser = struct {
                 },
                 .code_begin, .map_begin => {
                     const call_src = p.here().src;
-                    std.debug.assert(p.tryParseExprFinal());
+                    std.debug.assert(p.tryParseExprFinal() != null);
                     p.wrapExpr(.call, start.node, call_src);
                 },
                 .dot => {
@@ -746,7 +755,7 @@ const Parser = struct {
                     p.assertEatToken(.dot, .root);
                     _ = p.tryEatWhitespace();
                     const afterdot = p.here();
-                    if (!p.tryParseExprFinal()) {
+                    if (p.tryParseExprFinal() == null) {
                         p.wrapErr(p.here().node, p.here().src, "Expected expr after '.'", .{});
                     }
                     p.ensureExprValidAccessor(afterdot);
@@ -1004,8 +1013,8 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
         \\[access [ref "my identifier" @0] [key "my field" @2] @1] @0
     , try testParser(&out, .{}, "|#\"my identifier\"|.|#\"my field\""));
     try snap(@src(),
-        \\[fn_def [call [ref "arg" @0] [code [ref "ArgType" @2] @1] @1] [ref "body" @4] @3] @0
-    , try testParser(&out, .{}, "|arg|{|ArgType} |=> |body"));
+        \\[fn_def [map [call [ref "arg" @1] [ref "ArgType" @3] @2] @0] [ref "body" @4] @<14>] @0
+    , try testParser(&out, .{}, "|(|arg|: |ArgType) |body"));
     try snap(@src(),
         \\[marker [ref "return" @1] [code [call [ref "return" @3] [number "5" @5] @4] @2] @0] @0
     , try testParser(&out, .{}, "|:|return |{|return|: |5}"));
