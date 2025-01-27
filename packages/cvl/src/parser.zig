@@ -1,7 +1,9 @@
 // parses to rpn
 const std = @import("std");
 
-const AstTree = struct {
+pub const SrcLoc = struct { file_id: u32, offset: u32 };
+
+pub const AstTree = struct {
     tags: []const AstNode.Tag,
     values: []const AstNode.Value,
     string_buf: []const u8,
@@ -23,6 +25,15 @@ const AstTree = struct {
     pub fn exprLen(t: *const AstTree, node: AstExpr) u32 {
         std.debug.assert(!t.isAtom(node));
         return t.values[node.idx].expr_len;
+    }
+    pub fn src(t: *const AstTree, node: AstExpr) SrcLoc {
+        std.debug.assert(!t.isAtom(node));
+        var srcloc = t.firstChild(node);
+        if (srcloc != null) while (t.next(srcloc.?)) |s| {
+            srcloc = s;
+        };
+        if (srcloc == null or t.tag(srcloc.?) != .srcloc) return .{ .file_id = 0, .offset = 0 };
+        return .{ .file_id = 0, .offset = t.atomValue(srcloc.?) };
     }
 
     pub fn firstChild(t: *const AstTree, node: AstExpr) ?AstExpr {
@@ -46,7 +57,7 @@ const AstTree = struct {
         return .{ .idx = 0, .parent_end = @intCast(t.tags.len) };
     }
 };
-const AstExpr = packed struct(u64) {
+pub const AstExpr = packed struct(u64) {
     idx: u32,
     parent_end: u32,
 };
