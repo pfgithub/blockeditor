@@ -5,6 +5,10 @@ const AstTree = struct {
     tags: []const AstNode.Tag,
     values: []const AstNode.Value,
     string_buf: []const u8,
+    owner: Parser,
+    pub fn deinit(self: *AstTree) void {
+        self.owner.deinit();
+    }
 
     fn tag(t: *const AstTree, node: AstExpr) AstNode.Tag {
         return t.tags[node.idx];
@@ -894,7 +898,33 @@ const Parser = struct {
     }
 };
 
-fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false, parse_fn: *const fn (p: *Parser) void = &Parser.parseFile }, src_in: []const u8) ![]const u8 {
+fn parse(gpa: std.mem.Allocator, src: []const u8) AstTree {
+    var p = Parser.init(src, gpa);
+    const start = p.here();
+    p.parseFile();
+    if (p.tokenizer.token_start_srcloc < p.tokenizer.source.len) {
+        p.wrapErr(start.node, p.tokenizer.token_start_srcloc, "Unexpected token: {s}", .{p.tokenizer.token.name()});
+    }
+    if (p.tokenizer.has_error) |tkz_err| switch (tkz_err.msg) {
+        .newline_not_allowed_in_string => p.wrapErr(start.node, tkz_err.pos, "Newline not allowed inside string", .{}),
+        .invalid_identifier => p.wrapErr(start.node, tkz_err.pos, "Invalid identifier", .{}),
+        .invalid_byte => if (tkz_err.byte >= ' ' and tkz_err.byte < 0x7F) {
+            p.wrapErr(start.node, tkz_err.pos, "Invalid character: '{'}'", .{std.zig.fmtEscapes(&.{tkz_err.byte})});
+        } else if (tkz_err.byte >= 0x80) {
+            p.wrapErr(start.node, tkz_err.pos, "Unicode characters are not allowed outside of strings", .{});
+        } else {
+            p.wrapErr(start.node, tkz_err.pos, "Invalid byte in file: 0x{X:0>2}", .{tkz_err.byte});
+        },
+    };
+    // now serialize and test snapshot
+    const tree: AstTree = .{ .tags = p.out_nodes.items(.tag), .values = p.out_nodes.items(.value), .string_buf = p.strings.items, .owner = p };
+    if (p.out_nodes.len > 0 and p.has_fatal_error == null) {
+        std.debug.assert(flipResult(@constCast(tree.tags), @constCast(tree.values), p.out_nodes.len - 1, 0) == p.out_nodes.len - 1);
+    }
+    return tree;
+}
+
+fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, src_in: []const u8) ![]const u8 {
     const gpa = out.allocator;
     var src = std.ArrayList(u8).init(gpa);
     defer src.deinit();
@@ -917,34 +947,14 @@ fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false, par
     }
 
     const sample_src = src.items;
-    var p = Parser.init(sample_src, gpa);
-    defer p.deinit();
-    const start = p.here();
-    opt.parse_fn(&p);
-    if (p.tokenizer.token_start_srcloc < p.tokenizer.source.len) {
-        p.wrapErr(start.node, p.tokenizer.token_start_srcloc, "Unexpected token: {s}", .{p.tokenizer.token.name()});
-    }
-    if (p.tokenizer.has_error) |tkz_err| switch (tkz_err.msg) {
-        .newline_not_allowed_in_string => p.wrapErr(start.node, tkz_err.pos, "Newline not allowed inside string", .{}),
-        .invalid_identifier => p.wrapErr(start.node, tkz_err.pos, "Invalid identifier", .{}),
-        .invalid_byte => if (tkz_err.byte >= ' ' and tkz_err.byte < 0x7F) {
-            p.wrapErr(start.node, tkz_err.pos, "Invalid character: '{'}'", .{std.zig.fmtEscapes(&.{tkz_err.byte})});
-        } else if (tkz_err.byte >= 0x80) {
-            p.wrapErr(start.node, tkz_err.pos, "Unicode characters are not allowed outside of strings", .{});
-        } else {
-            p.wrapErr(start.node, tkz_err.pos, "Invalid byte in file: 0x{X:0>2}", .{tkz_err.byte});
-        },
-    };
-    // now serialize and test snapshot
-    const tree: AstTree = .{ .tags = p.out_nodes.items(.tag), .values = p.out_nodes.items(.value), .string_buf = p.strings.items };
-    if (p.out_nodes.len > 0 and p.has_fatal_error == null) {
-        std.debug.assert(flipResult(@constCast(tree.tags), @constCast(tree.values), p.out_nodes.len - 1, 0) == p.out_nodes.len - 1);
-    }
+
+    var tree = parse(gpa, sample_src);
+    defer tree.deinit();
 
     var fmt_buf: std.ArrayListUnmanaged(u8) = .empty;
     defer fmt_buf.deinit(gpa);
 
-    if (p.has_fatal_error) |fe| {
+    if (tree.owner.has_fatal_error) |fe| {
         if (fe == .oom) return error.OutOfMemory;
         try fmt_buf.appendSlice(gpa, @tagName(fe));
     } else if (tree.tags.len > 0) {
