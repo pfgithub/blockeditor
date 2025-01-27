@@ -10,28 +10,28 @@ const AstTree = struct {
         self.owner.deinit();
     }
 
-    fn tag(t: *const AstTree, node: AstExpr) AstNode.Tag {
+    pub fn tag(t: *const AstTree, node: AstExpr) AstNode.Tag {
         return t.tags[node.idx];
     }
-    fn isAtom(t: *const AstTree, node: AstExpr) bool {
+    pub fn isAtom(t: *const AstTree, node: AstExpr) bool {
         return t.tag(node).isAtom();
     }
-    fn atomValue(t: *const AstTree, node: AstExpr) u32 {
+    pub fn atomValue(t: *const AstTree, node: AstExpr) u32 {
         std.debug.assert(t.isAtom(node));
         return t.values[node.idx].atom_value;
     }
-    fn exprLen(t: *const AstTree, node: AstExpr) u32 {
+    pub fn exprLen(t: *const AstTree, node: AstExpr) u32 {
         std.debug.assert(!t.isAtom(node));
         return t.values[node.idx].expr_len;
     }
 
-    fn firstChild(t: *const AstTree, node: AstExpr) ?AstExpr {
+    pub fn firstChild(t: *const AstTree, node: AstExpr) ?AstExpr {
         std.debug.assert(!t.isAtom(node));
         const expr_len = t.exprLen(node);
         if (expr_len == 0) return null;
         return .{ .idx = node.idx + 1, .parent_end = node.idx + 1 + expr_len };
     }
-    fn next(t: *const AstTree, node: AstExpr) ?AstExpr {
+    pub fn next(t: *const AstTree, node: AstExpr) ?AstExpr {
         const idx = switch (t.isAtom(node)) {
             true => node.idx + 1,
             false => node.idx + 1 + t.exprLen(node),
@@ -41,6 +41,9 @@ const AstTree = struct {
             return null;
         }
         return .{ .idx = idx, .parent_end = node.parent_end };
+    }
+    pub fn root(t: *const AstTree) AstExpr {
+        return .{ .idx = 0, .parent_end = @intCast(t.tags.len) };
     }
 };
 const AstExpr = packed struct(u64) {
@@ -898,7 +901,7 @@ const Parser = struct {
     }
 };
 
-fn parse(gpa: std.mem.Allocator, src: []const u8) AstTree {
+pub fn parse(gpa: std.mem.Allocator, src: []const u8) AstTree {
     var p = Parser.init(src, gpa);
     const start = p.here();
     p.parseFile();
@@ -958,7 +961,7 @@ fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, s
         if (fe == .oom) return error.OutOfMemory;
         try fmt_buf.appendSlice(gpa, @tagName(fe));
     } else if (tree.tags.len > 0) {
-        const node: AstExpr = .{ .idx = 0, .parent_end = @intCast(tree.tags.len) };
+        const node: AstExpr = tree.root();
         const skip_outer = tree.tag(node) == .map;
         try dumpAst(&tree, node, fmt_buf.writer(gpa).any(), positions.items, skip_outer);
     }
@@ -1098,3 +1101,7 @@ pub const StringContext = struct {
 //
 // maybe we seperate static and value things?
 // ??????????
+
+test {
+    _ = @import("compiler.zig");
+}

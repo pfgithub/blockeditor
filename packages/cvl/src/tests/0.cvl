@@ -1,3 +1,6 @@
 #builtin.symbols.main = () {
-    #builtin.input();
+    #builtin.asm(
+        .ecall,
+        10 = 0, // exit
+    );
 };
