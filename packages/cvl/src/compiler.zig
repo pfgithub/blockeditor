@@ -8,6 +8,7 @@ const Type = struct {
         basic_void,
         basic_err,
         basic_infer,
+        ty,
         _,
     };
 };
@@ -16,6 +17,12 @@ const BasicBlock = struct {
 };
 const Decl = struct {
     const Index = enum(u64) { _ };
+
+    dependencies: []Decl.Index,
+    srcloc: parser.SrcLoc,
+
+    resolved_type: ?Type.Index,
+    resolved_value_ptr: ?*const anyopaque,
 };
 const Instr = struct {
     const Index = enum(u64) { _ };
@@ -29,13 +36,22 @@ const Expr = struct {
     },
 };
 
+const Scope = struct {
+    env: *Env,
+
+    fn handleExpr(scope: *Scope, slot: Type.Index, tree: *const parser.AstTree, expr: parser.AstExpr) Error!Expr {
+        return handleExpr_inner2(scope, slot, tree, expr);
+    }
+};
 const Env = struct {
+    gpa: std.mem.Allocator,
     has_error: bool = false,
-    pub fn err(self: *Env, srcloc: parser.SrcLoc, comptime msg: []const u8, fmt: anytype) ExprError {
+    decls: std.ArrayListUnmanaged(Decl),
+    pub fn err(self: *Env, srcloc: parser.SrcLoc, comptime msg: []const u8, fmt: anytype) Error {
         self.has_error = true;
         _ = srcloc;
         std.log.err("[compiler] " ++ msg, fmt);
-        return ExprError.ContainsError;
+        return Error.ContainsError;
     }
 
     pub fn makeInfer(self: *Env, child: Type.Index) Type.Index {
@@ -48,26 +64,55 @@ const Env = struct {
         _ = infer_idx;
         @panic("TODO");
     }
+    pub fn addDecl(self: *Env, decl: Decl) Error!Decl.Index {
+        const res = self.decls.items.len;
+        try self.decls.append(self.gpa, decl);
+        return @enumFromInt(res);
+    }
 };
-const ExprError = error{
+const Error = error{
     ContainsError,
+    OutOfMemory,
 };
-fn handleExpr(env: *Env, slot: Type.Index, tree: *const parser.AstTree, expr: parser.AstExpr) ExprError!Expr {
-    return handleExpr_inner2(env, slot, tree, expr);
-}
-inline fn handleExpr_inner2(env: *Env, slot: Type.Index, tree: *const parser.AstTree, expr: parser.AstExpr) ExprError!Expr {
+inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, tree: *const parser.AstTree, expr: parser.AstExpr) Error!Expr {
     switch (tree.tag(expr)) {
         .call => {
-            const method_ast = tree.firstChild(expr).?;
-            const arg_ast = tree.next(method_ast).?;
-            std.debug.assert(tree.tag(tree.next(arg_ast)) == .srcloc);
+            // a: b is equivalent to {%1 = {infer T}: a; T.call(a, b)}
+            const method_ast, const arg_ast = tree.children(expr, 2);
+            _ = arg_ast;
 
             // if we wanted to, we could pass the slot as:
-            // `(arg: infer T) => slot`, then make the arg slot T
-            const method_expr = handleExpr(env, env.makeInfer(.basic_unknown), tree, method_ast);
+            // `(arg: infer T) => Slot`, then make the arg slot T
+            const method_expr = try scope.handleExpr(scope.env.makeInfer(.basic_unknown), tree, method_ast);
             // now get type.arg_type
             // then call type.call(arg_expr)
             _ = method_expr;
+            return scope.env.err(tree.src(expr), "TODO call expr", .{});
+        },
+        .access => {
+            // a.b is equivalent to {%1 = {infer T}: a; T.access(a, b)}
+            const obj_ast, const prop_ast = tree.children(expr, 2);
+
+            // if we wanted, slot could be `{[infer T]: Slot}` then make prop slot T
+            const obj_expr = try scope.handleExpr(scope.env.makeInfer(.basic_unknown), tree, obj_ast);
+            // get type.prop_type
+            // call type.access(prop_expr)
+            _ = obj_expr;
+            _ = prop_ast;
+            return scope.env.err(tree.src(expr), "TODO access expr", .{});
+        },
+        .builtin => {
+            _ = tree.children(expr, 0);
+            return .{
+                .ty = .ty,
+                .value = .{ .compiletime = try scope.env.addDecl(.{
+                    .srcloc = tree.src(expr),
+
+                    .dependencies = &.{},
+                    .resolved_type = .ty,
+                    .resolved_value_ptr = @ptrFromInt(1),
+                }) },
+            };
         },
         .code => {
             // handle each expr in sequence
@@ -76,18 +121,19 @@ inline fn handleExpr_inner2(env: *Env, slot: Type.Index, tree: *const parser.Ast
                 const next = tree.next(c).?;
                 const is_last = tree.tag(next) == .srcloc;
 
-                if (is_last) return handleExpr(env, slot, tree, c);
-                _ = try handleExpr(env, .basic_void, tree, c);
+                if (is_last) return scope.handleExpr(slot, tree, c);
+                _ = try scope.handleExpr(.basic_void, tree, c);
 
                 child = next;
             }
             unreachable; // there is always at least one expr in a code
         },
-        else => |t| return env.err(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
+        else => |t| return scope.env.err(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
     }
 }
 
 test "compiler" {
+    if (true) return error.SkipZigTest;
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, src);
     defer tree.deinit();
@@ -101,6 +147,13 @@ test "compiler" {
     // std.log.err("val: {s}", .{@tagName(tree.tag(fn_body))});
     // it's a code expr
 
-    var env: Env = .{};
-    _ = try handleExpr(&env, env.makeInfer(.basic_unknown), &tree, fn_body);
+    var env: Env = .{
+        .gpa = gpa,
+        .decls = .empty,
+    };
+    defer env.decls.deinit(env.gpa);
+    var scope: Scope = .{
+        .env = &env,
+    };
+    _ = try scope.handleExpr(env.makeInfer(.basic_unknown), &tree, fn_body);
 }

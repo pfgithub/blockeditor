@@ -53,6 +53,17 @@ pub const AstTree = struct {
         }
         return .{ .idx = idx, .parent_end = node.parent_end };
     }
+    pub fn children(t: *const AstTree, node: AstExpr, comptime n: usize) [n]AstExpr {
+        var res: [n]AstExpr = undefined;
+        var itm = t.firstChild(node);
+        for (&res) |*i| {
+            i.* = itm.?;
+            itm = t.next(itm.?);
+        }
+        std.debug.assert(t.tag(itm.?) == .srcloc);
+        std.debug.assert(t.next(itm.?) == null);
+        return res;
+    }
     pub fn root(t: *const AstTree) AstExpr {
         return .{ .idx = 0, .parent_end = @intCast(t.tags.len) };
     }
