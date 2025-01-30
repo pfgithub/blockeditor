@@ -6,7 +6,7 @@ const Type = struct {
     const Index = enum(u64) {
         basic_unknown,
         basic_void,
-        basic_err,
+        err,
         basic_infer,
         ty,
         _,
@@ -16,7 +16,10 @@ const BasicBlock = struct {
     arg_types: []Type.Index,
 };
 const Decl = struct {
-    const Index = enum(u64) { _ };
+    const Index = enum(u64) {
+        none = std.math.maxInt(u64),
+        _,
+    };
 
     dependencies: []Decl.Index,
     srcloc: parser.SrcLoc,
@@ -26,6 +29,9 @@ const Decl = struct {
 };
 const Instr = struct {
     const Index = enum(u64) { _ };
+
+    // args: []Instr.Index
+    // next: Instr.Index
 };
 const Expr = struct {
     ty: Type.Index,
@@ -36,6 +42,7 @@ const Expr = struct {
     },
 };
 
+/// per-scope
 const Scope = struct {
     env: *Env,
 
@@ -43,15 +50,23 @@ const Scope = struct {
         return handleExpr_inner2(scope, slot, tree, expr);
     }
 };
+/// per-target
 const Env = struct {
     gpa: std.mem.Allocator,
     has_error: bool = false,
     decls: std.ArrayListUnmanaged(Decl),
-    pub fn err(self: *Env, srcloc: parser.SrcLoc, comptime msg: []const u8, fmt: anytype) Error {
+
+    pub fn addErr(self: *Env, srcloc: parser.SrcLoc, comptime msg: []const u8, fmt: anytype) void {
         self.has_error = true;
         _ = srcloc;
         std.log.err("[compiler] " ++ msg, fmt);
-        return Error.ContainsError;
+    }
+    pub fn addErrAsExpr(env: *Env, srcloc: parser.SrcLoc, comptime msg: []const u8, fmt: anytype) Expr {
+        env.addErr(srcloc, msg, fmt);
+        return .{
+            .ty = .err,
+            .value = .{ .compiletime = .none },
+        };
     }
 
     pub fn makeInfer(self: *Env, child: Type.Index) Type.Index {
@@ -71,7 +86,6 @@ const Env = struct {
     }
 };
 const Error = error{
-    ContainsError,
     OutOfMemory,
 };
 inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, tree: *const parser.AstTree, expr: parser.AstExpr) Error!Expr {
@@ -87,7 +101,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, tree: *const parser
             // now get type.arg_type
             // then call type.call(arg_expr)
             _ = method_expr;
-            return scope.env.err(tree.src(expr), "TODO call expr", .{});
+            return scope.env.addErrAsExpr(tree.src(expr), "TODO call expr", .{});
         },
         .access => {
             // a.b is equivalent to {%1 = {infer T}: a; T.access(a, b)}
@@ -99,7 +113,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, tree: *const parser
             // call type.access(prop_expr)
             _ = obj_expr;
             _ = prop_ast;
-            return scope.env.err(tree.src(expr), "TODO access expr", .{});
+            return scope.env.addErrAsExpr(tree.src(expr), "TODO access expr", .{});
         },
         .builtin => {
             _ = tree.children(expr, 0);
@@ -128,12 +142,13 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, tree: *const parser
             }
             unreachable; // there is always at least one expr in a code
         },
-        else => |t| return scope.env.err(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
+        else => |t| return scope.env.addErrAsExpr(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
     }
 }
 
 test "compiler" {
     if (true) return error.SkipZigTest;
+
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, src);
     defer tree.deinit();
@@ -155,5 +170,6 @@ test "compiler" {
     var scope: Scope = .{
         .env = &env,
     };
-    _ = try scope.handleExpr(env.makeInfer(.basic_unknown), &tree, fn_body);
+    const res = try scope.handleExpr(env.makeInfer(.basic_unknown), &tree, fn_body);
+    _ = res;
 }
