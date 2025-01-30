@@ -2,7 +2,59 @@ const std = @import("std");
 const src = @embedFile("tests/0.cvl");
 const parser = @import("parser.zig");
 
+fn autoVtable(comptime Vtable: type, comptime Src: type) Vtable {
+    var res: Vtable = undefined;
+    for (@typeInfo(Vtable).@"struct".fields) |field| {
+        if (@hasDecl(Src, field.name)) {
+            @field(res, field.name) = &@field(Src, field.name);
+        } else if (field.default_value) |default_v| {
+            @field(res, field.name) = @as(*const field.type, @alignCast(@ptrCast(default_v))).*;
+        } else {
+            @compileError("vtable missing required field: " ++ field.name);
+        }
+    }
+    return res;
+}
+
+const Types = struct {
+    const Ty = struct {
+        pub const ty: Type = .{ .vtable = &vtable, .data = null };
+        const vtable: Type.Vtable = autoVtable(Type.Vtable, @This());
+
+        fn name(_: ?*const anyopaque, env: *Env) Error![]const u8 {
+            return try std.fmt.allocPrint(env.gpa, "type", .{});
+        }
+        fn access(_: ?*const anyopaque, scope: *Scope, slot: Type.Index, obj: Expr.Value, prop: parser.AstExpr) Error!Expr {
+            _ = obj;
+            _ = slot;
+            return scope.env.addErrAsExpr(scope.tree.src(prop), "TODO access type", .{});
+        }
+    };
+    const Err = struct {
+        pub const ty: Type = .{ .vtable = &vtable, .data = null };
+        const vtable: Type.Vtable = autoVtable(Type.Vtable, @This());
+
+        fn name(_: ?*const anyopaque, env: *Env) Error![]const u8 {
+            return try std.fmt.allocPrint(env.gpa, "error", .{});
+        }
+        fn access(_: ?*const anyopaque, scope: *Scope, slot: Type.Index, obj: Expr.Value, prop: parser.AstExpr) Error!Expr {
+            _ = scope;
+            _ = slot;
+            _ = prop;
+            return .{ .ty = .err, .value = obj };
+        }
+        fn call(_: ?*const anyopaque, scope: *Scope, slot: Type.Index, method: Expr.Value, arg: parser.AstExpr) Error!Expr {
+            _ = scope;
+            _ = slot;
+            _ = arg;
+            return .{ .ty = .err, .value = method };
+        }
+    };
+};
+
 const Type = struct {
+    vtable: *const Vtable,
+    data: ?*const anyopaque,
     const Index = enum(u64) {
         basic_unknown,
         basic_void,
@@ -11,6 +63,22 @@ const Type = struct {
         ty,
         _,
     };
+    const Vtable = struct {
+        name: *const fn (self: ?*const anyopaque, env: *Env) Error![]const u8,
+        access: ?*const fn (self: ?*const anyopaque, scope: *Scope, slot: Type.Index, obj: Expr.Value, prop: parser.AstExpr) Error!Expr = null,
+        call: ?*const fn (self: ?*const anyopaque, scope: *Scope, slot: Type.Index, method: Expr.Value, arg: parser.AstExpr) Error!Expr = null,
+    };
+    pub fn name(self: Type, env: *Env) Error![]const u8 {
+        return self.vtable.name(self.data, env);
+    }
+    pub fn access(self: Type, scope: *Scope, slot: Type.Index, obj: Expr.Value, prop: parser.AstExpr) Error!Expr {
+        if (self.vtable.access == null) return scope.env.addErrAsExpr(scope.tree.src(prop), "Type '{s}' does not support access", .{try self.name(scope.env)});
+        return self.vtable.access.?(self.data, scope, slot, obj, prop);
+    }
+    pub fn call(self: Type, scope: *Scope, slot: Type.Index, method: Expr.Value, arg: parser.AstExpr) Error!Expr {
+        if (self.vtable.call == null) return scope.env.addErrAsExpr(scope.tree.src(arg), "Type '{s}' does not support call", .{try self.name(scope.env)});
+        return self.vtable.access.?(self.data, scope, slot, method, arg);
+    }
 };
 const BasicBlock = struct {
     arg_types: []Type.Index,
@@ -35,19 +103,29 @@ const Instr = struct {
 };
 const Expr = struct {
     ty: Type.Index,
-    value: union(enum) {
+    value: Value,
+    const Value = union(enum) {
         compiletime: Decl.Index,
         runtime: Instr.Index,
         err,
-    },
+    };
 };
 
 /// per-scope
 const Scope = struct {
     env: *Env,
+    tree: *const parser.AstTree,
 
-    fn handleExpr(scope: *Scope, slot: Type.Index, tree: *const parser.AstTree, expr: parser.AstExpr) Error!Expr {
-        return handleExpr_inner2(scope, slot, tree, expr);
+    fn handleExpr(scope: *Scope, slot: Type.Index, expr: parser.AstExpr) Error!Expr {
+        return handleExpr_inner2(scope, slot, expr);
+    }
+    pub fn getType(scope: *Scope, ty: Type.Index) Type {
+        _ = scope;
+        return switch (ty) {
+            .ty => Types.Ty.ty,
+            .err => Types.Err.ty,
+            else => @panic("TODO getType()"),
+        };
     }
 };
 /// per-target
@@ -88,32 +166,32 @@ const Env = struct {
 const Error = error{
     OutOfMemory,
 };
-inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, tree: *const parser.AstTree, expr: parser.AstExpr) Error!Expr {
+inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, expr: parser.AstExpr) Error!Expr {
+    const tree = scope.tree;
     switch (tree.tag(expr)) {
         .call => {
             // a: b is equivalent to {%1 = {infer T}: a; T.call(a, b)}
             const method_ast, const arg_ast = tree.children(expr, 2);
-            _ = arg_ast;
 
             // if we wanted to, we could pass the slot as:
             // `(arg: infer T) => Slot`, then make the arg slot T
-            const method_expr = try scope.handleExpr(scope.env.makeInfer(.basic_unknown), tree, method_ast);
+            const method_expr = try scope.handleExpr(scope.env.makeInfer(.basic_unknown), method_ast);
             // now get type.arg_type
             // then call type.call(arg_expr)
-            _ = method_expr;
-            return scope.env.addErrAsExpr(tree.src(expr), "TODO call expr", .{});
+            const ty = scope.getType(method_expr.ty);
+            return ty.call(scope, slot, method_expr.value, arg_ast);
         },
         .access => {
             // a.b is equivalent to {%1 = {infer T}: a; T.access(a, b)}
             const obj_ast, const prop_ast = tree.children(expr, 2);
 
             // if we wanted, slot could be `{[infer T]: Slot}` then make prop slot T
-            const obj_expr = try scope.handleExpr(scope.env.makeInfer(.basic_unknown), tree, obj_ast);
+            const obj_expr = try scope.handleExpr(scope.env.makeInfer(.basic_unknown), obj_ast);
             // get type.prop_type
             // call type.access(prop_expr)
-            _ = obj_expr;
-            _ = prop_ast;
-            return scope.env.addErrAsExpr(tree.src(expr), "TODO access expr", .{});
+
+            const ty = scope.getType(obj_expr.ty);
+            return ty.access(scope, slot, obj_expr.value, prop_ast);
         },
         .builtin => {
             _ = tree.children(expr, 0);
@@ -135,8 +213,8 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, tree: *const parser
                 const next = tree.next(c).?;
                 const is_last = tree.tag(next) == .srcloc;
 
-                if (is_last) return scope.handleExpr(slot, tree, c);
-                _ = try scope.handleExpr(.basic_void, tree, c);
+                if (is_last) return scope.handleExpr(slot, c);
+                _ = try scope.handleExpr(.basic_void, c);
 
                 child = next;
             }
@@ -169,7 +247,8 @@ test "compiler" {
     defer env.decls.deinit(env.gpa);
     var scope: Scope = .{
         .env = &env,
+        .tree = &tree,
     };
-    const res = try scope.handleExpr(env.makeInfer(.basic_unknown), &tree, fn_body);
+    const res = try scope.handleExpr(env.makeInfer(.basic_unknown), fn_body);
     _ = res;
 }
