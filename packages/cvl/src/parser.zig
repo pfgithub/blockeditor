@@ -53,7 +53,7 @@ pub const AstTree = struct {
         }
         return .{ .idx = idx, .parent_end = node.parent_end };
     }
-    pub fn children(t: *const AstTree, node: AstExpr, comptime n: usize) [n]AstExpr {
+    pub fn children(t: *const AstTree, node: AstExpr, comptime n: usize) if (n == 1) AstExpr else [n]AstExpr {
         var res: [n]AstExpr = undefined;
         var itm = t.firstChild(node);
         for (&res) |*i| {
@@ -62,10 +62,18 @@ pub const AstTree = struct {
         }
         std.debug.assert(t.tag(itm.?) == .srcloc);
         std.debug.assert(t.next(itm.?) == null);
+        if (n == 1) return res[0];
         return res;
     }
     pub fn root(t: *const AstTree) AstExpr {
         return .{ .idx = 0, .parent_end = @intCast(t.tags.len) };
+    }
+    pub fn readStr(t: *const AstTree, offset: AstExpr, len: AstExpr) []const u8 {
+        std.debug.assert(t.tag(offset) == .string_offset);
+        std.debug.assert(t.tag(len) == .string_len);
+        const offset_u32 = t.atomValue(offset);
+        const len_u32 = t.atomValue(len);
+        return t.string_buf[offset_u32..][0..len_u32];
     }
 };
 pub const AstExpr = packed struct(u64) {
