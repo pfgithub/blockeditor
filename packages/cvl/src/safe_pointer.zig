@@ -137,6 +137,23 @@ fn demo() void {
 // answer:
 // - another flag
 
+// imagine the traces we could have
+// might get messy when it is very long
+//
+// x := i32: 25;
+// y := i32: undefined;
+// if(x == y) {}
+//   ^ branch on 'undefined'
+// y := i32: undefined;
+//               ^
+//      note: 'undefined' started here
+// if(x == y) {}
+//       ^
+//      note: result was undefined because one operand was undefined
+//
+// called from ...
+//
+
 // question:
 // - does it have false negatives:
 // answser:
