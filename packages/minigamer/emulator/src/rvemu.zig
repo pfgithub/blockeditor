@@ -116,6 +116,22 @@ pub const FloatingPointControlStatus = packed struct(u32) {
     _Reserved: u24,
 };
 
+pub const PtrRange = struct {
+    generation: u32,
+    min: u32,
+    max: u32,
+    first_child: ?*PtrRange,
+    next: ?*PtrRange,
+};
+pub const SafetyFlags = packed struct(u64) {
+    // viral. if any arg has it, the result has it. with simd, it is per-item. branching
+    // on undefined = error. calls can decide what to do for undefined.
+    is_undefined: bool,
+    // if one arg has it, the result has it. if 2+ or 0 args have it, the result does not.
+    range_offset: u31,
+    range_generation: u32,
+};
+
 pub const Emulator = struct {
     memory: []align(@alignOf(u128)) u8,
     pc: u32,

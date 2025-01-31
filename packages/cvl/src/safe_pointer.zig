@@ -98,6 +98,44 @@ fn demo() void {
 // - and we would add an extension providing 'range_allow', 'ranage_block'
 //   - although all 'allow' must have a parent
 // - with riscv32 it would be more difficult
+// answer 2:
+// - yes!
+// - along with int_regs: [32]i32, add int_reg_ptr_ranges: [32]PtrFlag
+// - const PtrFlag = struct { range: u32, generation: u32 };
+// - when loading from memory, validate the pointer flag
+// - when performing an operation, store the pointer flag from one of
+//   the operands
+// - 'add <25>1 + 1 => <25>2'
+// - 'add 1 + <25>1 => <25>2'
+// - 'add <25>1 + <25>1 => <25>2'
+// - 'add <25>1 + <36>1 => 2'
+// - when storing a pointerflagged value in memory, indicate it so next
+//   load of the same value
+// - errors:
+//   - store/load out of range
+//   - store/load from non-pointer
+// - globals:
+//   - needs compiler cooperation. without cooperation, globals are exempt
+//     from range checking.
+//   - with cooperation, we can make sure you can't do `(&global + 1).*`
+//   - cooperation = mark in the elf that globals are ptrflagged. whenever
+//     getting a pointer to a global, use <set_flag>
+// - stack:
+//   - needs cooperation from the program
+// - sub-allocators:
+//   - needs cooperation from the program
+// - ptrFromInt:
+//   - fine as long as the int originally came from a pointer & hasn't lost its tag
+//     - will break with the linked list xor trick because:
+//     - <25>ptr1 ^ <36>ptr2 => ptr1^ptr2 (loses tag because the tags are different)
+// - executable memory
+//   - we can set access_min and access_max based on the range of the executable
+//     memory being jumped to & crash when out of range
+
+// question:
+// - undefined safety in rvemu
+// answer:
+// - another flag
 
 // question:
 // - does it have false negatives:
