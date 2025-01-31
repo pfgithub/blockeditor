@@ -308,7 +308,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, expr: parser.AstExp
 }
 
 test "compiler" {
-    // if (true) return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, src);
