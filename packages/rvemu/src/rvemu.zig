@@ -151,7 +151,7 @@ pub const Emulator = struct {
     memory: []align(@alignOf(u128)) u8,
     // shadow_memory: []ShadowByte,
 
-    pc: u32,
+    pc: u32 = 0,
     int_regs: [32]i32 = @splat(0), // reg 0 is hardcoded to 0 so yeah
     shadow_int_regs: [32]ShadowIntReg = @splat(.{
         .is_undefined = false,
@@ -227,6 +227,18 @@ pub const Emulator = struct {
         const sliced = emu.memory[ptr..];
         if (len > sliced.len) return error.OutOfBoundsAccess;
         return sliced[0..len];
+    }
+
+    pub fn loadElf(emu: *Emulator, disk: []align(@alignOf(u128)) u8) !void {
+        const elf_res = try loader.loadElf(disk, emu.memory);
+
+        emu.pc = elf_res.main_ptr;
+
+        // put emu in main
+        emu.writeIntReg(1, 0); // return address
+        emu.writeIntReg(2, @bitCast(elf_res.stack_ptr)); // stack pointer.
+        emu.writeIntReg(3, 0); // global pointer
+        emu.writeIntReg(4, 0); // thread pointer
     }
 };
 

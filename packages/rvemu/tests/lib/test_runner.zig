@@ -33,15 +33,9 @@ pub fn main() !void {
 
         const disk = try std.fs.cwd().readFileAllocOptions(gpa, src, 1000000000, null, @alignOf(u128), null);
         defer gpa.free(disk);
-        const elf_res = try rvemu.loader.loadElf(disk, mem_ptr);
 
-        var emu: rvemu.Emulator = .{ .memory = mem_ptr, .pc = elf_res.main_ptr };
-
-        // put emu in main
-        emu.writeIntReg(1, 0); // return address
-        emu.writeIntReg(2, @bitCast(elf_res.stack_ptr)); // stack pointer.
-        emu.writeIntReg(3, 0); // global pointer
-        emu.writeIntReg(4, 0); // thread pointer
+        var emu: rvemu.Emulator = .{ .memory = mem_ptr };
+        try emu.loadElf(disk);
 
         // start emu-lating
         while (true) {
