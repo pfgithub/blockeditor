@@ -84,11 +84,11 @@ pub const instrs: []const InstrSpec = &[_]InstrSpec{
     .{ .name = .MUL, .format = .R, .opcode = 0b0110011, .funct3 = 0b000, .funct7 = 0b0000001, .banks = .{ .rs1 = .sint, .rs2 = .sint, .rd = .sint } },
     .{ .name = .MULH, .format = .R, .opcode = 0b0110011, .funct3 = 0b001, .funct7 = 0b0000001, .banks = .{ .rs1 = .sint, .rs2 = .sint, .rd = .sint } },
     .{ .name = .MULHSU, .format = .R, .opcode = 0b0110011, .funct3 = 0b010, .funct7 = 0b0000001, .banks = .{ .rs1 = .sint, .rs2 = .sint, .rd = .sint } },
-    .{ .name = .MULHU, .format = .R, .opcode = 0b0110011, .funct3 = 0b011, .funct7 = 0b0000001, .banks = .{ .rs1 = .sint, .rs2 = .sint, .rd = .sint } },
+    .{ .name = .MULHU, .format = .R, .opcode = 0b0110011, .funct3 = 0b011, .funct7 = 0b0000001, .banks = .{ .rs1 = .uint, .rs2 = .uint, .rd = .uint } },
     .{ .name = .DIV, .format = .R, .opcode = 0b0110011, .funct3 = 0b100, .funct7 = 0b0000001, .banks = .{ .rs1 = .sint, .rs2 = .sint, .rd = .sint } },
-    .{ .name = .DIVU, .format = .R, .opcode = 0b0110011, .funct3 = 0b101, .funct7 = 0b0000001, .banks = .{ .rs1 = .sint, .rs2 = .sint, .rd = .sint } },
+    .{ .name = .DIVU, .format = .R, .opcode = 0b0110011, .funct3 = 0b101, .funct7 = 0b0000001, .banks = .{ .rs1 = .uint, .rs2 = .uint, .rd = .uint } },
     .{ .name = .REM, .format = .R, .opcode = 0b0110011, .funct3 = 0b110, .funct7 = 0b0000001, .banks = .{ .rs1 = .sint, .rs2 = .sint, .rd = .sint } },
-    .{ .name = .REMU, .format = .R, .opcode = 0b0110011, .funct3 = 0b111, .funct7 = 0b0000001, .banks = .{ .rs1 = .sint, .rs2 = .sint, .rd = .sint } },
+    .{ .name = .REMU, .format = .R, .opcode = 0b0110011, .funct3 = 0b111, .funct7 = 0b0000001, .banks = .{ .rs1 = .uint, .rs2 = .uint, .rd = .uint } },
 
     // A (Atomic)
     .{ .name = .LR_W, .format = .RAtomic, .opcode = 0b0101111, .funct3 = 0b010, .rs2 = 0b00000, .funct7_sub5 = 0b00010 },

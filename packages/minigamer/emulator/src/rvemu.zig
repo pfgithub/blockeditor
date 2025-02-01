@@ -430,28 +430,21 @@ const r_type_instrs = struct {
         const res_trunc: i32 = @intCast(res >> 32);
         return res_trunc;
     }
-    pub fn MULHU(_: *Emulator, lhs_s: i32, rhs_s: i32) ExecError!i32 {
-        const lhs: u32 = @bitCast(lhs_s);
-        const rhs: u32 = @bitCast(rhs_s);
-
+    pub fn MULHU(_: *Emulator, lhs: u32, rhs: u32) ExecError!u32 {
         const res: u64 = @as(u64, lhs) * @as(u64, rhs);
         const res_trunc: u32 = @intCast(res >> 32);
-        return @bitCast(res_trunc);
+        return res_trunc;
     }
-    pub fn DIVU(_: *Emulator, lhs_s: i32, rhs_s: i32) ExecError!i32 {
-        const lhs: u32 = @bitCast(lhs_s);
-        const rhs: u32 = @bitCast(rhs_s);
+    pub fn DIVU(_: *Emulator, lhs: u32, rhs: u32) ExecError!u32 {
         // https://five-embeddev.com/riscv-user-isa-manual/Priv-v1.12/m.html#division-operations
-        if (rhs == 0) return @bitCast(@as(u32, std.math.maxInt(u32)));
+        if (rhs == 0) return std.math.maxInt(u32);
 
-        return @bitCast(@divTrunc(lhs, rhs));
+        return @divTrunc(lhs, rhs);
     }
-    pub fn REMU(_: *Emulator, lhs_s: i32, rhs_s: i32) ExecError!i32 {
-        const lhs: u32 = @bitCast(lhs_s);
-        const rhs: u32 = @bitCast(rhs_s);
+    pub fn REMU(_: *Emulator, lhs: u32, rhs: u32) ExecError!u32 {
         // https://five-embeddev.com/riscv-user-isa-manual/Priv-v1.12/m.html#division-operations
         if (rhs == 0) @panic("TODO check link above");
-        return @bitCast(@rem(lhs, rhs));
+        return @rem(lhs, rhs);
     }
 };
 const j_type_instrs = struct {
