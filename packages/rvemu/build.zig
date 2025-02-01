@@ -57,6 +57,11 @@ pub fn build(b: *std.Build) !void {
         const runner_run = b.addRunArtifact(runner);
         runner_run.step.dependOn(b.getInstallStep());
 
+        if (b.args) |args| {
+            if (args.len == 1 and std.mem.eql(u8, args[0], "-u")) {
+                runner_run.addArg("-u");
+            }
+        }
         for (exe_bins.items) |exe_bin| {
             runner_run.addFileArg(exe_bin[0]);
             runner_run.addFileArg(exe_bin[1]);
