@@ -1,0 +1,8 @@
+.{
+    .name = "rvemu",
+    .version = "0.0.0",
+    .paths = .{""},
+    .dependencies = .{
+        .anywhere = .{ .path = "../anywhere" },
+    },
+}

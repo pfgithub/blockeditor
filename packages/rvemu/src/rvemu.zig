@@ -5,6 +5,7 @@ const util = @import("util.zig");
 const std = @import("std");
 const log = std.log.scoped(.rvemu);
 const rvinstrs = @import("rvinstrs.zig");
+pub const loader = @import("loader.zig");
 
 comptime {
     std.debug.assert(@import("builtin").cpu.arch.endian() == .little);
@@ -160,6 +161,7 @@ pub const Emulator = struct {
     fcsr: FloatingPointControlStatus = @bitCast(@as(u32, 0)),
     float_regs: [32]f32 = @splat(0),
     shadow_float_regs: [32]ShadowFloatReg = @splat(.{ .is_undefined = false }),
+    cost: u128 = 0,
 
     pub fn readReg(self: *Emulator, comptime bank: rvinstrs.RegBank, reg: u5) bank.Type() {
         return switch (bank) {
@@ -195,16 +197,36 @@ pub const Emulator = struct {
         return self.writeReg(.sint, reg, value);
     }
 
+    pub fn addCost(emu: *Emulator, add_count: usize) !void {
+        emu.cost += add_count;
+    }
+
     pub fn step(emu: *Emulator) !void {
-        const instr = try util.safePtrCast(Instruction, emu.memory[emu.pc..][0..4]);
+        try emu.addCost(1);
+        const instr = try util.safePtrCast(Instruction, try emu.readSlice(emu.pc, 4));
         // decodeInstr(instr.*, DecodeToFmt{});
         try decodeInstr(instr.*, DecodeToCall{ .emu = emu });
         std.debug.assert(emu.int_regs[0] == 0);
         emu.pc += 4;
     }
+    pub fn run(emu: *Emulator) !void {
+        while (true) {
+            try emu.step();
+        }
+    }
 
     pub fn logState(emu: *Emulator) void {
         log.info("pc: {d}, int_regs: {d}", .{ emu.pc, emu.int_regs });
+    }
+
+    /// when used in a syscall, after the syscall is complete we will check any regions
+    /// read and store if they were modified. we will also make sure reads are only
+    /// stored with their initial values before the syscall.
+    pub fn readSlice(emu: *Emulator, ptr: usize, len: usize) ExecError![]u8 {
+        if (ptr > emu.memory.len) return error.OutOfBoundsAccess;
+        const sliced = emu.memory[ptr..];
+        if (len > sliced.len) return error.OutOfBoundsAccess;
+        return sliced[0..len];
     }
 };
 
@@ -214,7 +236,7 @@ fn storeInstr2(emu: *Emulator, comptime Size: type, lhs: i32, imm: i32, rhs: i32
     const addr: u32 = @intCast(@as(i33, addr_base) + addr_offset);
 
     const store_value: Size = @truncate(@as(u32, @bitCast(rhs)));
-    const ptr = try util.safePtrCastMut(Size, emu.memory[addr..][0..@sizeOf(Size)]);
+    const ptr = try util.safePtrCastMut(Size, try emu.readSlice(addr, @sizeOf(Size)));
     ptr.* = store_value;
 }
 fn loadInstr2(emu: *Emulator, comptime Size: type, lhs: i32, imm: i12) !i32 {
@@ -222,7 +244,7 @@ fn loadInstr2(emu: *Emulator, comptime Size: type, lhs: i32, imm: i12) !i32 {
     const addr_offset = imm;
     const addr: u32 = @intCast(@as(i33, addr_base) + addr_offset);
 
-    const ptr = try util.safePtrCastMut(Size, emu.memory[addr..][0..@sizeOf(Size)]);
+    const ptr = try util.safePtrCastMut(Size, try emu.readSlice(addr, @sizeOf(Size)));
     return ptr.*;
 }
 fn condBr(emu: *Emulator, comptime compare: fn (a: i32, b: i32) bool, rs1: i32, rs2: i32, imm: i13) ExecError!void {
@@ -497,6 +519,9 @@ pub const ExecError = error{
     BadSize,
     MisalignedJump,
     MisalignedBranch,
+    OutOfBoundsAccess,
+
+    Ecall_BadArgs,
 };
 const FmtReg = struct {
     bank: rvinstrs.RegBank,
