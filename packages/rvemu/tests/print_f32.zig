@@ -1,6 +1,9 @@
 const std = @import("std");
 const lib = @import("lib/start.zig");
 
+// TODO: force debug build
+// in releasesafe it prints 25
+
 pub const panic = lib.panic;
 export fn _start() noreturn {
     var buf: [10]u8 = undefined;
