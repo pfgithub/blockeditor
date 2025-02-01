@@ -163,16 +163,21 @@ pub const Emulator = struct {
 
     pub fn readReg(self: *Emulator, comptime bank: rvinstrs.RegBank, reg: u5) bank.Type() {
         return switch (bank) {
-            .int => self.int_regs[reg],
+            .sint => self.int_regs[reg],
+            .uint => @bitCast(self.int_regs[reg]),
             .float => self.float_regs[reg],
             .double => self.double_regs[reg],
         };
     }
     pub fn writeReg(self: *Emulator, comptime bank: rvinstrs.RegBank, reg: u5, val: bank.Type()) void {
         switch (bank) {
-            .int => {
+            .sint => {
                 if (reg == 0) return;
                 self.int_regs[reg] = val;
+            },
+            .uint => {
+                if (reg == 0) return;
+                self.int_regs[reg] = @bitCast(val);
             },
             .float => {
                 self.float_regs[reg] = val;
@@ -184,10 +189,10 @@ pub const Emulator = struct {
     }
 
     pub fn readIntReg(self: *Emulator, reg: u5) i32 {
-        return self.readReg(.int, reg);
+        return self.readReg(.sint, reg);
     }
     pub fn writeIntReg(self: *Emulator, reg: u5, value: i32) void {
-        return self.writeReg(.int, reg, value);
+        return self.writeReg(.sint, reg, value);
     }
 
     pub fn step(emu: *Emulator) !void {
