@@ -123,7 +123,10 @@ pub const PtrRange = struct {
     first_child: ?*PtrRange,
     next: ?*PtrRange,
 };
-pub const SafetyFlags = packed struct(u64) {
+pub const ShadowFloatReg = struct {
+    is_undefined: bool,
+};
+pub const ShadowIntReg = packed struct(u64) {
     // viral. if any arg has it, the result has it. with simd, it is per-item. branching
     // on undefined = error. calls can decide what to do for undefined.
     is_undefined: bool,
@@ -131,13 +134,32 @@ pub const SafetyFlags = packed struct(u64) {
     range_offset: u31,
     range_generation: u32,
 };
+const EmulatorCfg = struct {
+    memory_safety: bool,
+};
+const cfg: EmulatorCfg = .{
+    .memory_safety = true,
+};
+const ShadowByte = packed struct(u8) {
+    is_leftmost_byte_of_pointer: bool,
+    is_undefined: bool,
+    _6: u6,
+};
 
 pub const Emulator = struct {
     memory: []align(@alignOf(u128)) u8,
+    // shadow_memory: []ShadowByte,
+
     pc: u32,
-    int_regs: [32]i32 = [_]i32{0} ** 32, // reg 0 is hardcoded to 0 so yeah
+    int_regs: [32]i32 = @splat(0), // reg 0 is hardcoded to 0 so yeah
+    shadow_int_regs: [32]ShadowIntReg = @splat(.{
+        .is_undefined = false,
+        .range_offset = 0,
+        .range_generation = 0,
+    }),
     fcsr: FloatingPointControlStatus = @bitCast(@as(u32, 0)),
-    float_regs: [32]f32 = [_]f32{0} ** 32,
+    float_regs: [32]f32 = @splat(0),
+    shadow_float_regs: [32]ShadowFloatReg = @splat(.{ .is_undefined = false }),
 
     pub fn readReg(self: *Emulator, comptime bank: rvinstrs.RegBank, reg: u5) bank.Type() {
         return switch (bank) {
