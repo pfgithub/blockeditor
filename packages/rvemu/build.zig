@@ -62,6 +62,7 @@ pub fn build(b: *std.Build) !void {
                 runner_run.addArg("-u");
             }
         }
+        runner_run.addFileArg(b.path("tests/_hashes.txt"));
         for (exe_bins.items) |exe_bin| {
             runner_run.addFileArg(exe_bin[0]);
             runner_run.addFileArg(exe_bin[1]);

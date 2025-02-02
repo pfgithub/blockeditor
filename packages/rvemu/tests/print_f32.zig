@@ -11,6 +11,6 @@ export fn _start() noreturn {
     _ = &val;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{val}) catch "[ERR]";
     _ = lib.syscall2(lib.Sys.print, @intFromPtr(slice.ptr), slice.len);
-    _ = lib.syscall1(lib.Sys.exit, 1);
+    _ = lib.syscall1(lib.Sys.exit, 0);
     unreachable;
 }

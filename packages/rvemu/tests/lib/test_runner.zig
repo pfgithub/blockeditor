@@ -16,6 +16,9 @@ pub fn main() !u8 {
         update_snapshots = true;
         rem = rem[1..];
     }
+    if (rem.len < 1) return error.MissingArg;
+    const hashes_file = rem[0];
+    rem = rem[1..];
 
     const itms = @divFloor(rem.len, 2);
     var progress = std.Progress.start(.{ .root_name = "rv tests", .estimated_total_items = itms });
@@ -27,6 +30,10 @@ pub fn main() !u8 {
     }
 
     var success: bool = true;
+
+    var hashes_file_cont = std.ArrayList([]const u8).init(gpa);
+    defer hashes_file_cont.deinit();
+    defer for (hashes_file_cont.items) |ent| gpa.free(ent);
 
     while (rem.len > 1) {
         const src = rem[0];
@@ -57,11 +64,6 @@ pub fn main() !u8 {
         var snapshot_result = std.ArrayList(u8).init(gpa);
         defer snapshot_result.deinit();
 
-        // should go in a seperate file because it will change with zig updates
-        // maybe once we're ready, we can keep around old hashes to make sure they continue to execute the same
-        // (store them in cdn lfs)
-        try snapshot_result.writer().print("src hash: {s}\n", .{std.fmt.fmtSliceHexLower(&disk_hash)});
-
         // start emu-lating
         var env: Env = .{
             .emu = &emu,
@@ -74,7 +76,13 @@ pub fn main() !u8 {
         };
 
         // these should go in a seperate file because they will change with zig updates
-        try snapshot_result.writer().print("exited with code {d} in {d} cost\n", .{ env.exit_code, emu.cost });
+        try snapshot_result.writer().print("Exited with code {d}\n", .{env.exit_code});
+
+        {
+            const apres = try std.fmt.allocPrint(gpa, "{s}: {d}\n  {}\n", .{ name, emu.cost, std.fmt.fmtSliceHexLower(&disk_hash) });
+            errdefer gpa.free(apres);
+            try hashes_file_cont.append(apres);
+        }
 
         if (!std.mem.eql(u8, snapshot_result.items, snapshot)) {
             std.log.err("{s}:\n=== EXPECTED ===\n{s}\n=== GOT ===\n{s}\n=== ===", .{ name, snapshot, snapshot_result.items });
@@ -86,15 +94,35 @@ pub fn main() !u8 {
     }
     if (rem.len != 0) return error.BadArgs;
 
+    std.mem.sort([]const u8, hashes_file_cont.items, {}, strLessThan);
+    {
+        var hashes_res = std.ArrayList(u8).init(gpa);
+        defer hashes_res.deinit();
+        try hashes_res.appendSlice("# Hashes file. Changes when zig updates or cost calculation changes.\n\n");
+        for (hashes_file_cont.items) |itm| try hashes_res.appendSlice(itm);
+        const prev_hashes_file = std.fs.cwd().readFileAlloc(gpa, hashes_file, 2097152) catch "";
+        defer gpa.free(prev_hashes_file);
+        if (!std.mem.eql(u8, prev_hashes_file, hashes_res.items)) {
+            std.log.err("Hashes file changed.", .{});
+            success = false;
+            if (update_snapshots) {
+                try std.fs.cwd().writeFile(.{ .sub_path = hashes_file, .data = hashes_res.items });
+            }
+        }
+    }
+
     if (!success) {
         if (!update_snapshots) {
             std.log.info("use -u to update snapshots.", .{});
         } else {
-            std.log.info("snapshots updated. re-run tests without -u to confirm.", .{});
+            std.log.info("snapshots updated. re-run tests to confirm.", .{});
         }
         return 1;
     }
     return 0;
+}
+fn strLessThan(_: void, a: []const u8, b: []const u8) bool {
+    return std.mem.order(u8, a, b) == .lt;
 }
 const Env = struct {
     emu: *rvemu.Emulator,
