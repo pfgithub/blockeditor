@@ -399,15 +399,15 @@ const i_type_instrs = struct {
     }
 };
 const i_shift_type_instrs = struct {
-    pub fn SLLI(_: *Emulator, lhs: i32, rhs: u5) ExecError!i32 {
+    pub fn SLLI(_: *Emulator, lhs: u32, rhs: u5) ExecError!u32 {
         // Performs logical left shift on the value in register rs1 by the shift
         // amount held in the lower 5 bits of the immediate. In RV64, bit-25
         // is used to shamt[5].
         return lhs << rhs;
         // x[rd] = x[rs1] << shamt
     }
-    pub fn SRLI(_: *Emulator, lhs: i32, rhs: u5) ExecError!i32 {
-        return @bitCast(@as(u32, @bitCast(lhs)) >> rhs);
+    pub fn SRLI(_: *Emulator, lhs: u32, rhs: u5) ExecError!u32 {
+        return lhs >> rhs;
     }
     pub fn SRAI(_: *Emulator, lhs: i32, rhs: u5) ExecError!i32 {
         // Shift Right Arithmetic Immediate
