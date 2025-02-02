@@ -63,40 +63,18 @@ pub fn main() !u8 {
         try snapshot_result.writer().print("src hash: {s}\n", .{std.fmt.fmtSliceHexLower(&disk_hash)});
 
         // start emu-lating
-        const exit_code: i32 = while (true) {
-            emu.run() catch |e| switch (e) {
-                error.Ecall => {
-                    const syscall_tag: i43 = emu.readIntReg(17);
-                    const syscall_args = [_]i32{
-                        emu.readIntReg(10),
-                        emu.readIntReg(11),
-                        emu.readIntReg(12),
-                        emu.readIntReg(13),
-                        emu.readIntReg(14),
-                        emu.readIntReg(15),
-                    };
-                    const res: i32 = switch (syscall_tag) {
-                        1 => break syscall_args[0],
-                        3 => blk: {
-                            const ptr: u32 = @bitCast(syscall_args[0]);
-                            const len: u32 = @bitCast(syscall_args[1]);
-                            try emu.addCost(len);
-                            try snapshot_result.appendSlice("[LOG] ");
-                            try snapshot_result.appendSlice(try emu.readSlice(ptr, len));
-                            try snapshot_result.appendSlice("\n");
-                            break :blk 0;
-                        },
-                        else => @panic("bad ecall"),
-                    };
-                    emu.writeIntReg(10, res);
-                    emu.pc += 4;
-                },
-                else => return e,
-            };
+        var env: Env = .{
+            .emu = &emu,
+            .snapshot_result = &snapshot_result,
+            .exit_code = 1,
+        };
+        emu.run(&env, handleSyscall) catch |e| switch (e) {
+            error.Ecall_Exit => {},
+            else => return e,
         };
 
         // these should go in a seperate file because they will change with zig updates
-        try snapshot_result.writer().print("exited with code {d} in {d} cost\n", .{ exit_code, emu.cost });
+        try snapshot_result.writer().print("exited with code {d} in {d} cost\n", .{ env.exit_code, emu.cost });
 
         if (!std.mem.eql(u8, snapshot_result.items, snapshot)) {
             std.log.err("{s}:\n=== EXPECTED ===\n{s}\n=== GOT ===\n{s}\n=== ===", .{ name, snapshot, snapshot_result.items });
@@ -117,6 +95,29 @@ pub fn main() !u8 {
         return 1;
     }
     return 0;
+}
+const Env = struct {
+    emu: *rvemu.Emulator,
+    snapshot_result: *std.ArrayList(u8),
+    exit_code: i32,
+};
+pub fn handleSyscall(env: *Env, kind: i32, args: [6]i32) !i32 {
+    switch (kind) {
+        1 => {
+            env.exit_code = args[0];
+            return error.Ecall_Exit;
+        },
+        3 => {
+            const ptr: u32 = @bitCast(args[0]);
+            const len: u32 = @bitCast(args[1]);
+            try env.emu.addCost(len);
+            try env.snapshot_result.appendSlice("[LOG] ");
+            try env.snapshot_result.appendSlice(try env.emu.readSlice(ptr, len));
+            try env.snapshot_result.appendSlice("\n");
+            return 0;
+        },
+        else => @panic("bad ecall"),
+    }
 }
 
 // test "fuzz"

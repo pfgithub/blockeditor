@@ -209,9 +209,26 @@ pub const Emulator = struct {
         std.debug.assert(emu.int_regs[0] == 0);
         emu.pc += 4;
     }
-    pub fn run(emu: *Emulator) !void {
+    pub fn run(emu: *Emulator, usr_data: anytype, comptime handle_syscall: anytype) !void {
         while (true) {
-            try emu.step();
+            emu.step() catch |e| switch (e) {
+                error.Ecall => {
+                    try emu.addCost(100); // base syscall cost
+                    const syscall_tag: i32 = emu.readIntReg(17);
+                    const syscall_args = [_]i32{
+                        emu.readIntReg(10),
+                        emu.readIntReg(11),
+                        emu.readIntReg(12),
+                        emu.readIntReg(13),
+                        emu.readIntReg(14),
+                        emu.readIntReg(15),
+                    };
+                    const res = try handle_syscall(usr_data, syscall_tag, syscall_args);
+                    emu.writeIntReg(10, res);
+                    emu.pc += 4;
+                },
+                else => return e,
+            };
         }
     }
 
@@ -534,6 +551,7 @@ pub const ExecError = error{
     OutOfBoundsAccess,
 
     Ecall_BadArgs,
+    Ecall_Exit,
 };
 const FmtReg = struct {
     bank: rvinstrs.RegBank,
