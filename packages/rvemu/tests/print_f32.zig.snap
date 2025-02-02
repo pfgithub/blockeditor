@@ -1,2 +1,3 @@
-[LOG] 25
+[LOG] Print 25.0 ? 25
+[LOG] 1.0 < 10.0 ? true
 Exited with code 0

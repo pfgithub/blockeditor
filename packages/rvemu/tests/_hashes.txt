@@ -1,4 +1,4 @@
 # Hashes file. Changes when zig updates or cost calculation changes.
 
-print_f32.zig: 2979
-  d3dd40bc04d4ce1f51a3a9aa2dd3b2746d593a816835e8bb03c007060c79bee0
+print_f32.zig: 3537
+  0b78b40cfa47c9f78a8cc06342c6cfd8288992ea4591d07d5d2e2285d81fa99c
