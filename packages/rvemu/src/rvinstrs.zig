@@ -36,6 +36,20 @@ pub const InstrSpec = struct {
         rs3: ?RegBank = null,
     } = null,
 };
+pub const InstrName = blk: {
+    const std = @import("std");
+    var names: [instrs.len]std.builtin.Type.EnumField = undefined;
+    for (instrs, &names, 0..) |instr, *name, i| {
+        name.* = .{ .name = @tagName(instr.name), .value = i };
+    }
+    const res: std.builtin.Type.Enum = .{
+        .decls = &.{},
+        .fields = &names,
+        .is_exhaustive = true,
+        .tag_type = std.math.IntFittingRange(0, names.len),
+    };
+    break :blk @Type(.{ .@"enum" = res });
+};
 
 pub const instrs: []const InstrSpec = &[_]InstrSpec{
     // Base

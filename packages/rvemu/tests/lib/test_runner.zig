@@ -79,9 +79,17 @@ pub fn main() !u8 {
         try snapshot_result.writer().print("Exited with code {d}\n", .{env.exit_code});
 
         {
-            const apres = try std.fmt.allocPrint(gpa, "{s}: {d}\n  {}\n", .{ name, emu.cost, std.fmt.fmtSliceHexLower(&disk_hash) });
-            errdefer gpa.free(apres);
-            try hashes_file_cont.append(apres);
+            var apres = std.ArrayList(u8).init(gpa);
+            defer apres.deinit();
+            try apres.writer().print("{s}: {d}\n  {}\n  Features", .{ name, emu.cost, std.fmt.fmtSliceHexLower(&disk_hash) });
+            for (0..std.meta.fields(rvemu.rvinstrs.InstrName).len) |i| {
+                const field_flag: rvemu.rvinstrs.InstrName = @enumFromInt(i);
+                if (env.emu.features.used_instructions.contains(field_flag)) {
+                    try apres.writer().print(", {s}", .{@tagName(field_flag)});
+                }
+            }
+            try apres.writer().print("\n", .{});
+            try hashes_file_cont.append(try apres.toOwnedSlice());
         }
 
         if (!std.mem.eql(u8, snapshot_result.items, snapshot)) {

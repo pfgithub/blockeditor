@@ -1,5 +1,10 @@
 const std = @import("std");
 
+pub fn forceRuntime(val: f32) f32 {
+    const ptr: *const volatile f32 = &val;
+    return ptr.*;
+}
+
 pub const Sys = struct {
     pub const print = 3;
     pub const exit = 1;

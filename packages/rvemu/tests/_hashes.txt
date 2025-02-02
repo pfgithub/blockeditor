@@ -1,4 +1,8 @@
 # Hashes file. Changes when zig updates or cost calculation changes.
 
-print_f32.zig: 3588
-  2b0e02a94b7f1c5cfe4a6631030f8970080472416029267c0e8dd93aaa461bf7
+compare_f32.zig: 590
+  c42fd2aa8fd894fefe3fe96abe77fa1f3ade3866c8d43bf1c49b834bbfc3caa6
+  Features, LUI, AUIPC, JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU, LW, LBU, LHU, SB, SH, SW, ADDI, SLTI, XORI, ANDI, SLLI, SRLI, ADD, SUB, SLTU, XOR, OR, AND, ECALL
+print_f32.zig: 3109
+  31a5722b8038309e1b820b83dfe1bd51bd5dff271e7ead89c5d4600ef88167af
+  Features, LUI, AUIPC, JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU, LW, LBU, LHU, SB, SH, SW, ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI, ADD, SUB, SLL, SLT, SLTU, XOR, SRL, OR, AND, ECALL, MUL, MULHU

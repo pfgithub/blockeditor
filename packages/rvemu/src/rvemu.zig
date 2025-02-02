@@ -4,7 +4,7 @@
 const util = @import("util.zig");
 const std = @import("std");
 const log = std.log.scoped(.rvemu);
-const rvinstrs = @import("rvinstrs.zig");
+pub const rvinstrs = @import("rvinstrs.zig");
 pub const loader = @import("loader.zig");
 
 comptime {
@@ -137,9 +137,11 @@ pub const ShadowIntReg = packed struct(u64) {
 };
 const EmulatorCfg = struct {
     memory_safety: bool,
+    track_features: bool,
 };
 const cfg: EmulatorCfg = .{
     .memory_safety = true,
+    .track_features = true,
 };
 const ShadowByte = packed struct(u8) {
     is_leftmost_byte_of_pointer: bool,
@@ -162,6 +164,10 @@ pub const Emulator = struct {
     float_regs: [32]f32 = @splat(0),
     shadow_float_regs: [32]ShadowFloatReg = @splat(.{ .is_undefined = false }),
     cost: u128 = 0,
+
+    features: if (cfg.track_features) struct {
+        used_instructions: std.EnumSet(rvinstrs.InstrName) = .initEmpty(),
+    } else void = if (cfg.track_features) .{} else {},
 
     pub fn readReg(self: *Emulator, comptime bank: rvinstrs.RegBank, reg: u5) bank.Type() {
         return switch (bank) {
@@ -256,6 +262,10 @@ pub const Emulator = struct {
         emu.writeIntReg(2, @bitCast(elf_res.stack_ptr)); // stack pointer.
         emu.writeIntReg(3, 0); // global pointer
         emu.writeIntReg(4, 0); // thread pointer
+    }
+    pub fn markUsedInstruction(emu: *Emulator, instr: rvinstrs.InstrName) void {
+        if (!cfg.track_features) return;
+        emu.features.used_instructions.setPresent(instr, true);
     }
 };
 
@@ -651,6 +661,7 @@ const DecodeToCall = struct {
         const emu = self.emu;
 
         const instr_name = @tagName(instr_spec.name);
+        emu.markUsedInstruction(instr_spec.name);
         switch (instr_spec.format) {
             .None => {
                 if (!@hasDecl(none_type_instrs, instr_name)) @panic("TODO none_type_instrs." ++ instr_name);
