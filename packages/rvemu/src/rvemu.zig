@@ -368,7 +368,7 @@ const i_type_instrs = struct {
         // SLTI (set less than immediate) places the value 1 in register rd if
         // register rs1 is less than the sign-extended immediate when both are
         // treated as signed numbers, else 0 is written to rd.
-        return switch (cmp.lt_u(lhs, imm)) {
+        return switch (cmp.lt(lhs, imm)) {
             false => 0,
             true => 1,
         };
@@ -378,7 +378,7 @@ const i_type_instrs = struct {
         // the immediate is first sign-extended to XLEN bits then treated as an
         // unsigned number). Note, SLTIU rd, rs1, 1 sets rd to 1 if rs1 equals
         // zero, otherwise sets rd to 0 (assembler pseudoinstruction SEQZ rd, rs).
-        return switch (cmp.lt_u(lhs, @as(i32, imm))) {
+        return switch (cmp.lt_u(lhs, imm)) {
             false => 0,
             true => 1,
         };
