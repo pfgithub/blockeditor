@@ -437,7 +437,7 @@ const r_type_instrs = struct {
     }
     pub fn SLT(_: *Emulator, lhs: i32, rhs: i32) ExecError!i32 {
         // Place the value 1 in register rd if register rs1 is less than register
-        // rs2 when both are treated as unsigned numbers, else 0 is written to rd.
+        // rs2 when both are treated as signed numbers, else 0 is written to rd.
         return switch (cmp.lt(lhs, rhs)) {
             false => 0,
             true => 1,
