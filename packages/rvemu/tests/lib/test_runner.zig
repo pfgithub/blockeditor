@@ -121,3 +121,9 @@ pub fn handleSyscall(env: *Env, kind: i32, args: [6]i32) !i32 {
 }
 
 // test "fuzz"
+
+// trace impl:
+// - serialize program state
+// - save every syscall
+// - if the trace gets too long: serialize emu state & clear the trace.
+//   keep saving syscalls after this.
