@@ -55,8 +55,8 @@ pub const instrs: []const InstrSpec = &[_]InstrSpec{
     // Base
     .{ .name = .LUI, .format = .U, .opcode = 0b0110111, .banks = .{ .rd = .sint } },
     .{ .name = .AUIPC, .format = .U, .opcode = 0b0010111, .banks = .{ .rd = .sint } },
-    .{ .name = .JAL, .format = .J, .opcode = 0b1101111, .banks = .{ .rd = .sint } },
-    .{ .name = .JALR, .format = .I, .opcode = 0b1100111, .funct3 = 0b000, .banks = .{ .rs1 = .sint, .rd = .sint } },
+    .{ .name = .JAL, .format = .J, .opcode = 0b1101111, .banks = .{ .rd = .uint } },
+    .{ .name = .JALR, .format = .I, .opcode = 0b1100111, .funct3 = 0b000, .banks = .{ .rs1 = .uint, .rd = .uint } },
     .{ .name = .BEQ, .format = .B, .opcode = 0b1100011, .funct3 = 0b000, .banks = .{ .rs1 = .sint, .rs2 = .sint } },
     .{ .name = .BNE, .format = .B, .opcode = 0b1100011, .funct3 = 0b001, .banks = .{ .rs1 = .sint, .rs2 = .sint } },
     .{ .name = .BLT, .format = .B, .opcode = 0b1100011, .funct3 = 0b100, .banks = .{ .rs1 = .sint, .rs2 = .sint } },

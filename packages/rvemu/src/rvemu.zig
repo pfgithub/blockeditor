@@ -384,7 +384,7 @@ const i_type_instrs = struct {
         };
     }
 
-    pub fn JALR(emu: *Emulator, lhs: i32, imm: i12) ExecError!i32 {
+    pub fn JALR(emu: *Emulator, lhs: u32, imm: i12) ExecError!u32 {
         // The indirect jump instruction JALR (jump and link register) uses the
         // I-type encoding. The target address is obtained by adding the
         // sign-extended 12-bit I-immediate to the register rs1, then setting the
@@ -392,10 +392,10 @@ const i_type_instrs = struct {
         // following the jump (pc+4) is written to register rd. Register x0 can be
         // used as the destination if the result is not required.
         const ret_addr = emu.pc + 4;
-        var target_addr: u32 = @intCast(@as(i33, (@as(u32, @bitCast(lhs)))) + imm);
+        var target_addr: u32 = @intCast(@as(i33, lhs) + imm);
         target_addr &= ~@as(u32, 0b1);
         emu.pc = target_addr - 4; // we add 4 right after this runs
-        return @bitCast(ret_addr);
+        return ret_addr;
     }
 };
 const i_shift_type_instrs = struct {
@@ -509,7 +509,7 @@ const r_type_instrs = struct {
     }
 };
 const j_type_instrs = struct {
-    pub fn JAL(emu: *Emulator, imm: i21) ExecError!i32 {
+    pub fn JAL(emu: *Emulator, imm: i21) ExecError!u32 {
         // The jump and link (JAL) instruction uses the J-type format, where the
         // J-immediate encodes a signed offset in multiples of 2 bytes. The offset
         // is sign-extended and added to the address of the jump instruction to
@@ -521,7 +521,7 @@ const j_type_instrs = struct {
         const target_addr: u32 = @intCast(@as(i33, emu.pc) + imm);
         if (target_addr & 0b1 != 0) return error.MisalignedJump;
         emu.pc = target_addr - 4; // we add 4 right after this runs
-        return @bitCast(ret_addr);
+        return ret_addr;
     }
 };
 const b_type_instrs = struct {
