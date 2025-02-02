@@ -445,13 +445,13 @@ const r_type_instrs = struct {
         // x[rd] = x[rs1] <u x[rs2]
     }
     /// SLL, SRL, and SRA perform logical left, logical right, and arithmetic right shifts on the value in register rs1 by the shift amount held in the lower 5 bits of register rs2.
-    pub fn SLL(_: *Emulator, lhs: i32, rhs: i32) ExecError!i32 {
+    pub fn SLL(_: *Emulator, lhs: u32, rhs: i32) ExecError!u32 {
         const rhs_5b: u5 = @intCast(rhs & 0b11111);
         return lhs << rhs_5b;
     }
-    pub fn SRL(_: *Emulator, lhs: i32, rhs: i32) ExecError!i32 {
+    pub fn SRL(_: *Emulator, lhs: u32, rhs: i32) ExecError!u32 {
         const rhs_5b: u5 = @intCast(rhs & 0b11111);
-        return @bitCast(@as(u32, @bitCast(lhs)) >> rhs_5b);
+        return lhs >> rhs_5b;
     }
     pub fn SRA(_: *Emulator, lhs: i32, rhs: i32) ExecError!i32 {
         std.debug.assert(@as(i1, -1) >> 0 == -1);
