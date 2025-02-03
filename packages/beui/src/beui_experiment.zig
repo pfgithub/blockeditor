@@ -1391,23 +1391,34 @@ pub fn contextMenuHolder(call_info: SizedCallInfo, context_menu: Component(Conte
     return rdl;
 }
 // child: contextMenuEntry[ disabled, label, onclick ]
-pub fn contextMenuList(call_info: ContextMenuCallInfo) StandardChild {
+pub fn contextMenuList(call_info: ContextMenuCallInfo, child: Component(StandardCallInfo, void, StandardChild)) StandardChild {
     const ui = call_info.ui(@src());
     const rdl = ui.id.b2.draw();
     // this should be done in theme and the caller should get to set it
+    const child_res = child.call(.{ .caller_id = ui.id.sub(@src()), .constraints = .{ .available_size = .{
+        .w = @min(ui.constraints.screen_size[0], 300) - Theme.border_width * 2,
+        .h = ui.constraints.screen_size[1] - Theme.border_width * 2,
+    } } }, {});
+    rdl.place(child_res.rdl, .{ .offset = ui.constraints.click_pos + @Vector(2, f32){ Theme.border_width, Theme.border_width } });
     rdl.addRect(.{
         .pos = ui.constraints.click_pos + @Vector(2, f32){ Theme.border_width, Theme.border_width },
-        .size = .{ 200 - Theme.border_width * 2, 300 - Theme.border_width * 2 },
+        .size = .{ child_res.size[0], child_res.size[1] },
         .tint = Theme.colors.window_bg,
         .rounding = .{ .corners = .{ .top_right = true, .bottom_left = true, .bottom_right = true }, .radius = Theme.border_width },
     });
     rdl.addRect(.{
         .pos = ui.constraints.click_pos,
-        .size = .{ 200, 300 },
+        .size = .{ child_res.size[0] + Theme.border_width * 2, child_res.size[1] + Theme.border_width * 2 },
         .tint = Theme.colors.window_border,
         .rounding = .{ .corners = .{ .top_right = true, .bottom_left = true, .bottom_right = true }, .radius = Theme.border_width * 2 },
     });
+    rdl.addMouseEventCapture2(ui.id.sub(@src()), ui.constraints.click_pos, .{ child_res.size[0] + Theme.border_width * 2, child_res.size[1] + Theme.border_width * 2 }, .{
+        .onMouseEvent = .from(&{}, contextMenuList__backgroundClick),
+    });
     return .{ .size = @splat(0), .rdl = rdl };
+}
+fn contextMenuList__backgroundClick(_: *const void, _: *Beui2, _: MouseEvent) ?Beui.Cursor {
+    return .arrow;
 }
 pub fn contextMenuEntry(call_info: ContextMenuCallInfo, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
     // this will have a default renderer in Theme

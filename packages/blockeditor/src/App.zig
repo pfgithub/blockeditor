@@ -152,9 +152,27 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
 }
 
 fn render__contextMenu(self: *App, sci: B2.ContextMenuCallInfo, _: void) B2.StandardChild {
-    _ = self;
     const ui = sci.ui(@src());
-    return B2.contextMenuList(ui.sub(@src()));
+    return B2.contextMenuList(ui.sub(@src()), .from(self, render__contextMenu__child));
+}
+const render__contextMenu__child__child_Data = struct {
+    self: *App,
+    label: []const u8,
+};
+fn render__contextMenu__child(self: *App, sci: B2.StandardCallInfo, _: void) B2.StandardChild {
+    const ui = sci.ui(@src());
+    const ctxm = ui.id.b2.dupeOne(render__contextMenu__child__child_Data{
+        .self = self,
+        .label = "Bouncy Ball",
+    });
+    return B2.button(ui.sub(@src()), .{ .onClick = .from(ctxm, render__contextMenu__child__onClick) }, .from(ctxm, render__contextMenu__child__child));
+}
+fn render__contextMenu__child__onClick(self: *render__contextMenu__child__child_Data, _: *B2.Beui2, _: void) void {
+    const bouncy_ball = self.self.db.createBlock(bi.BouncyBallViewer.deserialize(self.self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
+    self.self.wm.wm.moveFrameNewWindow(self.self.wm.wm.addFrame(.{ .final = .{ .ref = bouncy_ball } }));
+}
+fn render__contextMenu__child__child(self: *render__contextMenu__child__child_Data, sci: B2.StandardCallInfo, _: B2.ButtonState) B2.StandardChild {
+    return B2.textLine(sci, .{ .text = self.label });
 }
 
 const BounceBallState = struct {
