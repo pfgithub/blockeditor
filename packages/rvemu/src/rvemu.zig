@@ -1,7 +1,7 @@
 // if we want to switch to wasm, we can modify this
 // https://github.com/rdunnington/bytebox
 
-const util = @import("util.zig");
+const util = @import("anywhere").util;
 const std = @import("std");
 const log = std.log.scoped(.rvemu);
 pub const rvinstrs = @import("rvinstrs.zig");

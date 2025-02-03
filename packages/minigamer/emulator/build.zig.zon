@@ -1,0 +1,9 @@
+.{
+    .name = "minigamer_emulator",
+    .version = "0.0.0",
+    .paths = .{""},
+    .dependencies = .{
+        .anywhere = .{ .path = "../../anywhere" },
+        .rvemu = .{ .path = "../../rvemu" },
+    },
+}

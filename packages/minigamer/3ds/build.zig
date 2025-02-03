@@ -16,9 +16,7 @@ pub fn build(b: *std.Build) !void {
     runswizzle.addFileArg(b.path("tmp/swizzle.rgba"));
     const swiz_c = runswizzle.addOutputFileArg("swizzle.c");
 
-    const emu_mod = b.createModule(.{
-        .root_source_file = b.dependency("emulator", .{}).path("src/emu.zig"),
-    });
+    const emu_mod = b.dependency("emulator", .{}).module("emu");
     const sponge_mod = b.createModule(.{ .root_source_file = b.dependency("sponge", .{ .optimize = .ReleaseFast }).artifact("sponge.cart").getEmittedBin() });
 
     const zig3ds_dep = b.dependency("zig3ds", .{ .optimize = optimize });

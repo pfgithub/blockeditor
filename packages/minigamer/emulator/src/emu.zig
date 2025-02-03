@@ -3,10 +3,9 @@
 //! TODO: audit loader.zig, rvemu.zig, ... to bounds check every slice.
 
 const std = @import("std");
-const loader = @import("loader.zig");
-const rvemu = @import("rvemu.zig");
+const rvemu = @import("rvemu");
 pub const constants = @import("constants.zig");
-const util = @import("util.zig");
+const util = @import("anywhere").util;
 const gpu = @import("gpu.zig");
 const log = std.log.scoped(.emu);
 
@@ -66,23 +65,12 @@ pub const Program = struct {
         errdefer gpa.destroy(gpu_ptr);
         gpu_ptr.* = .{};
 
-        const load_offset = 0; // won't work until relocations are supported for -fPIE
-        const elf_res = blk: {
-            const disk_aligned_mut = try gpa.alignedAlloc(u8, @alignOf(u128), file.len);
-            defer gpa.free(disk_aligned_mut);
-            @memcpy(disk_aligned_mut, file);
-            const disk: []align(@alignOf(u128)) const u8 = disk_aligned_mut;
+        const disk_aligned_mut = try gpa.alignedAlloc(u8, @alignOf(u128), file.len);
+        defer gpa.free(disk_aligned_mut);
+        @memcpy(disk_aligned_mut, file);
 
-            break :blk try loader.loadElf(disk, mem_ptr[load_offset..]);
-        };
-
-        var emu: rvemu.Emulator = .{ .memory = mem_ptr, .pc = elf_res.main_ptr + load_offset };
-
-        // put emu in main
-        emu.writeIntReg(1, 0); // return address
-        emu.writeIntReg(2, @bitCast(elf_res.stack_ptr + load_offset)); // stack pointer.
-        emu.writeIntReg(3, 0); // global pointer
-        emu.writeIntReg(4, 0); // thread pointer
+        var emu: rvemu.Emulator = .{ .memory = mem_ptr };
+        try emu.loadElf(disk_aligned_mut);
 
         return .{
             .emu = emu,

@@ -13,9 +13,7 @@ pub fn build(b: *std.Build) !void {
     });
     b.getInstallStep().dependOn(&format_step.step);
 
-    const emu_mod = b.createModule(.{
-        .root_source_file = b.dependency("minigamer_emulator", .{}).path("src/emu.zig"),
-    });
+    const emu_mod = b.dependency("minigamer_emulator", .{}).module("emu");
     const sponge_mod = b.createModule(.{ .root_source_file = b.dependency("minigamer_sponge", .{ .optimize = .ReleaseFast }).artifact("sponge.cart").getEmittedBin() });
 
     const anywhere_mod = b.dependency("anywhere", .{}).module("anywhere");

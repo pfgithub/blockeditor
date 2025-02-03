@@ -33,4 +33,7 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(libc_file_builder);
 }
 
+// TODO:
+// - make build.zig the root source file of anywhere mod
+// - expose everything directly here
 pub const lib = @import("src/anywhere.zig");
