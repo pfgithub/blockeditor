@@ -47,12 +47,21 @@ const Types = struct {
             const arg = try scope.handleExpr(.key, prop);
             const ctk = try scope.env.expectComptimeKey(arg);
             if (ctk == try scope.env.comptimeKeyFromString("asm")) {
+                // when we call a function, we know if we are calling at comptime or runtime.
+                // so we can choose how to emit code based on that.
+                // unlike the previous version, we won't ever return a value and then
+                // execute it. instead, we always return a comptime value if we can
+                // and insert at runtime if we can't.
+                // still need to figure out the borders & moving from comptime to
+                // runtime.
                 return scope.env.addErr(srcloc, "TODO access #bulitin.asm", .{});
             }
             return scope.env.addErr(srcloc, "TODO access #bulitin", .{});
         }
     };
     const Key = struct {
+        // for strings <= 7 bytes long, we can store them directly in the u64
+        // longer than 7 maybe they can go in a comptime array unless they're runtime
         pub const ComptimeValue = enum(u64) { _ };
         // pub const ComptimeValue = union(enum) {
         //     /// these are unique, there is only one decl with this string
