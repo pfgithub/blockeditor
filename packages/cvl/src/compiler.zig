@@ -40,12 +40,15 @@ const Types = struct {
         fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             return try std.fmt.allocPrint(env.gpa, "#builtin", .{});
         }
+        // for lsp, we need to provide a list of keys
         fn access(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type.Index, obj: Expr.Value, prop: parser.AstExpr, srcloc: parser.SrcLoc) Error!Expr {
             _ = slot;
             std.debug.assert(obj == .compiletime);
             const arg = try scope.handleExpr(.key, prop);
             const ctk = try scope.env.expectComptimeKey(arg);
-            _ = ctk;
+            if (ctk == try scope.env.comptimeKeyFromString("asm")) {
+                return scope.env.addErr(srcloc, "TODO access #bulitin.asm", .{});
+            }
             return scope.env.addErr(srcloc, "TODO access #bulitin", .{});
         }
     };
@@ -289,7 +292,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, expr: parser.AstExp
                 const is_last = tree.tag(next) == .srcloc;
 
                 if (is_last) return scope.handleExpr(slot, c);
-                _ = try scope.handleExpr(.basic_void, c);
+                if (scope.handleExpr(.basic_void, c)) |_| {} else |_| {}
 
                 child = next;
             }
