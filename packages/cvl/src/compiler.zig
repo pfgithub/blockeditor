@@ -30,7 +30,7 @@ const Types = struct {
             std.debug.assert(obj == .compiletime);
             _ = prop;
 
-            return scope.env.addErrAsExpr(srcloc, "TODO access type", .{});
+            return scope.env.addErr(srcloc, "TODO access type", .{});
         }
     };
     const Builtin = struct {
@@ -44,39 +44,21 @@ const Types = struct {
             _ = slot;
             std.debug.assert(obj == .compiletime);
             const arg = try scope.handleExpr(.key, prop);
-            if (scope.env.expectComptimeOrElse(arg)) |val| return val;
-            return scope.env.addErrAsExpr(srcloc, "TODO access #bulitin", .{});
-        }
-    };
-    const Err = struct {
-        pub const ty: Type = .{ .vtable = &vtable, .data = .from(void, &{}) };
-        const vtable: Type.Vtable = autoVtable(Type.Vtable, @This());
-
-        fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
-            return try std.fmt.allocPrint(env.gpa, "error", .{});
-        }
-        fn access(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type.Index, obj: Expr.Value, prop: parser.AstExpr, srcloc: parser.SrcLoc) Error!Expr {
-            _ = scope;
-            _ = slot;
-            _ = prop;
-            return .{ .ty = .err, .value = obj, .srcloc = srcloc };
-        }
-        fn call(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type.Index, method: Expr.Value, arg: parser.AstExpr, srcloc: parser.SrcLoc) Error!Expr {
-            _ = scope;
-            _ = slot;
-            _ = arg;
-            return .{ .ty = .err, .value = method, .srcloc = srcloc };
+            const ctk = try scope.env.expectComptimeKey(arg);
+            _ = ctk;
+            return scope.env.addErr(srcloc, "TODO access #bulitin", .{});
         }
     };
     const Key = struct {
-        pub const ComptimeValue = union(enum) {
-            /// these are unique, there is only one decl with this string
-            str: []const u8,
-            symbol: struct {
-                name: []const u8,
-                ty: ?Type.Index,
-            },
-        };
+        pub const ComptimeValue = enum(u64) { _ };
+        // pub const ComptimeValue = union(enum) {
+        //     /// these are unique, there is only one decl with this string
+        //     str: []const u8,
+        //     symbol: struct {
+        //         name: []const u8,
+        //         ty: ?Type.Index,
+        //     },
+        // };
     };
 };
 
@@ -86,7 +68,6 @@ const Type = struct {
     const Index = enum(u64) {
         basic_unknown,
         basic_void,
-        err,
         basic_infer,
         ty,
         builtin,
@@ -102,11 +83,11 @@ const Type = struct {
         return self.vtable.name(self.data, env);
     }
     pub fn access(self: Type, scope: *Scope, slot: Type.Index, obj: Expr.Value, prop: parser.AstExpr, srcloc: parser.SrcLoc) Error!Expr {
-        if (self.vtable.access == null) return scope.env.addErrAsExpr(scope.tree.src(prop), "Type '{s}' does not support access", .{try self.name(scope.env)});
+        if (self.vtable.access == null) return scope.env.addErr(scope.tree.src(prop), "Type '{s}' does not support access", .{try self.name(scope.env)});
         return self.vtable.access.?(self.data, scope, slot, obj, prop, srcloc);
     }
     pub fn call(self: Type, scope: *Scope, slot: Type.Index, method: Expr.Value, arg: parser.AstExpr, srcloc: parser.SrcLoc) Error!Expr {
-        if (self.vtable.call == null) return scope.env.addErrAsExpr(scope.tree.src(arg), "Type '{s}' does not support call", .{try self.name(scope.env)});
+        if (self.vtable.call == null) return scope.env.addErr(scope.tree.src(arg), "Type '{s}' does not support call", .{try self.name(scope.env)});
         return self.vtable.access.?(self.data, scope, slot, method, arg, srcloc);
     }
 };
@@ -138,7 +119,6 @@ const Expr = struct {
     const Value = union(enum) {
         compiletime: Decl.Index,
         runtime: Instr.Index,
-        err,
     };
 };
 
@@ -150,15 +130,6 @@ const Scope = struct {
     fn handleExpr(scope: *Scope, slot: Type.Index, expr: parser.AstExpr) Error!Expr {
         return handleExpr_inner2(scope, slot, expr);
     }
-    pub fn getType(scope: *Scope, ty: Type.Index) Type {
-        _ = scope;
-        return switch (ty) {
-            .ty => Types.Ty.ty,
-            .err => Types.Err.ty,
-            .builtin => Types.Builtin.ty,
-            else => @panic("TODO getType()"),
-        };
-    }
 };
 /// per-target
 const Env = struct {
@@ -167,19 +138,50 @@ const Env = struct {
     has_error: bool = false,
     decls: std.ArrayListUnmanaged(Decl),
     compiler_srclocs: std.ArrayListUnmanaged(std.builtin.SourceLocation),
+    comptime_keys: std.ArrayListUnmanaged(ComptimeKeyValue),
+    string_to_comptime_key_map: std.ArrayHashMapUnmanaged(Types.Key.ComptimeValue, void, void, true),
 
-    pub fn addErr(self: *Env, srcloc: parser.SrcLoc, comptime msg: []const u8, fmt: anytype) void {
+    const ComptimeKeyValue = union(enum) {
+        string: []const u8,
+        symbol: []const u8,
+    };
+    const CtkCtx = struct {
+        env: *Env,
+        pub fn hash(self: CtkCtx, key: []const u8) u32 {
+            _ = self;
+            return std.array_hash_map.hashString(key);
+        }
+        pub fn eql(self: CtkCtx, a: []const u8, b: Types.Key.ComptimeValue, _: usize) bool {
+            const val = self.env.comptime_keys.items[@intCast(@intFromEnum(b))];
+            if (val != .string) return false;
+            return std.mem.eql(u8, a, val.string);
+        }
+    };
+    fn comptimeKeyFromString(env: *Env, str: []const u8) Error!Types.Key.ComptimeValue {
+        try env.comptime_keys.ensureUnusedCapacity(env.gpa, 1);
+        const gpres = try env.string_to_comptime_key_map.getOrPutAdapted(env.gpa, str, CtkCtx{ .env = env });
+        if (!gpres.found_existing) {
+            gpres.key_ptr.* = @enumFromInt(env.comptime_keys.items.len);
+            env.comptime_keys.appendAssumeCapacity(.{ .string = env.arena.dupe(u8, str) catch @panic("oom") });
+            gpres.value_ptr.* = {};
+        }
+        return gpres.key_ptr.*;
+    }
+
+    pub fn getType(env: *Env, ty: Type.Index) Type {
+        _ = env;
+        return switch (ty) {
+            .ty => Types.Ty.ty,
+            .builtin => Types.Builtin.ty,
+            else => @panic("TODO getType()"),
+        };
+    }
+
+    pub fn addErr(self: *Env, srcloc: parser.SrcLoc, comptime msg: []const u8, fmt: anytype) Error {
         self.has_error = true;
         _ = srcloc;
         std.log.err("[compiler] " ++ msg, fmt);
-    }
-    pub fn addErrAsExpr(env: *Env, srcloc: parser.SrcLoc, comptime msg: []const u8, fmt: anytype) Expr {
-        env.addErr(srcloc, msg, fmt);
-        return .{
-            .ty = .err,
-            .value = .err,
-            .srcloc = srcloc,
-        };
+        return error.ContainsError;
     }
 
     pub fn makeInfer(self: *Env, child: Type.Index) Type.Index {
@@ -203,29 +205,34 @@ const Env = struct {
         return .{ .file_id = std.math.maxInt(u32), .offset = id };
     }
     pub fn declExpr(self: *Env, srcloc: parser.SrcLoc, decl: Decl.Index) Error!Expr {
-        const resolved = self.resolveDeclType(decl);
+        const resolved = try self.resolveDeclType(decl);
         return .{
             .ty = resolved.resolved_type.?,
             .value = .{ .compiletime = decl },
             .srcloc = srcloc,
         };
     }
-    pub fn resolveDeclType(self: *Env, decl: Decl.Index) Decl {
+    pub fn resolveDeclType(self: *Env, decl: Decl.Index) Error!Decl {
         const res = self.decls.items[@intFromEnum(decl)];
         if (res.resolved_type == null) @panic("TODO resolve resolved_type for decl");
         return res;
     }
-    pub fn resolveDeclValue(self: *Env, decl: Decl.Index) Decl {
-        const res = self.getDeclType(decl);
+    pub fn resolveDeclValue(self: *Env, decl: Decl.Index) Error!Decl {
+        const res = try self.resolveDeclType(decl);
         if (res.resolved_value_ptr == null) @panic("TODO resolve value_ptr for decl");
         return res;
     }
 
-    fn expectComptimeOrElse(self: *Env, expr: Expr) ?Expr {
+    fn expectComptimeKey(self: *Env, expr: Expr) !Types.Key.ComptimeValue {
         switch (expr.value) {
-            .err => return expr,
-            .runtime => return self.addErrAsExpr(expr.srcloc, "Expected a comptime value", .{}),
-            .compiletime => return null,
+            .runtime => return self.addErr(expr.srcloc, "Expected a comptime value, got a runtime value", .{}),
+            .compiletime => |ct| {
+                if (expr.ty != .key) return self.addErr(expr.srcloc, "Expected comptime key, got {s}", .{try self.getType(expr.ty).name(self)});
+                const val = try self.resolveDeclValue(ct);
+                std.debug.assert(val.resolved_type == .key);
+                std.debug.assert(val.resolved_value_ptr != null);
+                return val.resolved_value_ptr.?.to(Types.Key.ComptimeValue).*;
+            },
         }
     }
 };
@@ -233,6 +240,7 @@ const Env = struct {
 const Global = struct {};
 const Error = error{
     OutOfMemory,
+    ContainsError,
 };
 inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, expr: parser.AstExpr) Error!Expr {
     const tree = scope.tree;
@@ -247,7 +255,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, expr: parser.AstExp
             const method_expr = try scope.handleExpr(scope.env.makeInfer(.basic_unknown), method_ast);
             // now get type.arg_type
             // then call type.call(arg_expr)
-            const ty = scope.getType(method_expr.ty);
+            const ty = scope.env.getType(method_expr.ty);
             return ty.call(scope, slot, method_expr.value, arg_ast, srcloc);
         },
         .access => {
@@ -259,7 +267,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, expr: parser.AstExp
             // get type.prop_type
             // call type.access(prop_expr)
 
-            const ty = scope.getType(obj_expr.ty);
+            const ty = scope.env.getType(obj_expr.ty);
             return ty.access(scope, slot, obj_expr.value, prop_ast, srcloc);
         },
         .builtin => {
@@ -295,7 +303,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, expr: parser.AstExp
             // and comparison is '=='
 
             const resolved_value_ptr = try scope.env.arena.create(Types.Key.ComptimeValue);
-            resolved_value_ptr.* = .{ .str = str };
+            resolved_value_ptr.* = try scope.env.comptimeKeyFromString(str);
             return scope.env.declExpr(srcloc, try scope.env.addDecl(.{
                 .srcloc = try scope.env.srclocFromSrc(@src()), // not sure what to use for this srcloc if we will have one per key
                 .dependencies = &.{},
@@ -303,7 +311,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type.Index, expr: parser.AstExp
                 .resolved_value_ptr = .from(Types.Key.ComptimeValue, resolved_value_ptr),
             }));
         },
-        else => |t| return scope.env.addErrAsExpr(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
+        else => |t| return scope.env.addErr(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
     }
 }
 
@@ -330,7 +338,11 @@ test "compiler" {
         .arena = arena_backing.allocator(),
         .decls = .empty,
         .compiler_srclocs = .empty,
+        .comptime_keys = .empty,
+        .string_to_comptime_key_map = .empty,
     };
+    defer env.string_to_comptime_key_map.deinit(gpa);
+    defer env.comptime_keys.deinit(gpa);
     defer env.decls.deinit(env.gpa);
     defer env.compiler_srclocs.deinit(env.gpa);
     var scope: Scope = .{
