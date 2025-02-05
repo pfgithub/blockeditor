@@ -10,6 +10,10 @@ pub const AnyPtr = struct {
         std.debug.assert(self.id == @typeName(T));
         return @ptrCast(@alignCast(self.val));
     }
+    pub fn toConst(self: AnyPtr, comptime T: type) *const T {
+        std.debug.assert(self.id == @typeName(T));
+        return @ptrCast(@alignCast(self.val));
+    }
 };
 
 pub const testing = struct {
@@ -69,8 +73,7 @@ pub const build = struct {
         return b.fmt("__exposearbitrary_{d}_{s}_{d}", .{ @intFromPtr(b), name, @intFromPtr(@typeName(ty)) });
     }
     pub fn expose(b: *std.Build, name: []const u8, comptime ty: type, val: ty) void {
-        const valdupe = b.allocator.create(ty) catch @panic("oom");
-        valdupe.* = val;
+        const valdupe = dupeOne(b.allocator, val) catch @panic("oom");
         const valv = b.allocator.create(AnyPtr) catch @panic("oom");
         valv.* = .from(ty, valdupe);
         const name_fmt = arbitraryName(b, name, ty);
@@ -488,4 +491,9 @@ pub fn safeStarSliceCast(comptime T: type, slice: []const u8) ![]const T {
     const new_size = @divFloor(aligned.len, @sizeOf(T)) * @sizeOf(T);
     // 3. ok
     return std.mem.bytesAsSlice(T, aligned[0..new_size]);
+}
+pub fn dupeOne(allocator: std.mem.Allocator, value: anytype) !*@TypeOf(value) {
+    const value_ptr = try allocator.create(@TypeOf(value));
+    value_ptr.* = value;
+    return value_ptr;
 }
