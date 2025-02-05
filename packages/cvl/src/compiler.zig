@@ -81,6 +81,16 @@ const Types = struct {
             }
             return scope.env.addErr(srcloc, "TODO access #bulitin", .{});
         }
+        fn bound_call(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, ctk: Types.Key.ComptimeValue, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
+            _ = slot;
+            _ = method;
+            _ = arg;
+            if (ctk == try scope.env.comptimeKeyFromString("asm")) {
+                return scope.env.addErr(srcloc, "TODO call #builtin.asm", .{});
+            } else {
+                return scope.env.addErr(srcloc, "TODO call #builtin.?", .{});
+            }
+        }
     };
     const Key = struct {
         pub const ty: Type = .from(@This(), &.{});
@@ -108,6 +118,11 @@ const Types = struct {
             const self = self_any.toConst(Bound);
             return try std.fmt.allocPrint(env.arena, "bound({s}, {s})", .{ try self.child.name(env), env.comptime_keys.items[@intFromEnum(self.ctk)].string });
         }
+        fn call(self_any: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
+            const self = self_any.toConst(Bound);
+            if (self.child.vtable.bound_call == null) @panic("bound call created but not exists");
+            return self.child.vtable.bound_call.?(self.child.data, scope, slot, method, self.ctk, arg, srcloc);
+        }
     };
 };
 
@@ -130,7 +145,7 @@ const Type = struct {
     }
     pub fn call(self: Type, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
         if (self.vtable.call == null) return scope.env.addErr(scope.tree.src(arg), "Type '{s}' does not support call", .{try self.name(scope.env)});
-        return self.vtable.access.?(self.data, scope, slot, method, arg, srcloc);
+        return self.vtable.call.?(self.data, scope, slot, method, arg, srcloc);
     }
     pub fn from(comptime T: type, val: *const T) Type {
         return .{ .vtable = comptime autoVtable(Type.Vtable, T), .data = .from(T, val) };
@@ -355,7 +370,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
 }
 
 test "compiler" {
-    if (true) return error.SkipZigTest;
+    // if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, example_src);
