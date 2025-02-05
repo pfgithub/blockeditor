@@ -28,6 +28,14 @@ const Backends = struct {
         pub fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             return try std.fmt.allocPrint(env.arena, "riscv32", .{});
         }
+
+        pub fn call_asm(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Expr {
+            _ = slot;
+            _ = method;
+            _ = arg;
+            // ( asm_instr_kind, .reg = <i32>value )
+            return scope.env.addErr(srcloc, "TODO riscv32 #builtin.asm", .{});
+        }
     };
 };
 const Backend = struct {
