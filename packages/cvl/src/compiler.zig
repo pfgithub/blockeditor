@@ -21,6 +21,30 @@ fn autoVtable(comptime Vtable: type, comptime Src: type) *const Vtable {
     };
 }
 
+const Backends = struct {
+    const Riscv32 = struct {
+        const vtable = autoVtable(Backend.Vtable, @This());
+
+        pub fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
+            return try std.fmt.allocPrint(env.arena, "riscv32", .{});
+        }
+    };
+};
+const Backend = struct {
+    vtable: *const Backend.Vtable,
+    data: anywhere.util.AnyPtr,
+    const Vtable = struct {
+        name: *const fn (_: anywhere.util.AnyPtr, env: *Env) Error![]const u8,
+
+        /// backend-dependant behaviour
+        call_asm: ?*const fn (_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Expr = null,
+    };
+
+    fn name(self: Backend, env: *Env) Error![]const u8 {
+        return self.vtable.name(self.data, env);
+    }
+};
+
 const Types = struct {
     const Unknown = struct {
         pub const ty: Type = .from(@This(), &.{});
@@ -82,11 +106,9 @@ const Types = struct {
             return scope.env.addErr(srcloc, "TODO access #bulitin", .{});
         }
         fn bound_call(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, ctk: Types.Key.ComptimeValue, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
-            _ = slot;
-            _ = method;
-            _ = arg;
             if (ctk == try scope.env.comptimeKeyFromString("asm")) {
-                return scope.env.addErr(srcloc, "TODO call #builtin.asm", .{});
+                if (scope.env.backend.vtable.call_asm == null) return scope.env.addErr(srcloc, "Backend {s} does not support #builtin.asm", .{try scope.env.backend.name(scope.env)});
+                return scope.env.backend.vtable.call_asm.?(scope.env.backend.data, scope, slot, method, arg, srcloc);
             } else {
                 return scope.env.addErr(srcloc, "TODO call #builtin.?", .{});
             }
@@ -203,6 +225,7 @@ const Env = struct {
     compiler_srclocs: std.ArrayListUnmanaged(std.builtin.SourceLocation),
     comptime_keys: std.ArrayListUnmanaged(ComptimeKeyValue),
     string_to_comptime_key_map: std.ArrayHashMapUnmanaged(Types.Key.ComptimeValue, void, void, true),
+    backend: Backend,
 
     const ComptimeKeyValue = union(enum) {
         string: []const u8,
@@ -394,6 +417,10 @@ test "compiler" {
         .compiler_srclocs = .empty,
         .comptime_keys = .empty,
         .string_to_comptime_key_map = .empty,
+        .backend = .{
+            .data = .from(Backends.Riscv32, &.{}),
+            .vtable = Backends.Riscv32.vtable,
+        },
     };
     defer env.string_to_comptime_key_map.deinit(gpa);
     defer env.comptime_keys.deinit(gpa);
