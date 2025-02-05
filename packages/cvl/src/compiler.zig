@@ -364,3 +364,9 @@ test "compiler" {
     const res = try scope.handleExpr(env.makeInfer(.basic_unknown), fn_body);
     _ = res;
 }
+
+// notes:
+// - runtime backing
+// - an int[0, 255] at comptime is backed by comptime_int, but at runtime is backed by u8
+// - that's fine, it just means when taking a comptime decl and emitting it at runtime,
+//   we have to define transforms.
