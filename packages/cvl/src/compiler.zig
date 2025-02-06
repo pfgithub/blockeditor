@@ -24,21 +24,27 @@ fn autoVtable(comptime Vtable: type, comptime Src: type) *const Vtable {
 const Backends = struct {
     const Riscv32 = struct {
         const vtable = autoVtable(Backend.Vtable, @This());
-
-        const Asm = struct {
-            // rather than making a custom type for this, we should make it be a regular
-            // struct [ _implicit_0 = enum [], x10: ?i32 = undefined ]
-            // TODO: cancel this
-            const Arg = struct {
-                pub const ComptimeValue = struct {
-                    instr: u32,
-                    x10: u32,
+        const Arg_CacheKey = struct {
+            fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
+                return 0;
+            }
+            fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
+                return true;
+            }
+            fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+                return .{
+                    .dependencies = &.{},
+                    .srcloc = try env.srclocFromSrc(@src()),
+                    .resolved_type = Types.Ty.ty,
+                    .resolved_value_ptr = .from(Types.Ty.ComptimeValue, try anywhere.util.dupeOne(env.arena, Types.Ty.ComptimeValue.from(
+                        Types.Struct,
+                        try anywhere.util.dupeOne(env.arena, Types.Struct{
+                            .srcloc = try env.srclocFromSrc(@src()),
+                            .fields = try env.arena.dupe(Types.Struct.Field, &.{}),
+                        }),
+                    ))), // TODO
                 };
-                const ty = Type.from(@This(), &.{});
-                fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
-                    return try std.fmt.allocPrint(env.arena, "riscv32.arg", .{});
-                }
-            };
+            }
         };
 
         pub fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
@@ -49,8 +55,10 @@ const Backends = struct {
             _ = slot;
             _ = method;
 
-            const arg_val = try scope.handleExpr(Asm.Arg.ty, arg);
-            const arg_ct = try scope.env.expectComptime(arg_val, Asm.Arg);
+            const arg_ty_decl = try scope.env.cachedDecl(Arg_CacheKey, .{});
+            const arg_ty = try scope.env.resolveDeclValue(arg_ty_decl);
+            const arg_val = try scope.handleExpr(arg_ty.resolved_value_ptr.?.to(Type).*, arg);
+            const arg_ct = try scope.env.expectComptime(arg_val, Types.Struct);
             _ = arg_ct;
 
             // ( asm_instr_kind, .reg = <i32>value )
@@ -103,7 +111,7 @@ const Types = struct {
         }
         fn access(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, obj: Expr, prop: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
             _ = slot;
-            std.debug.assert(obj == .compiletime);
+            std.debug.assert(obj.value == .compiletime);
             _ = prop;
 
             return scope.env.addErr(srcloc, "TODO access type", .{});
@@ -174,6 +182,22 @@ const Types = struct {
             return self.child.vtable.bound_call.?(self.child.data, scope, slot, method, self.ctk, arg, srcloc);
         }
     };
+    const Struct = struct {
+        // to use at runtime, this has to get converted to a target-specific type
+        const Field = struct {
+            name: Types.Key.ComptimeValue,
+            ty: Type,
+            default_value: ?Decl.Index,
+        };
+        srcloc: SrcLoc,
+        fields: []const Field,
+        const ComptimeValue = []const Decl.Index;
+
+        fn name(self_any: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
+            const self = self_any.toConst(@This());
+            return try std.fmt.allocPrint(env.arena, "struct({d}, {d})", .{ self.srcloc.file_id, self.srcloc.offset });
+        }
+    };
 };
 
 const Type = struct {
@@ -218,6 +242,12 @@ const Decl = struct {
 
     resolved_type: ?Type,
     resolved_value_ptr: ?anywhere.util.AnyPtr,
+
+    analysis_state: union(enum) {
+        decl_cache_uninitialized: DeclCacheEnt,
+        analyzing,
+        done,
+    } = .done,
 };
 const Instr = struct {
     const Index = enum(u64) { _ };
@@ -244,6 +274,25 @@ const Scope = struct {
         return handleExpr_inner2(scope, slot, expr);
     }
 };
+const DeclCacheEnt = struct {
+    value: anywhere.util.AnyPtr,
+    vtable: *const Vtable,
+    const Vtable = struct {
+        hash: *const fn (self: anywhere.util.AnyPtr, env: *Env) u32,
+        eql: *const fn (lhs: anywhere.util.AnyPtr, rhs: anywhere.util.AnyPtr, env: *Env) bool,
+        init: *const fn (self: anywhere.util.AnyPtr, env: *Env) Error!Decl,
+    };
+};
+const DeclCacheCtx = struct {
+    env: *Env,
+    pub fn eql(ctx: DeclCacheCtx, a: DeclCacheEnt, b: DeclCacheEnt, _: usize) bool {
+        if (a.vtable != b.vtable) return false;
+        return a.vtable.eql(a.value, b.value, ctx.env);
+    }
+    pub fn hash(ctx: DeclCacheCtx, a: DeclCacheEnt) u32 {
+        return @as(u32, @truncate(@intFromPtr(a.vtable))) ^ a.vtable.hash(a.value, ctx.env);
+    }
+};
 /// per-target
 const Env = struct {
     gpa: std.mem.Allocator,
@@ -254,6 +303,7 @@ const Env = struct {
     comptime_keys: std.ArrayListUnmanaged(ComptimeKeyValue),
     string_to_comptime_key_map: std.ArrayHashMapUnmanaged(Types.Key.ComptimeValue, void, void, true),
     backend: Backend,
+    decl_cache: std.ArrayHashMapUnmanaged(DeclCacheEnt, Decl.Index, DeclCacheCtx, true),
 
     const ComptimeKeyValue = union(enum) {
         string: []const u8,
@@ -317,7 +367,15 @@ const Env = struct {
     }
     pub fn resolveDeclType(self: *Env, decl: Decl.Index) Error!Decl {
         const res = self.decls.items[@intFromEnum(decl)];
-        if (res.resolved_type == null) @panic("TODO resolve resolved_type for decl");
+        if (res.resolved_type == null) switch (res.analysis_state) {
+            .decl_cache_uninitialized => |ent| {
+                self.decls.items[@intFromEnum(decl)].analysis_state = .analyzing;
+                self.decls.items[@intFromEnum(decl)] = try ent.vtable.init(ent.value, self);
+                return self.decls.items[@intFromEnum(decl)];
+            },
+            .analyzing => return self.addErr(res.srcloc, "cyclic dependency", .{}),
+            .done => unreachable,
+        };
         return res;
     }
     pub fn resolveDeclValue(self: *Env, decl: Decl.Index) Error!Decl {
@@ -345,12 +403,48 @@ const Env = struct {
     fn expectComptimeKey(self: *Env, expr: Expr) Error!Types.Key.ComptimeValue {
         return (try self.expectComptime(expr, Types.Key)).*;
     }
+    pub fn cachedDecl(self: *Env, comptime EntTy: type, ent_value: EntTy) Error!Decl.Index {
+        const gpres = try self.decl_cache.getOrPutContext(self.gpa, .{ .value = .from(EntTy, &ent_value), .vtable = comptime autoVtable(DeclCacheEnt.Vtable, EntTy) }, .{ .env = self });
+        if (!gpres.found_existing) {
+            errdefer self.decl_cache.swapRemoveAt(self.decl_cache.keys().len - 1);
+            const val_dupe = try anywhere.util.dupeOne(self.arena, ent_value);
+            gpres.key_ptr.value = .from(EntTy, val_dupe);
+            gpres.value_ptr.* = try self.addDecl(.{
+                .analysis_state = .{ .decl_cache_uninitialized = gpres.key_ptr.* },
+                .dependencies = &.{},
+                .srcloc = try self.srclocFromSrc(@src()), // will get replaced on analyze
+                .resolved_type = null,
+                .resolved_value_ptr = null,
+            });
+            // ^ TODO: we do not have to initialize immediately
+            // instead we can store a decl holding the key_ptr, and on
+            // type_analyze, we can call init()
+        }
+        return gpres.value_ptr.*;
+    }
 };
 // per-compiler invocation
 const Global = struct {};
 const Error = error{
     OutOfMemory,
     ContainsError,
+};
+const BuiltinDecl = struct {
+    fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
+        return 0;
+    }
+    fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
+        return true;
+    }
+    fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+        return .{
+            .srcloc = try env.srclocFromSrc(@src()),
+
+            .dependencies = &.{},
+            .resolved_type = Types.Builtin.ty,
+            .resolved_value_ptr = .from(void, &{}),
+        };
+    }
 };
 inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Error!Expr {
     const tree = scope.tree;
@@ -380,14 +474,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
         },
         .builtin => {
             _ = tree.children(expr, 0);
-            // TODO: only add the decl once
-            return scope.env.declExpr(srcloc, try scope.env.addDecl(.{
-                .srcloc = try scope.env.srclocFromSrc(@src()), // TODO: use Types.Builtin's srcloc
-
-                .dependencies = &.{},
-                .resolved_type = Types.Builtin.ty,
-                .resolved_value_ptr = .from(void, &{}),
-            }));
+            return scope.env.declExpr(srcloc, try scope.env.cachedDecl(BuiltinDecl, .{}));
         },
         .code => {
             // handle each expr in sequence
@@ -406,9 +493,6 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
         .key => {
             const offset, const len = tree.children(expr, 2);
             const str = tree.readStr(offset, len);
-            // TODO: only have one decl per unique comptime_key.
-            // thay way symbols can also be comptime_keys (although they also want to have type info)
-            // and comparison is '=='
 
             const resolved_value_ptr = try scope.env.arena.create(Types.Key.ComptimeValue);
             resolved_value_ptr.* = try scope.env.comptimeKeyFromString(str);
@@ -452,7 +536,9 @@ test "compiler" {
             .data = .from(Backends.Riscv32, &.{}),
             .vtable = Backends.Riscv32.vtable,
         },
+        .decl_cache = .empty,
     };
+    defer env.decl_cache.deinit(gpa);
     defer env.string_to_comptime_key_map.deinit(gpa);
     defer env.comptime_keys.deinit(gpa);
     defer env.decls.deinit(env.gpa);
