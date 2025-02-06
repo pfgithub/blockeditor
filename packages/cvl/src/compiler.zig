@@ -25,14 +25,34 @@ const Backends = struct {
     const Riscv32 = struct {
         const vtable = autoVtable(Backend.Vtable, @This());
 
+        const Asm = struct {
+            // rather than making a custom type for this, we should make it be a regular
+            // struct [ _implicit_0 = enum [], x10: ?i32 = undefined ]
+            // TODO: cancel this
+            const Arg = struct {
+                pub const ComptimeValue = struct {
+                    instr: u32,
+                    x10: u32,
+                };
+                const ty = Type.from(@This(), &.{});
+                fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
+                    return try std.fmt.allocPrint(env.arena, "riscv32.arg", .{});
+                }
+            };
+        };
+
         pub fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             return try std.fmt.allocPrint(env.arena, "riscv32", .{});
         }
 
-        pub fn call_asm(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Expr {
+        pub fn call_asm(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
             _ = slot;
             _ = method;
-            _ = arg;
+
+            const arg_val = try scope.handleExpr(Asm.Arg.ty, arg);
+            const arg_ct = try scope.env.expectComptime(arg_val, Asm.Arg);
+            _ = arg_ct;
+
             // ( asm_instr_kind, .reg = <i32>value )
             return scope.env.addErr(srcloc, "TODO riscv32 #builtin.asm", .{});
         }
@@ -45,7 +65,7 @@ const Backend = struct {
         name: *const fn (_: anywhere.util.AnyPtr, env: *Env) Error![]const u8,
 
         /// backend-dependant behaviour
-        call_asm: ?*const fn (_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Expr = null,
+        call_asm: ?*const fn (_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
     };
 
     fn name(self: Backend, env: *Env) Error![]const u8 {
@@ -309,18 +329,21 @@ const Env = struct {
         _ = self;
         return .{ .ty = res_ty, .value = src.value, .srcloc = res_srcloc };
     }
-    fn expectComptimeKey(self: *Env, expr: Expr) !Types.Key.ComptimeValue {
+    fn expectComptime(self: *Env, expr: Expr, comptime Expected: type) Error!*Expected.ComptimeValue {
         switch (expr.value) {
             .runtime => return self.addErr(expr.srcloc, "Expected a comptime value, got a runtime value", .{}),
             .compiletime => |ct| {
-                if (!expr.ty.is(Types.Key)) return self.addErr(expr.srcloc, "Expected comptime key, got {s}", .{try expr.ty.name(self)});
+                if (!expr.ty.is(Expected)) return self.addErr(expr.srcloc, "Expected {s}, got {s}", .{ @typeName(Expected), try expr.ty.name(self) });
                 const val = try self.resolveDeclValue(ct);
                 std.debug.assert(val.resolved_type != null);
-                std.debug.assert(val.resolved_type.?.is(Types.Key));
+                std.debug.assert(val.resolved_type.?.is(Expected));
                 std.debug.assert(val.resolved_value_ptr != null);
-                return val.resolved_value_ptr.?.to(Types.Key.ComptimeValue).*;
+                return val.resolved_value_ptr.?.to(Expected.ComptimeValue);
             },
         }
+    }
+    fn expectComptimeKey(self: *Env, expr: Expr) Error!Types.Key.ComptimeValue {
+        return (try self.expectComptime(expr, Types.Key)).*;
     }
 };
 // per-compiler invocation
