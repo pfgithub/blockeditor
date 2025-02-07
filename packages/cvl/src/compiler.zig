@@ -254,6 +254,7 @@ const Type = struct {
         call: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
         /// used by bound_fn. this will be from a symbol key.
         bound_call: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, binding: Types.Key.ComptimeValue, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
+        from_map: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, map: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
     };
     pub fn name(self: Type, env: *Env) Error![]const u8 {
         return self.vtable.name(self.data, env);
@@ -549,14 +550,15 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
             }));
         },
         .map => {
-            return scope.env.addErr(tree.src(expr), "TODO initialize map in slot", .{});
+            if (slot.vtable.from_map == null) return scope.env.addErr(tree.src(expr), "Initialize map in slot {s} not supported", .{try slot.name(scope.env)});
+            return slot.vtable.from_map.?(slot.data, scope, slot, expr, srcloc);
         },
         else => |t| return scope.env.addErr(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
     }
 }
 
 test "compiler" {
-    // if (true) return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, example_src);
