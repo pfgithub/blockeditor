@@ -1,6 +1,6 @@
 #builtin.symbols.main = () {
     #builtin.asm(
-        .ecall,
+        .instr = .ecall,
         .x10 = 0, // exit
     );
 };

@@ -24,6 +24,30 @@ fn autoVtable(comptime Vtable: type, comptime Src: type) *const Vtable {
 const Backends = struct {
     const Riscv32 = struct {
         const vtable = autoVtable(Backend.Vtable, @This());
+        const Instr_CacheKey = struct {
+            fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
+                return 0;
+            }
+            fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
+                return true;
+            }
+            fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+                return .{
+                    .dependencies = &.{},
+                    .srcloc = try env.srclocFromSrc(@src()),
+                    .resolved_type = Types.Ty.ty,
+                    .resolved_value_ptr = .from(Types.Ty.ComptimeValue, try anywhere.util.dupeOne(env.arena, Types.Ty.ComptimeValue.from(
+                        Types.Enum,
+                        try anywhere.util.dupeOne(env.arena, Types.Enum{
+                            .srcloc = try env.srclocFromSrc(@src()),
+                            .fields = try env.arena.dupe(Types.Enum.Field, &.{
+                                .{ .name = try env.comptimeKeyFromString("ecall"), .value = 1 },
+                            }),
+                        }),
+                    ))),
+                };
+            }
+        };
         const Arg_CacheKey = struct {
             fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
                 return 0;
@@ -40,7 +64,13 @@ const Backends = struct {
                         Types.Struct,
                         try anywhere.util.dupeOne(env.arena, Types.Struct{
                             .srcloc = try env.srclocFromSrc(@src()),
-                            .fields = try env.arena.dupe(Types.Struct.Field, &.{}),
+                            .fields = try env.arena.dupe(Types.Struct.Field, &.{
+                                .{
+                                    .name = try env.comptimeKeyFromString("instr"),
+                                    .ty = (try env.resolveDeclType(try env.cachedDecl(Instr_CacheKey, .{}))).resolved_type.?,
+                                    .default_value = null,
+                                },
+                            }),
                         }),
                     ))), // TODO
                 };
@@ -196,6 +226,21 @@ const Types = struct {
         fn name(self_any: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             const self = self_any.toConst(@This());
             return try std.fmt.allocPrint(env.arena, "struct({d}, {d})", .{ self.srcloc.file_id, self.srcloc.offset });
+        }
+    };
+    const Enum = struct {
+        // to use at runtime, this has to get converted to a target-specific type
+        const Field = struct {
+            name: Types.Key.ComptimeValue,
+            value: u64,
+        };
+        srcloc: SrcLoc,
+        fields: []const Field,
+        const ComptimeValue = usize;
+
+        fn name(self_any: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
+            const self = self_any.toConst(@This());
+            return try std.fmt.allocPrint(env.arena, "enum({d}, {d})", .{ self.srcloc.file_id, self.srcloc.offset });
         }
     };
 };
@@ -503,12 +548,15 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
                 .resolved_value_ptr = .from(Types.Key.ComptimeValue, resolved_value_ptr),
             }));
         },
+        .map => {
+            return scope.env.addErr(tree.src(expr), "TODO initialize map in slot", .{});
+        },
         else => |t| return scope.env.addErr(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
     }
 }
 
 test "compiler" {
-    if (true) return error.SkipZigTest;
+    // if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, example_src);
