@@ -561,6 +561,10 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
             }));
         },
         .map => {
+            // we should consider preprocessing maps before sending them to the vtable:
+            // - that way we can add in any decls to the scope that were added in the map
+            //   & skip showing them to the vtable
+            // - the vtable has an easier time because it gets `[]MapEntry`
             if (slot.vtable.from_map == null) return scope.env.addErr(tree.src(expr), "Initialize map in slot {s} not supported", .{try slot.name(scope.env)});
             return slot.vtable.from_map.?(slot.data, scope, slot, expr, srcloc);
         },
