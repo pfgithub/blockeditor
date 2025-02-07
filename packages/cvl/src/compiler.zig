@@ -227,6 +227,17 @@ const Types = struct {
             const self = self_any.toConst(@This());
             return try std.fmt.allocPrint(env.arena, "struct({d}, {d})", .{ self.srcloc.file_id, self.srcloc.offset });
         }
+
+        pub fn from_map(self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, map: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
+            var ch = scope.tree.firstChild(map).?;
+            while (scope.tree.tag(ch) != .srcloc) : (ch = scope.tree.next(ch).?) {
+                _ = self;
+                _ = slot;
+            }
+            // if all children are comptime, return comptime
+            // else convert all comptime to runtime and return runtime
+            return scope.env.addErr(srcloc, "TODO struct from_map", .{});
+        }
     };
     const Enum = struct {
         // to use at runtime, this has to get converted to a target-specific type
