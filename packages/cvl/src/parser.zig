@@ -227,6 +227,7 @@ const AstNode = struct {
         marker,
         number,
         slot,
+        with_slot,
 
         // atom
         string_offset,
@@ -744,10 +745,12 @@ const Parser = struct {
     }
     fn tryParseExprWithSuffixes(p: *Parser) bool {
         const start = p.here();
+        var needs_with_slot_wrap: bool = false;
         const parsed_expr_kind = p.tryParseExprFinal() orelse blk: {
             if (p.tokenizer.token == .dot) {
                 // continue to suffix parsing
                 p.wrapExpr(.slot, start.node, start.src);
+                needs_with_slot_wrap = true;
                 break :blk .other;
             } else {
                 return false;
@@ -803,6 +806,9 @@ const Parser = struct {
                 },
                 else => break,
             }
+        }
+        if (needs_with_slot_wrap) {
+            p.wrapExpr(.with_slot, start.node, start.src);
         }
         return true;
     }
@@ -1029,7 +1035,7 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
         \\[call [access [access [ref "std" @1] [key "math" @3] @2] [key "pow" @5] @4] [string "abc" @7] @6] @0
     , try testParser(&out, .{}, "|  |std|.|math|.|pow|: |\"abc\" "));
     try snap(@src(),
-        \\[map_entry [access slot [key "key" @2] @1] [ref "value" @4] @3] @0
+        \\[map_entry [with_slot [access slot [key "key" @2] @1] @1] [ref "value" @4] @3] @0
     , try testParser(&out, .{}, "|  |.|key |= |value "));
     // TODO: string escapes
     // try snap(@src(), "@0 [string \"\\x1b[3m\\xe1\\x88\\xb4\\\"\" @0]", try testParser(&out, .{}, "|\"\\x1b[3m\\u{1234}\\\"\""));
@@ -1049,7 +1055,7 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
         \\[bind [ref "builtin" @0] [ref "__builtin__" @2] @1] @0
     , try testParser(&out, .{}, "|builtin |:= |__builtin__"));
     try snap(@src(),
-        \\[call [code [call [access slot [key "implicit" @2] @1] [access slot [key "arg1" @5] @4] @3] @0] [access slot [key "arg2" @8] @7] @6] @0
+        \\[call [code [with_slot [call [access slot [key "implicit" @2] @1] [with_slot [access slot [key "arg1" @5] @4] @4] @3] @1] @0] [with_slot [access slot [key "arg2" @8] @7] @7] @6] @0
     , try testParser(&out, .{}, "|{|.|implicit|: |.|arg1}|: |.|arg2"));
     try snap(@src(),
         \\[code [defer_expr [ref "error" @2] @1] @0] @0

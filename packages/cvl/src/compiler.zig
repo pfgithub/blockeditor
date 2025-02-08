@@ -32,11 +32,11 @@ const Backends = struct {
                 return true;
             }
             fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
-                return .{
-                    .dependencies = &.{},
-                    .srcloc = try env.srclocFromSrc(@src()),
-                    .resolved_type = Types.Ty.ty,
-                    .resolved_value_ptr = .from(Types.Ty.ComptimeValue, try anywhere.util.dupeOne(env.arena, Types.Ty.ComptimeValue.from(
+                return .from(
+                    try env.srclocFromSrc(@src()),
+                    Types.Ty,
+                    &.{},
+                    try anywhere.util.dupeOne(env.arena, Types.Ty.ComptimeValue.from(
                         Types.Enum,
                         try anywhere.util.dupeOne(env.arena, Types.Enum{
                             .srcloc = try env.srclocFromSrc(@src()),
@@ -44,8 +44,8 @@ const Backends = struct {
                                 .{ .name = try env.comptimeKeyFromString("ecall"), .value = 1 },
                             }),
                         }),
-                    ))),
-                };
+                    )),
+                );
             }
         };
         const Arg_CacheKey = struct {
@@ -56,11 +56,11 @@ const Backends = struct {
                 return true;
             }
             fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
-                return .{
-                    .dependencies = &.{},
-                    .srcloc = try env.srclocFromSrc(@src()),
-                    .resolved_type = Types.Ty.ty,
-                    .resolved_value_ptr = .from(Types.Ty.ComptimeValue, try anywhere.util.dupeOne(env.arena, Types.Ty.ComptimeValue.from(
+                return .from(
+                    try env.srclocFromSrc(@src()),
+                    Types.Ty,
+                    &.{},
+                    try anywhere.util.dupeOne(env.arena, Types.Ty.ComptimeValue.from(
                         Types.Struct,
                         try anywhere.util.dupeOne(env.arena, Types.Struct{
                             .srcloc = try env.srclocFromSrc(@src()),
@@ -72,8 +72,8 @@ const Backends = struct {
                                 },
                             }),
                         }),
-                    ))), // TODO
-                };
+                    )),
+                );
             }
         };
 
@@ -149,6 +149,7 @@ const Types = struct {
     };
     const Builtin = struct {
         pub const ty: Type = .from(@This(), &.{});
+        pub const ComptimeValue = void;
 
         fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             return try std.fmt.allocPrint(env.arena, "#builtin", .{});
@@ -229,6 +230,7 @@ const Types = struct {
         }
 
         pub fn from_map(self_any: anywhere.util.AnyPtr, scope: *Scope, slot: Type, ents: []MapEnt, srcloc: SrcLoc) Error!Expr {
+            _ = slot;
             const self = self_any.to(Struct);
             // first, try to initialize as comptime
             // if that doesn't work out, initialize as runtime
@@ -260,18 +262,13 @@ const Types = struct {
                 }
             }
             // done!
-            const res = try scope.env.addDecl(.{
-                .dependencies = &.{},
-                .srcloc = srcloc,
-
-                .resolved_type = slot,
-                .resolved_value_ptr = .from(ComptimeValue, try anywhere.util.dupeOne(scope.env.arena, comptime_res)),
-            });
-            return .{
-                .ty = slot,
-                .value = .{ .compiletime = res },
-                .srcloc = srcloc,
-            };
+            const res = try scope.env.addDecl(.from(
+                srcloc,
+                Struct,
+                self,
+                try anywhere.util.dupeOne(scope.env.arena, comptime_res),
+            ));
+            return scope.env.declExpr(srcloc, res);
         }
     };
     const Enum = struct {
@@ -339,7 +336,17 @@ const Decl = struct {
         decl_cache_uninitialized: DeclCacheEnt,
         analyzing,
         done,
-    } = .done,
+    },
+
+    fn from(srcloc: SrcLoc, comptime Ty: type, type_arg: *const Ty, value: *const Ty.ComptimeValue) Decl {
+        return .{
+            .dependencies = &.{},
+            .srcloc = srcloc,
+            .resolved_type = .from(Ty, type_arg),
+            .resolved_value_ptr = .from(Ty.ComptimeValue, value),
+            .analysis_state = .done,
+        };
+    }
 };
 const Instr = struct {
     const Index = enum(u64) { _ };
@@ -361,6 +368,7 @@ const Expr = struct {
 const Scope = struct {
     env: *Env,
     tree: *const parser.AstTree,
+    with_slot_ty: ?Type = null,
 
     fn handleExpr(scope: *Scope, slot: Type, expr: parser.AstExpr) Error!Expr {
         return handleExpr_inner2(scope, slot, expr);
@@ -529,13 +537,28 @@ const BuiltinDecl = struct {
         return true;
     }
     fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
-        return .{
-            .srcloc = try env.srclocFromSrc(@src()),
-
-            .dependencies = &.{},
-            .resolved_type = Types.Builtin.ty,
-            .resolved_value_ptr = .from(void, &{}),
-        };
+        return .from(
+            try env.srclocFromSrc(@src()),
+            Types.Builtin,
+            &.{},
+            &{},
+        );
+    }
+};
+const VoidDecl = struct {
+    fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
+        return 0;
+    }
+    fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
+        return true;
+    }
+    fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+        return .from(
+            try env.srclocFromSrc(@src()),
+            Types.Void,
+            &.{},
+            &{},
+        );
     }
 };
 inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Error!Expr {
@@ -586,14 +609,12 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
             const offset, const len = tree.children(expr, 2);
             const str = tree.readStr(offset, len);
 
-            const resolved_value_ptr = try scope.env.arena.create(Types.Key.ComptimeValue);
-            resolved_value_ptr.* = try scope.env.comptimeKeyFromString(str);
-            return scope.env.declExpr(srcloc, try scope.env.addDecl(.{
-                .srcloc = try scope.env.srclocFromSrc(@src()), // not sure what to use for this srcloc if we will have one per key
-                .dependencies = &.{},
-                .resolved_type = Types.Key.ty,
-                .resolved_value_ptr = .from(Types.Key.ComptimeValue, resolved_value_ptr),
-            }));
+            return scope.env.declExpr(srcloc, try scope.env.addDecl(.from(
+                try scope.env.srclocFromSrc(@src()), // not sure what to use for this srcloc if we will have one per key
+                Types.Key,
+                &.{},
+                try anywhere.util.dupeOne(scope.env.arena, try scope.env.comptimeKeyFromString(str)),
+            )));
         },
         .map => {
             // we should consider preprocessing maps before sending them to the vtable:
@@ -621,6 +642,25 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
 
             if (slot.vtable.from_map == null) return scope.env.addErr(tree.src(expr), "Initialize map in slot {s} not supported", .{try slot.name(scope.env)});
             return slot.vtable.from_map.?(slot.data, scope, slot, ents.items, srcloc);
+        },
+        .init_void => {
+            return scope.env.declExpr(srcloc, try scope.env.cachedDecl(VoidDecl, .{}));
+        },
+        .slot => {
+            if (scope.with_slot_ty == null) unreachable;
+            return scope.env.declExpr(srcloc, try scope.env.addDecl(.from(
+                try scope.env.srclocFromSrc(@src()),
+                Types.Ty,
+                &.{},
+                try anywhere.util.dupeOne(scope.env.arena, scope.with_slot_ty.?),
+            )));
+        },
+        .with_slot => {
+            const ch = scope.tree.children(expr, 1);
+            if (scope.with_slot_ty != null) unreachable;
+            scope.with_slot_ty = slot;
+            defer scope.with_slot_ty = null;
+            return scope.handleExpr(slot, ch);
         },
         else => |t| return scope.env.addErr(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
     }
