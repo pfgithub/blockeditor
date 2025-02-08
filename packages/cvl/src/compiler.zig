@@ -228,15 +228,50 @@ const Types = struct {
             return try std.fmt.allocPrint(env.arena, "struct({d}, {d})", .{ self.srcloc.file_id, self.srcloc.offset });
         }
 
-        pub fn from_map(self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, map: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
-            var ch = scope.tree.firstChild(map).?;
-            while (scope.tree.tag(ch) != .srcloc) : (ch = scope.tree.next(ch).?) {
-                _ = self;
-                _ = slot;
+        pub fn from_map(self_any: anywhere.util.AnyPtr, scope: *Scope, slot: Type, ents: []MapEnt, srcloc: SrcLoc) Error!Expr {
+            const self = self_any.to(Struct);
+            // first, try to initialize as comptime
+            // if that doesn't work out, initialize as runtime
+            const comptime_res = try scope.env.arena.alloc(Decl.Index, self.fields.len);
+            for (comptime_res) |*itm| itm.* = .none;
+            for (ents) |ent| {
+                if (ent.key == null) {
+                    return scope.env.addErr(ent.srcloc, "missing srcloc", .{});
+                }
+                const key = try scope.handleExpr(Types.Key.ty, ent.key.?);
+                const ctk = try scope.env.expectComptimeKey(key);
+                const field_i: usize = for (self.fields, 0..) |field, i| {
+                    if (ctk == field.name) break i;
+                } else return scope.env.addErr(key.srcloc, "key not found", .{});
+
+                if (comptime_res[field_i] != .none) return scope.env.addErr(key.srcloc, "duplicate field", .{});
+
+                const value = try scope.handleExpr(self.fields[field_i].ty, ent.value);
+                if (value.value != .compiletime) return scope.env.addErr(value.srcloc, "TODO: runtime value in struct init", .{});
+                comptime_res[field_i] = value.value.compiletime;
             }
-            // if all children are comptime, return comptime
-            // else convert all comptime to runtime and return runtime
-            return scope.env.addErr(srcloc, "TODO struct from_map", .{});
+            for (comptime_res, self.fields) |*itm, field| {
+                if (itm.* == .none) {
+                    if (field.default_value) |dfv| {
+                        itm.* = dfv;
+                    } else {
+                        return scope.env.addErr(srcloc, "missing field", .{});
+                    }
+                }
+            }
+            // done!
+            const res = try scope.env.addDecl(.{
+                .dependencies = &.{},
+                .srcloc = srcloc,
+
+                .resolved_type = slot,
+                .resolved_value_ptr = .from(ComptimeValue, try anywhere.util.dupeOne(scope.env.arena, comptime_res)),
+            });
+            return .{
+                .ty = slot,
+                .value = .{ .compiletime = res },
+                .srcloc = srcloc,
+            };
         }
     };
     const Enum = struct {
@@ -265,7 +300,7 @@ const Type = struct {
         call: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
         /// used by bound_fn. this will be from a symbol key.
         bound_call: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, binding: Types.Key.ComptimeValue, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
-        from_map: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, map: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
+        from_map: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, ents: []MapEnt, srcloc: SrcLoc) Error!Expr = null,
     };
     pub fn name(self: Type, env: *Env) Error![]const u8 {
         return self.vtable.name(self.data, env);
@@ -565,15 +600,39 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
             // - that way we can add in any decls to the scope that were added in the map
             //   & skip showing them to the vtable
             // - the vtable has an easier time because it gets `[]MapEntry`
+
+            var ents: std.ArrayList(MapEnt) = .init(scope.env.arena);
+
+            var ch = scope.tree.firstChild(expr).?;
+            while (scope.tree.tag(ch) != .srcloc) : (ch = scope.tree.next(ch).?) {
+                switch (scope.tree.tag(ch)) {
+                    .map_entry => {
+                        const key, const value = scope.tree.children(ch, 2);
+                        try ents.append(.{ .key = key, .value = value, .srcloc = scope.tree.src(ch) });
+                    },
+                    .bind => {
+                        scope.env.addErr(scope.tree.src(ch), "TODO impl bind in map", .{}) catch {};
+                    },
+                    else => {
+                        try ents.append(.{ .key = null, .value = ch, .srcloc = scope.tree.src(ch) });
+                    },
+                }
+            }
+
             if (slot.vtable.from_map == null) return scope.env.addErr(tree.src(expr), "Initialize map in slot {s} not supported", .{try slot.name(scope.env)});
-            return slot.vtable.from_map.?(slot.data, scope, slot, expr, srcloc);
+            return slot.vtable.from_map.?(slot.data, scope, slot, ents.items, srcloc);
         },
         else => |t| return scope.env.addErr(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
     }
 }
+const MapEnt = struct {
+    key: ?parser.AstExpr,
+    value: parser.AstExpr,
+    srcloc: SrcLoc,
+};
 
 test "compiler" {
-    if (true) return error.SkipZigTest;
+    // if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, example_src);

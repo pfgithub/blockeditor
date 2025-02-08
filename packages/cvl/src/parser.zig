@@ -27,7 +27,10 @@ pub const AstTree = struct {
         return t.values[node.idx].expr_len;
     }
     pub fn src(t: *const AstTree, node: AstExpr) SrcLoc {
-        std.debug.assert(!t.isAtom(node));
+        if (t.isAtom(node)) {
+            std.log.err("expected non-atom, got '{s}'", .{@tagName(t.tag(node))});
+            unreachable;
+        }
         var srcloc = t.firstChild(node);
         if (srcloc != null) while (t.next(srcloc.?)) |s| {
             srcloc = s;
@@ -223,19 +226,18 @@ const AstNode = struct {
         init_void,
         marker,
         number,
+        slot,
 
         // atom
         string_offset,
         string_len,
         srcloc,
-        slot,
 
         fn isAtom(tag: Tag) bool {
             return switch (tag) {
                 .string_offset => true,
                 .string_len => true,
                 .srcloc => true,
-                .slot => true,
                 else => false,
             };
         }
@@ -745,7 +747,7 @@ const Parser = struct {
         const parsed_expr_kind = p.tryParseExprFinal() orelse blk: {
             if (p.tokenizer.token == .dot) {
                 // continue to suffix parsing
-                p.postAtom(.slot, 0);
+                p.wrapExpr(.slot, start.node, start.src);
                 break :blk .other;
             } else {
                 return false;
