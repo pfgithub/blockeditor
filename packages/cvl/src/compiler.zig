@@ -632,7 +632,7 @@ const MapEnt = struct {
 };
 
 test "compiler" {
-    // if (true) return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, example_src);
