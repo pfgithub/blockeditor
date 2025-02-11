@@ -67,7 +67,7 @@ const Backends = struct {
                             .fields = try env.arena.dupe(Types.Struct.Field, &.{
                                 .{
                                     .name = try env.comptimeKeyFromString("instr"),
-                                    .ty = (try env.resolveDeclType(try env.cachedDecl(Instr_CacheKey, .{}))).resolved_type.?,
+                                    .ty = (try env.resolveDeclValue(try env.cachedDecl(Instr_CacheKey, .{}))).resolved_value_ptr.?.toConst(Type).*,
                                     .default_value = null,
                                 },
                             }),
@@ -140,11 +140,14 @@ const Types = struct {
             return try std.fmt.allocPrint(env.arena, "type", .{});
         }
         fn access(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, obj: Expr, prop: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
-            _ = slot;
             std.debug.assert(obj.value == .compiletime);
-            _ = prop;
+            const resolved_value = try scope.env.resolveDeclValue(obj.value.compiletime);
+            std.debug.assert(obj.ty.vtable == resolved_value.resolved_type.?.vtable and obj.ty.data.val == resolved_value.resolved_type.?.data.val);
 
-            return scope.env.addErr(srcloc, "TODO access type", .{});
+            const target_ty = resolved_value.resolved_value_ptr.?.toConst(ComptimeValue).*;
+
+            if (target_ty.vtable.access_type == null) return scope.env.addErr(srcloc, "Type {s} does not support 'access_type'", .{try target_ty.name(scope.env)});
+            return target_ty.vtable.access_type.?(target_ty.data, scope, slot, target_ty, prop, srcloc);
         }
     };
     const Builtin = struct {
@@ -189,15 +192,23 @@ const Types = struct {
 
         // for strings <= 7 bytes long, we can store them directly in the u64
         // longer than 7 maybe they can go in a comptime array unless they're runtime
-        pub const ComptimeValue = enum(u64) { _ };
-        // pub const ComptimeValue = union(enum) {
-        //     /// these are unique, there is only one decl with this string
-        //     str: []const u8,
-        //     symbol: struct {
-        //         name: []const u8,
-        //         ty: ?Type,
-        //     },
-        // };
+        pub const ComptimeValue = enum(u64) {
+            _,
+            fn name(val: ComptimeValue, env: *Env) Error![]const u8 {
+                const v = env.comptime_keys.items[@intFromEnum(val)];
+                return switch (v) {
+                    .string => |str| try std.fmt.allocPrint(env.arena, ".{s}", .{str}),
+                    .symbol => @panic("todo print symbol"),
+                };
+            }
+        };
+
+        fn access_type(self_any: anywhere.util.AnyPtr, scope: *Scope, slot: Type, obj: Type, prop: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
+            _ = self_any;
+            _ = slot;
+            _ = srcloc;
+            return scope.handleExpr(obj, prop);
+        }
     };
     const Bound = struct {
         child: Type,
@@ -244,7 +255,7 @@ const Types = struct {
                 const ctk = try scope.env.expectComptimeKey(key);
                 const field_i: usize = for (self.fields, 0..) |field, i| {
                     if (ctk == field.name) break i;
-                } else return scope.env.addErr(key.srcloc, "key not found", .{});
+                } else return scope.env.addErr(key.srcloc, "key {s} not found in {s}", .{ try ctk.name(scope.env), try name(self_any, scope.env) });
 
                 if (comptime_res[field_i] != .none) return scope.env.addErr(key.srcloc, "duplicate field", .{});
 
@@ -275,7 +286,7 @@ const Types = struct {
         // to use at runtime, this has to get converted to a target-specific type
         const Field = struct {
             name: Types.Key.ComptimeValue,
-            value: u64,
+            value: usize,
         };
         srcloc: SrcLoc,
         fields: []const Field,
@@ -284,6 +295,24 @@ const Types = struct {
         fn name(self_any: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             const self = self_any.toConst(@This());
             return try std.fmt.allocPrint(env.arena, "enum({d}, {d})", .{ self.srcloc.file_id, self.srcloc.offset });
+        }
+        fn access_type(self_any: anywhere.util.AnyPtr, scope: *Scope, slot: Type, obj: Type, prop: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
+            const self = self_any.toConst(@This());
+            _ = slot;
+            _ = obj;
+
+            const key = try scope.handleExpr(Types.Key.ty, prop);
+            const ctk = try scope.env.expectComptimeKey(key);
+
+            for (self.fields) |field| {
+                if (field.name == ctk) return try scope.env.declExpr(srcloc, try scope.env.addDecl(.from(
+                    srcloc, // :/
+                    Enum,
+                    self,
+                    try anywhere.util.dupeOne(scope.env.arena, field.value),
+                )));
+            }
+            return scope.env.addErr(srcloc, "Field {s} does not exist on type {s}", .{ try ctk.name(scope.env), try name(self_any, scope.env) });
         }
     };
 };
@@ -298,6 +327,7 @@ const Type = struct {
         /// used by bound_fn. this will be from a symbol key.
         bound_call: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, binding: Types.Key.ComptimeValue, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
         from_map: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, ents: []MapEnt, srcloc: SrcLoc) Error!Expr = null,
+        access_type: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, obj: Type, prop: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
     };
     pub fn name(self: Type, env: *Env) Error![]const u8 {
         return self.vtable.name(self.data, env);
