@@ -94,10 +94,18 @@ const Backends = struct {
             const arg_ty = try scope.env.resolveDeclValue(arg_ty_decl);
             const arg_val = try scope.handleExpr(arg_ty.resolved_value_ptr.?.to(Type).*, arg);
             const arg_ct = try scope.env.expectComptime(arg_val, Types.Struct);
-            _ = arg_ct;
+
+            const instr_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("instr"));
+            const x10_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("x10"));
+            const instr_val = try scope.env.resolveDeclValue(instr_decl);
+            const x10_val = try scope.env.resolveDeclValue(x10_decl);
+            if (!instr_val.resolved_type.?.is(Types.Enum)) return scope.env.addErr(srcloc, "Expected enum, found <1>", .{});
+            if (!x10_val.resolved_type.?.is(Types.Int)) return scope.env.addErr(srcloc, "Expected int, found <2>", .{});
+            const instr = instr_val.resolved_value_ptr.?.to(Types.Enum.ComptimeValue);
+            const x10 = x10_val.resolved_value_ptr.?.to(Types.Int.ComptimeValue);
 
             // ( asm_instr_kind, .reg = <i32>value )
-            return scope.env.addErr(srcloc, "TODO riscv32 #builtin.asm", .{});
+            return scope.env.addErr(srcloc, "TODO riscv32 #builtin.asm: {d},{d}", .{ instr.*, x10.* });
         }
     };
 };
@@ -239,6 +247,14 @@ const Types = struct {
         srcloc: SrcLoc,
         fields: []const Field,
         const ComptimeValue = []const Decl.Index;
+
+        pub fn accessComptime(ty: Type, ct: ComptimeValue, a_name: Types.Key.ComptimeValue) Decl.Index {
+            const self = ty.data.toConst(Struct);
+            for (self.fields, ct) |field, val| {
+                if (a_name == field.name) return val;
+            }
+            @panic("accessComptime on struct with incorrect key");
+        }
 
         fn name(self_any: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             const self = self_any.toConst(@This());
