@@ -1,3 +1,41 @@
+// [ ] the root of cv is a build function
+std.build = () std.build.Folder (
+    "filename.txt" = std.build.compile.x86_64[
+        "_start" = mainFn,
+    ],
+);
+
+
+// [ ] function for the riscv debugger to call when displaying a type. these functions
+//      are called and then state is restored
+//     [ ] whole custom guis for a type, eg displaying the state of a chess board
+
+// [ ] implicit context
+
+// [ ] custom emit targets
+
+// [ ] initializing a map into a pointer directly, from inside of a labeled block
+stacklocal := () => {
+    mystackvar := *MyStruct: .new_stack: :stackbreak {
+        stackbreak.ptr = [ // init map in ptr: stackbreak.ptr
+            .x = 25, // init number in ptr: stackbreak.ptr.x
+            .y = 32, // init number in ptr: stackbreak.ptr.y
+        ];
+        stackbreak.ptr.x = 56;
+        stackbreak.breakPreFilled(); // break without putting a value in
+    };
+    (x := .x, y := .y) := mystackvar;
+    x = 5;
+
+    
+}
+
+// [ ] string interpolation
+main := () => {
+    std.log.info: "My value is \{add(5, 6)}!";
+};
+
+// [ ] compile time package management
 pkgs := std.package_manager (
     // any files loaded from the package manager are given implicit context
     // so they can use the global lockfile
@@ -12,6 +50,7 @@ pkgs := std.package_manager (
     ),
 );
 
+// [ ] gui
 Background := () {
     ZStack(): (
         .size: () Rect(.tint = Theme.colors.window_bg),
@@ -31,7 +70,6 @@ Background := () {
         ),
     ),
 };
-
 Background2 := () {
     ZStack(): () (
         .size: () Rect(.tint = Theme.colors.window_bg),
@@ -45,11 +83,3 @@ Background2 := () {
         ),
     );
 };
-
-// parsing:
-// in parseexprwithsuffixes:
-// - if the expr was a map expr:
-//   - rather than parsing suffixes, just try parse another full expr
-//   - that way fn syntax can literally be (args) body
-//   - do we really want it to be that easy though?
-//   - and do we want to support fns with non-map args?
