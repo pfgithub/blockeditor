@@ -333,6 +333,20 @@ const Types = struct {
             if (self.min == std.math.minInt(i32) and self.max == std.math.maxInt(i32)) return try std.fmt.allocPrint(env.arena, "i32", .{});
             return try std.fmt.allocPrint(env.arena, "int({d}, {d})", .{ self.min, self.max });
         }
+        fn from_number(self_any: anywhere.util.AnyPtr, scope: *Scope, slot: Type, num: []const u8, srcloc: SrcLoc) Error!Expr {
+            const self = self_any.toConst(@This());
+            const parse_res = std.fmt.parseInt(ComptimeValue, num, 10) catch |e| switch (e) {
+                error.Overflow => return scope.env.addErr(srcloc, "integer out of range", .{}),
+                error.InvalidCharacter => return scope.env.addErr(srcloc, "invalid character in number", .{}),
+            };
+            if (parse_res < self.min or parse_res > self.max) return scope.env.addErr(srcloc, "integer out of range for type {s}", .{try slot.name(scope.env)});
+            return try scope.env.declExpr(srcloc, try scope.env.addDecl(.from(
+                srcloc,
+                Int,
+                self,
+                try anywhere.util.dupeOne(scope.env.arena, parse_res),
+            )));
+        }
     };
 };
 
