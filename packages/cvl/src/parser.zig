@@ -18,8 +18,9 @@ pub const AstTree = struct {
     pub fn isAtom(t: *const AstTree, node: AstExpr) bool {
         return t.tag(node).isAtom();
     }
-    pub fn atomValue(t: *const AstTree, node: AstExpr) u32 {
-        std.debug.assert(t.isAtom(node));
+    pub fn atomValue(t: *const AstTree, atom_kind: AstNode.Tag, node: AstExpr) u32 {
+        std.debug.assert(atom_kind.isAtom());
+        std.debug.assert(t.tag(node) == atom_kind);
         return t.values[node.idx].atom_value;
     }
     pub fn exprLen(t: *const AstTree, node: AstExpr) u32 {
@@ -36,7 +37,7 @@ pub const AstTree = struct {
             srcloc = s;
         };
         if (srcloc == null or t.tag(srcloc.?) != .srcloc) return .{ .file_id = 0, .offset = 0 };
-        return .{ .file_id = 0, .offset = t.atomValue(srcloc.?) };
+        return .{ .file_id = 0, .offset = t.atomValue(.srcloc, srcloc.?) };
     }
 
     pub fn firstChild(t: *const AstTree, node: AstExpr) ?AstExpr {
@@ -72,10 +73,8 @@ pub const AstTree = struct {
         return .{ .idx = 0, .parent_end = @intCast(t.tags.len) };
     }
     pub fn readStr(t: *const AstTree, offset: AstExpr, len: AstExpr) []const u8 {
-        std.debug.assert(t.tag(offset) == .string_offset);
-        std.debug.assert(t.tag(len) == .string_len);
-        const offset_u32 = t.atomValue(offset);
-        const len_u32 = t.atomValue(len);
+        const offset_u32 = t.atomValue(.string_offset, offset);
+        const len_u32 = t.atomValue(.string_len, len);
         return t.string_buf[offset_u32..][0..len_u32];
     }
 };
@@ -156,9 +155,9 @@ fn dumpAst(tree: *const AstTree, root: AstExpr, w: std.io.AnyWriter, positions: 
     // custom value handling
     switch (tree.tag(root)) {
         .srcloc => {
-            const idx = std.sort.binarySearch(u32, positions, tree.atomValue(root), orderU32) orelse {
+            const idx = std.sort.binarySearch(u32, positions, tree.atomValue(.srcloc, root), orderU32) orelse {
                 // not found
-                try w.print("@<{d}>", .{tree.atomValue(root)});
+                try w.print("@<{d}>", .{tree.atomValue(.srcloc, root)});
                 return;
             };
             try w.print("@{d}", .{idx});
@@ -173,7 +172,7 @@ fn dumpAst(tree: *const AstTree, root: AstExpr, w: std.io.AnyWriter, positions: 
     if (!skip_outer) try w.print("[{s}", .{@tagName(tree.tag(root))});
     switch (tree.isAtom(root)) {
         true => {
-            try w.print(" 0x{X}", .{tree.atomValue(root)});
+            try w.print(" 0x{X}", .{tree.atomValue(tree.tag(root), root)});
         },
         false => {
             var fch = tree.firstChild(root);
@@ -185,11 +184,11 @@ fn dumpAst(tree: *const AstTree, root: AstExpr, w: std.io.AnyWriter, positions: 
                 switch (tree.tag(ch)) {
                     .string_offset => {
                         // print string
-                        const str_offset = tree.atomValue(ch);
+                        const str_offset = tree.atomValue(.string_offset, ch);
                         fch = tree.next(ch);
                         std.debug.assert(fch != null);
                         std.debug.assert(tree.tag(fch.?) == .string_len);
-                        const str_len = tree.atomValue(fch.?);
+                        const str_len = tree.atomValue(.string_len, fch.?);
                         try w.print("\"{}\"", .{std.zig.fmtEscapes(tree.string_buf[str_offset..][0..str_len])});
                     },
                     else => {

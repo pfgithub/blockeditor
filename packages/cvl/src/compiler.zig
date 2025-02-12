@@ -347,6 +347,7 @@ const Type = struct {
         bound_call: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, binding: Types.Key.ComptimeValue, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
         from_map: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, ents: []MapEnt, srcloc: SrcLoc) Error!Expr = null,
         access_type: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, obj: Type, prop: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
+        from_number: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, num: []const u8, srcloc: SrcLoc) Error!Expr = null,
     };
     pub fn name(self: Type, env: *Env) Error![]const u8 {
         return self.vtable.name(self.data, env);
@@ -710,6 +711,12 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
             scope.with_slot_ty = slot;
             defer scope.with_slot_ty = null;
             return scope.handleExpr(slot, ch);
+        },
+        .number => {
+            const offset, const len = tree.children(expr, 2);
+            const num_value = tree.readStr(offset, len);
+            if (slot.vtable.from_number == null) return scope.env.addErr(tree.src(expr), "Initialize number in slot {s} not supported", .{try slot.name(scope.env)});
+            return slot.vtable.from_number.?(slot.data, scope, slot, num_value, srcloc);
         },
         else => |t| return scope.env.addErr(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
     }
