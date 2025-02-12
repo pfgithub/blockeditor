@@ -70,6 +70,11 @@ const Backends = struct {
                                     .ty = (try env.resolveDeclValue(try env.cachedDecl(Instr_CacheKey, .{}))).resolved_value_ptr.?.toConst(Type).*,
                                     .default_value = null,
                                 },
+                                .{
+                                    .name = try env.comptimeKeyFromString("x10"),
+                                    .ty = Types.Int.sint32,
+                                    .default_value = null,
+                                },
                             }),
                         }),
                     )),
@@ -313,6 +318,20 @@ const Types = struct {
                 )));
             }
             return scope.env.addErr(srcloc, "Field {s} does not exist on type {s}", .{ try ctk.name(scope.env), try name(self_any, scope.env) });
+        }
+    };
+    const Int = struct {
+        min: i128,
+        max: i128,
+        pub const ComptimeValue = i128;
+        pub const sint32: Type = .from(@This(), &.{ .min = std.math.minInt(i32), .max = std.math.maxInt(i32) });
+
+        fn name(self_any: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
+            const self = self_any.toConst(@This());
+
+            if (self.min == self.max) return try std.fmt.allocPrint(env.arena, "int({d})", .{self.min});
+            if (self.min == std.math.minInt(i32) and self.max == std.math.maxInt(i32)) return try std.fmt.allocPrint(env.arena, "i32", .{});
+            return try std.fmt.allocPrint(env.arena, "int({d}, {d})", .{ self.min, self.max });
         }
     };
 };
