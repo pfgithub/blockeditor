@@ -121,7 +121,9 @@ const Printer = struct {
         };
     }
     fn newline(p: *Printer) void {
-        p.w.writeByteNTimes(' ', 4 * p.indent);
+        p.w.writeByteNTimes(' ', 4 * p.indent) catch {
+            p.is_err = true;
+        };
     }
 
     fn printExpr(p: *Printer, fc: AstExpr) void {
@@ -133,9 +135,9 @@ const Printer = struct {
     }
 
     fn printMapContents(p: *Printer, parent: AstExpr) void {
-        var fch = p.tree.firstChild(parent);
-        while (fch) |fc| : (fch = p.tree.firstChild(fch.?)) {
-            p.printExpr(fc);
+        var fch = p.tree.firstChild(parent).?;
+        while (p.tree.tag(fch) != .srcloc) : (fch = p.tree.next(fch).?) {
+            p.printExpr(fch);
             p.fmt(";", .{});
             p.newline();
         }
@@ -1007,6 +1009,32 @@ fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, s
     try out.appendSlice(fmt_buf.items);
     return out.items;
 }
+fn testPrinter(out: *std.ArrayList(u8), _: struct {}, src_in: []const u8) ![]const u8 {
+    const gpa = out.allocator;
+
+    var tree = parse(gpa, src_in);
+    defer tree.deinit();
+
+    var fmt_buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer fmt_buf.deinit(gpa);
+
+    if (tree.owner.has_fatal_error) |fe| {
+        if (fe == .oom) return error.OutOfMemory;
+        try fmt_buf.appendSlice(gpa, @tagName(fe));
+    } else if (tree.tags.len > 0) {
+        const node: AstExpr = tree.root();
+        var printer: Printer = .{
+            .tree = &tree,
+            .w = fmt_buf.writer(gpa).any(),
+        };
+        printer.printAst(node);
+        if (printer.is_err) return error.OutOfMemory;
+    }
+
+    out.clearRetainingCapacity();
+    try out.appendSlice(fmt_buf.items);
+    return out.items;
+}
 
 const snap = @import("anywhere").util.testing.snap;
 fn doTestParser(gpa: std.mem.Allocator) !void {
@@ -1083,6 +1111,12 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     // - name binding non-decls
 
     // std.struct [  ]
+
+    try snap(@src(),
+        \\<todo: map_entry>;
+    , try testPrinter(&out, .{},
+        \\one = two;
+    ));
 }
 test Parser {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, doTestParser, .{});
