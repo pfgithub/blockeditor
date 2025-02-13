@@ -11,10 +11,12 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "anywhere", .module = b.dependency("anywhere", .{}).module("anywhere") },
+                .{ .name = "rvemu", .module = b.dependency("rvemu", .{}).module("rvemu") },
             },
         }),
     });
     b.installArtifact(test_exe);
     const run = b.addRunArtifact(test_exe);
+    run.step.dependOn(b.getInstallStep());
     b.step("test", "test").dependOn(&run.step);
 }

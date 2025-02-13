@@ -6,5 +6,6 @@
     },
     .dependencies = .{
         .anywhere = .{ .path = "../anywhere" },
+        .rvemu = .{ .path = "../rvemu" },
     },
 }

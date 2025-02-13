@@ -83,3 +83,14 @@ Background2 := () {
         ),
     );
 };
+
+// [ ] calling a function at comptime
+comptime := () :return {
+    return: 25;
+}
+runtime := () {
+    %comptime comptime();
+    // the function is called with comptime env rather than the runtime env
+    // the function is executed and returns a value (eg with rvemu)
+    // then the return value is converted to decls for the runtime env
+}

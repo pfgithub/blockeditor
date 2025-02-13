@@ -23,6 +23,8 @@ fn autoVtable(comptime Vtable: type, comptime Src: type) *const Vtable {
 
 const Backends = struct {
     const Riscv32 = struct {
+        const rvemu = @import("rvemu");
+
         const vtable = autoVtable(Backend.Vtable, @This());
         const Instr_CacheKey = struct {
             fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
@@ -32,6 +34,19 @@ const Backends = struct {
                 return true;
             }
             fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+                const fields = comptime std.meta.fields(rvemu.rvinstrs.InstrName);
+                const enum_fields: [fields.len]rvemu.rvinstrs.InstrName = comptime blk: {
+                    var res: [fields.len]rvemu.rvinstrs.InstrName = undefined;
+                    for (fields, &res) |field, *r| {
+                        r.* = @field(rvemu.rvinstrs.InstrName, field.name);
+                    }
+                    break :blk res;
+                };
+                const resfields = try env.arena.alloc(Types.Enum.Field, fields.len);
+                for (enum_fields, resfields) |enf, *f| {
+                    f.* = .{ .name = try env.comptimeKeyFromString(@tagName(enf)), .value = @intFromEnum(enf) };
+                }
+
                 return .from(
                     try env.srclocFromSrc(@src()),
                     Types.Ty,
@@ -40,9 +55,7 @@ const Backends = struct {
                         Types.Enum,
                         try anywhere.util.dupeOne(env.arena, Types.Enum{
                             .srcloc = try env.srclocFromSrc(@src()),
-                            .fields = try env.arena.dupe(Types.Enum.Field, &.{
-                                .{ .name = try env.comptimeKeyFromString("ecall"), .value = 1 },
-                            }),
+                            .fields = resfields,
                         }),
                     )),
                 );
@@ -82,6 +95,55 @@ const Backends = struct {
             }
         };
 
+        const EmitBlock = struct {
+            // two pass:
+            // - one: the instrs are made with references to other instrs
+            //   and references to block jumps
+            // - two: register allocation & emit
+            //   - register allocation may require storing instructions to the stack
+            //   - explicit registers can never be stored to the stack
+            //     - (ie no saving the value in x10 before )
+            const RvVar = enum(u32) {
+                _,
+                fn fromIntReg(reg: u5) RvVar {
+                    return @enumFromInt(std.math.maxInt(u32) - 0b11111 + @as(u32, reg));
+                }
+            };
+            const RvInstr = union(enum) {
+                instr: struct {
+                    op: rvemu.rvinstrs.InstrName,
+                    rs1: ?RvVar = null,
+                    rs2: ?RvVar = null,
+                    rs3: ?RvVar = null,
+                    rd: ?RvVar = null,
+                    imm_11_0: ?i12 = null,
+                },
+                fakeuser: struct {
+                    rs: ?RvVar = null,
+                    rd: ?RvVar = null,
+                },
+            };
+            instructions: std.ArrayListUnmanaged(RvInstr),
+
+            fn appendLoadImmediate(self: *EmitBlock, env: *Env, out: RvVar, imm_v: i32) Error!void {
+                if (std.math.cast(i12, imm_v)) |lower| {
+                    try self.instructions.append(env.gpa, .{
+                        .instr = .{
+                            .op = .ADDI,
+                            .rs1 = .fromIntReg(0),
+                            .rd = out,
+                            .imm_11_0 = lower,
+                        },
+                    });
+                } else {
+                    @panic("TODO lui + addi (number outside of i12 range)");
+                    // slightly complicated because addi adds an integer
+                    // so it takes a bit of thinking to implement right for
+                    // numbers where the 11th bit is '1'
+                }
+            }
+        };
+
         pub fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             return try std.fmt.allocPrint(env.arena, "riscv32", .{});
         }
@@ -96,6 +158,11 @@ const Backends = struct {
             const arg_ct = try scope.env.expectComptime(arg_val, Types.Struct);
 
             const instr_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("instr"));
+            // TODO: x10_decl can be runtime
+            // so convert it to runtime if it's comptime
+            // something interesting here is that we will need to support mixed comptime & runtime
+            // in a struct. because we have to access op as comptime. so we should mark it in the
+            // type somehow?
             const x10_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("x10"));
             const instr_val = try scope.env.resolveDeclValue(instr_decl);
             const x10_val = try scope.env.resolveDeclValue(x10_decl);
@@ -104,8 +171,27 @@ const Backends = struct {
             const instr = instr_val.resolved_value_ptr.?.to(Types.Enum.ComptimeValue);
             const x10 = x10_val.resolved_value_ptr.?.to(Types.Int.ComptimeValue);
 
-            // ( asm_instr_kind, .reg = <i32>value )
-            return scope.env.addErr(srcloc, "TODO riscv32 #builtin.asm: {d},{d}", .{ instr.*, x10.* });
+            const block = scope.block.to(EmitBlock);
+            const li_reg: EmitBlock.RvVar = .fromIntReg(10);
+            try block.appendLoadImmediate(scope.env, li_reg, std.math.cast(i32, x10.*) orelse return scope.env.addErr(srcloc, "<rv32> number out of range", .{})); // TODO: this should be done by converting x10 to runtime rather than here
+            try block.instructions.append(scope.env.gpa, .{
+                .instr = .{ .op = @enumFromInt(instr.*) },
+            });
+            try block.instructions.append(scope.env.gpa, .{
+                .fakeuser = .{ .rs = li_reg, .rd = li_reg },
+                // this is so the store to x10 won't be clobbered until
+                // it is no longer used again, which will likely be the
+                // next instruction.
+                // also the 'rd' indicates that the value in x10 may have
+                // changed, so if we wanted that number again, we
+                // have to copy it out of x10 before use.
+            });
+
+            return .{
+                .ty = Types.Void.ty,
+                .value = .{ .runtime = .from(EmitBlock.RvVar, try anywhere.util.dupeOne(scope.env.arena, EmitBlock.RvVar.fromIntReg(0))) },
+                .srcloc = srcloc,
+            };
         }
     };
 };
@@ -428,19 +514,13 @@ const Decl = struct {
         };
     }
 };
-const Instr = struct {
-    const Index = enum(u64) { _ };
-
-    // args: []Instr.Index
-    // next: Instr.Index
-};
 const Expr = struct {
     ty: Type,
     value: Value,
     srcloc: SrcLoc,
     const Value = union(enum) {
         compiletime: Decl.Index,
-        runtime: Instr.Index,
+        runtime: anywhere.util.AnyPtr,
     };
 };
 
@@ -449,6 +529,7 @@ const Scope = struct {
     env: *Env,
     tree: *const parser.AstTree,
     with_slot_ty: ?Type = null,
+    block: anywhere.util.AnyPtr,
 
     fn handleExpr(scope: *Scope, slot: Type, expr: parser.AstExpr) Error!Expr {
         return handleExpr_inner2(scope, slot, expr);
@@ -758,7 +839,7 @@ const MapEnt = struct {
 };
 
 test "compiler" {
-    if (true) return error.SkipZigTest;
+    // if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, example_src);
@@ -793,9 +874,14 @@ test "compiler" {
     defer env.comptime_keys.deinit(gpa);
     defer env.decls.deinit(env.gpa);
     defer env.compiler_srclocs.deinit(env.gpa);
+    var emit_block: Backends.Riscv32.EmitBlock = .{
+        .instructions = .empty,
+    };
+    defer emit_block.instructions.deinit(env.gpa);
     var scope: Scope = .{
         .env = &env,
         .tree = &tree,
+        .block = .from(Backends.Riscv32.EmitBlock, &emit_block),
     };
     const res = try scope.handleExpr(try env.makeInfer(Types.Unknown.ty), fn_body);
     _ = res;

@@ -766,7 +766,7 @@ const cmp = struct {
 //     - f32
 //     - f64
 
-const Instruction = packed union {
+pub const Instruction = packed union {
     any: AnyType,
     R: RType,
     R4: R4Type,
