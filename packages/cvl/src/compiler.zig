@@ -192,11 +192,7 @@ const Backends = struct {
                 // have to copy it out of x10 before use.
             });
 
-            return .{
-                .ty = Types.Void.ty,
-                .value = .{ .runtime = .from(EmitBlock.RvVar, try anywhere.util.dupeOne(scope.env.arena, EmitBlock.RvVar.fromIntReg(0))) },
-                .srcloc = srcloc,
-            };
+            return scope.env.declExpr(srcloc, try scope.env.cachedDecl(VoidDecl, .{}));
         }
     };
 };
