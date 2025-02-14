@@ -110,8 +110,23 @@ const Backends = struct {
             //     - (ie no saving the value in x10 before )
             const RvVar = enum(u32) {
                 _,
+                const lowest_int_reg = std.math.maxInt(u32) - 0b11111;
                 fn fromIntReg(reg: u5) RvVar {
-                    return @enumFromInt(std.math.maxInt(u32) - 0b11111 + @as(u32, reg));
+                    return @enumFromInt(lowest_int_reg + @as(u32, reg));
+                }
+                fn isIntReg(rv: RvVar) ?u5 {
+                    const rvint = @intFromEnum(rv);
+                    if (rvint >= lowest_int_reg) return @intCast(rvint - (lowest_int_reg));
+                    return null;
+                }
+                pub fn format(value: RvVar, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+                    _ = fmt;
+                    _ = options;
+                    if (value.isIntReg()) |intreg| {
+                        try writer.print("x{d}", .{intreg});
+                    } else {
+                        try writer.print("%{d}", .{@intFromEnum(value)});
+                    }
                 }
             };
             const RvInstr = union(enum) {
@@ -145,6 +160,27 @@ const Backends = struct {
                     // slightly complicated because addi adds an integer
                     // so it takes a bit of thinking to implement right for
                     // numbers where the 11th bit is '1'
+                }
+            }
+
+            fn print(self: *EmitBlock, w: std.io.AnyWriter) !void {
+                for (self.instructions.items) |instr| {
+                    switch (instr) {
+                        .instr => |in| {
+                            if (in.rd) |rd| try w.print("{} = ", .{rd});
+                            try w.print("{s}", .{@tagName(in.op)});
+                            if (in.rs1) |rs1| try w.print(" {}", .{rs1});
+                            if (in.imm_11_0) |imm_11_0| try w.print(" 0x{X}", .{imm_11_0});
+                            if (in.rs2) |rs2| try w.print(" {}", .{rs2});
+                            if (in.rs3) |rs3| try w.print(" {}", .{rs3});
+                        },
+                        .fakeuser => |in| {
+                            if (in.rd) |rd| try w.print("{} = ", .{rd});
+                            try w.print("fakeuser", .{});
+                            if (in.rs) |rs| try w.print(" {}", .{rs});
+                        },
+                    }
+                    try w.print("\n", .{});
                 }
             }
         };
@@ -886,6 +922,20 @@ test "compiler" {
     };
     const res = try scope.handleExpr(try env.makeInfer(Types.Unknown.ty), fn_body);
     _ = res;
+
+    var printed = std.ArrayListUnmanaged(u8).empty;
+    defer printed.deinit(gpa);
+    try emit_block.print(printed.writer(gpa).any());
+    // in the future this may become:
+    // x10 = x0 (.move) (toRuntime on the number emits nothing & returns x0)
+    // ecall (.instr)
+    // x10 = fakeuser x10 (.fakeuser)
+    try anywhere.util.testing.snap(@src(),
+        \\x10 = ADDI x0 0x0
+        \\ECALL
+        \\x10 = fakeuser x10
+        \\
+    , printed.items);
 }
 
 // notes:
