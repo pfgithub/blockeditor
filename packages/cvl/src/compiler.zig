@@ -82,11 +82,13 @@ const Backends = struct {
                                     .name = try env.comptimeKeyFromString("instr"),
                                     .ty = (try env.resolveDeclValue(try env.cachedDecl(Instr_CacheKey, .{}))).resolved_value_ptr.?.toConst(Type).*,
                                     .default_value = null,
+                                    .compiletime = true,
                                 },
                                 .{
                                     .name = try env.comptimeKeyFromString("x10"),
                                     .ty = Types.Int.sint32,
                                     .default_value = null,
+                                    .comptime_optional = true,
                                 },
                                 // runtime:
                                 // - rs1: i32, rs2: i32, rd: bool
@@ -366,6 +368,19 @@ const Types = struct {
             name: Types.Key.ComptimeValue,
             ty: Type,
             default_value: ?Decl.Index,
+
+            /// for types created containing the values of compiletime
+            /// or comptime_optional fields
+            parent_struct: ?Type = null,
+            /// if a default value is not provided, initializing a struct
+            /// containing a compiletime value will create a new struct
+            /// type with 'parent' set where these values are baked
+            /// into the type
+            compiletime: bool = false,
+            /// if true, default_value must be null. initializing a struct
+            /// that is missing this field will create a new struct type
+            /// with 'parent' set to this type
+            comptime_optional: bool = false,
         };
         srcloc: SrcLoc,
         fields: []const Field,
