@@ -77,13 +77,14 @@ const Backends = struct {
                         Types.Struct,
                         try anywhere.util.dupeOne(env.arena, Types.Struct{
                             .srcloc = try env.srclocFromSrc(@src()),
-                            .fields = try env.arena.dupe(Types.Struct.Field, &.{
+                            .comptime_fields = try env.arena.dupe(Types.Struct.Field, &.{
                                 .{
                                     .name = try env.comptimeKeyFromString("instr"),
                                     .ty = (try env.resolveDeclValue(try env.cachedDecl(Instr_CacheKey, .{}))).resolved_value_ptr.?.toConst(Type).*,
                                     .default_value = null,
-                                    .compiletime = true,
                                 },
+                            }),
+                            .fields = try env.arena.dupe(Types.Struct.Field, &.{
                                 .{
                                     .name = try env.comptimeKeyFromString("x10"),
                                     .ty = Types.Int.sint32,
@@ -369,27 +370,29 @@ const Types = struct {
             ty: Type,
             default_value: ?Decl.Index,
 
-            /// for types created containing the values of compiletime
-            /// or comptime_optional fields
-            parent_struct: ?Type = null,
-            /// if a default value is not provided, initializing a struct
-            /// containing a compiletime value will create a new struct
-            /// type with 'parent' set where these values are baked
-            /// into the type
-            compiletime: bool = false,
             /// if true, default_value must be null. initializing a struct
             /// that is missing this field will create a new struct type
             /// with 'parent' set to this type
             comptime_optional: bool = false,
         };
+        /// for types created containing the values of compiletime
+        /// or comptime_optional fields
+        parent_struct: ?Type = null,
         srcloc: SrcLoc,
         fields: []const Field,
+        comptime_fields: []const Field,
+        // we don't need to box values at comptime
+        // we can make ComptimeValue be a byte slice
+        // and do alignment and stuff
         const ComptimeValue = []const Decl.Index;
 
         pub fn accessComptime(ty: Type, ct: ComptimeValue, a_name: Types.Key.ComptimeValue) Decl.Index {
             const self = ty.data.toConst(Struct);
             for (self.fields, ct) |field, val| {
                 if (a_name == field.name) return val;
+            }
+            for (self.comptime_fields) |field| {
+                if (a_name == field.name) return field.default_value orelse @panic("accessComptime on struct type that is not filled");
             }
             @panic("accessComptime on struct with incorrect key");
         }
@@ -402,6 +405,18 @@ const Types = struct {
         pub fn from_map(self_any: anywhere.util.AnyPtr, scope: *Scope, slot: Type, ents: []MapEnt, srcloc: SrcLoc) Error!Expr {
             _ = slot;
             const self = self_any.to(Struct);
+
+            var requires_new_type = false;
+            for (self.fields) |f| if (f.comptime_optional) {
+                requires_new_type = true;
+            };
+            for (self.comptime_fields) |f| if (f.comptime_optional) {
+                requires_new_type = true;
+            };
+            for (self.comptime_fields) |f| if (f.default_value == null) {
+                requires_new_type = true;
+            };
+
             // first, try to initialize as comptime
             // if that doesn't work out, initialize as runtime
             const comptime_res = try scope.env.arena.alloc(Decl.Index, self.fields.len);
@@ -414,7 +429,10 @@ const Types = struct {
                 const ctk = try scope.env.expectComptimeKey(key);
                 const field_i: usize = for (self.fields, 0..) |field, i| {
                     if (ctk == field.name) break i;
-                } else return scope.env.addErr(key.srcloc, "key {s} not found in {s}", .{ try ctk.name(scope.env), try name(self_any, scope.env) });
+                } else {
+                    // in this case it could be a comptime field
+                    return scope.env.addErr(key.srcloc, "key {s} not found in {s}", .{ try ctk.name(scope.env), try name(self_any, scope.env) });
+                };
 
                 if (comptime_res[field_i] != .none) return scope.env.addErr(key.srcloc, "duplicate field", .{});
 
@@ -422,15 +440,54 @@ const Types = struct {
                 if (value.value != .compiletime) return scope.env.addErr(value.srcloc, "TODO: runtime value in struct init", .{});
                 comptime_res[field_i] = value.value.compiletime;
             }
+
             for (comptime_res, self.fields) |*itm, field| {
                 if (itm.* == .none) {
                     if (field.default_value) |dfv| {
                         itm.* = dfv;
+                    } else if (field.comptime_optional) {
+                        // ok.
                     } else {
                         return scope.env.addErr(srcloc, "missing field", .{});
                     }
                 }
             }
+
+            if (requires_new_type) {
+                const new = try scope.env.arena.create(Struct);
+                // in js this would be 'fields.filter(field => field != .none)'
+                // in zig it's all these lines
+                // to be fair in zig it's precomputing the new length, it could
+                // be shorter if it was arraylist
+                var new_fields_len: usize = 0;
+                for (comptime_res, self.fields) |*itm, field| {
+                    if (itm.* == .none) {
+                        std.debug.assert(field.comptime_optional); // checked above
+                    } else {
+                        new_fields_len += 1;
+                    }
+                }
+                const new_fields = try scope.env.arena.alloc(Field, new_fields_len);
+                const new_value = try scope.env.arena.alloc(Decl.Index, new_fields_len);
+                var i: usize = 0;
+                for (comptime_res, self.fields) |*itm, field| {
+                    if (itm.* == .none) {
+                        std.debug.assert(field.comptime_optional);
+                    } else {
+                        new_fields[i] = field;
+                        new_value[i] = itm.*;
+                        i += 1;
+                    }
+                }
+                std.debug.assert(i == new_fields.len);
+                new.* = .{
+                    .parent_struct = .from(Struct, self),
+                    .srcloc = srcloc,
+                    .fields = new_fields,
+                    .comptime_fields = &.{},
+                };
+            }
+
             // done!
             const res = try scope.env.addDecl(.from(
                 srcloc,
@@ -891,7 +948,7 @@ const MapEnt = struct {
 };
 
 test "compiler" {
-    // if (true) return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, example_src);
@@ -945,6 +1002,7 @@ test "compiler" {
     // x10 = x0 (.move) (toRuntime on the number emits nothing & returns x0)
     // ecall (.instr)
     // x10 = fakeuser x10 (.fakeuser)
+    if (env.has_error) return error.HasError;
     try anywhere.util.testing.snap(@src(),
         \\x10 = ADDI x0 0x0
         \\ECALL
