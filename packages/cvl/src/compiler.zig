@@ -386,6 +386,21 @@ const Types = struct {
         // and do alignment and stuff
         const ComptimeValue = []const Decl.Index;
 
+        // comptime:
+        // - []const Decl.Index for now
+        // - eventually we'll want to have some types of decls unboxed
+        //   directly into their index maybe. eg true/false stored as
+        //   Decl.Index.true/false
+        // by value:
+        // - each entry of the struct goes in its own variable
+        // - mystruct: Struct = (.x = 1, .y = 2, .z = 3)
+        // - equiv to mystruct_x = 1; mystruct_y = 2; mystruct_z = 3;
+        // - (you can never get a pointer from a value, so this is fine)
+        // by reference:
+        // - layed out in memory automatically
+        // - the backend defines the layout
+        // - not stable! it can be whatever
+
         pub fn accessComptime(ty: Type, ct: ComptimeValue, a_name: Types.Key.ComptimeValue) Decl.Index {
             const self = ty.data.toConst(Struct);
             for (self.fields, ct) |field, val| {
