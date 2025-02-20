@@ -11,6 +11,11 @@
 //! WARNING: BufByte and DocByte have been confused frequently
 //! TODO: audit code for uses of 'bufbyte' and correct them to 'docbyte' where needed
 
+// this is the format for active editing & live collaboration
+// once editing is complete, the document should be saved to a regular
+// text file. offline edits must be applied through a three way merge,
+// not through this system.
+
 const bi = @import("blockinterface2.zig");
 const util = anywhere.util;
 const build_options = @import("build_options");
