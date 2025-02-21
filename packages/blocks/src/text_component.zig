@@ -867,6 +867,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         };
         // why does this have to be so long? it's equivalent to @0"\x00" which is 8 bytes but instead it's 32 bytes
         pub const default = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+        /// serializeForActiveEditing
         pub fn serialize(self: *const Doc, out: *bi.AlignedArrayList) void {
             // TODO: convert to combined count, serialize, deserialize fn
             // https://gist.github.com/pfgithub/2818e467c25b87579ce714fceb3e61cc
@@ -920,6 +921,7 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
                 writer.writeStructEndian(uc, .little) catch @panic("oom");
             }
         }
+        /// deserializeForActiveEditing
         pub fn deserialize(gpa: std.mem.Allocator, fbs: *bi.AlignedFbsReader) bi.DeserializeError!Doc {
             const reader = fbs.reader();
 
@@ -972,6 +974,11 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
             return res;
         }
+        // TODO: serializeForStorage (write a plain text file)
+        // deserializeForStorage
+        // diffOfflineStorage
+        // - given: parent, offline_edits, online_edits
+        //   return a text document or something. good luck
 
         pub fn initEmpty(alloc: std.mem.Allocator) Doc {
             var res: Doc = .{
