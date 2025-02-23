@@ -13,6 +13,7 @@
         .blocks_net = .{ .path = "packages/blocks_net" },
         .cvl = .{ .path = "packages/cvl" },
         .loadimage = .{ .path = "packages/loadimage" },
+        .loadimage_wasm = .{ .path = "packages/loadimage_wasm" },
         .minigamer_3ds = .{ .path = "packages/minigamer/3ds" },
         .root = .{ .path = "packages/root" },
         .sheen_bidi = .{ .path = "packages/sheen_bidi" },

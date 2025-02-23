@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) void {
     const blocks_net_dep = b.dependency("blocks_net", .{ .target = target, .optimize = optimize });
     const cvl_dep = b.dependency("cvl", .{ .target = target, .optimize = optimize });
     const loadimage_dep = b.dependency("loadimage", .{ .target = target, .optimize = optimize });
+    const loadimage_wasm_dep = b.dependency("loadimage_wasm", .{});
     const minigamer_3ds_dep = b.dependency("minigamer_3ds", .{ .optimize = optimize });
     // const root_dep = b.dependency("root", .{ .target = target, .optimize = optimize });
     const sheen_bidi_dep = b.dependency("sheen_bidi", .{ .target = target, .optimize = optimize });
@@ -46,6 +47,7 @@ pub fn build(b: *std.Build) void {
     // });
     b.installArtifact(texteditor_dep.artifact("zls"));
     b.installArtifact(blocks_dep.artifact("bench"));
+    b.installArtifact(loadimage_wasm_dep.artifact("loadimage_wasm"));
     if (opts.tracy) b.getInstallStep().dependOn(&b.addInstallArtifact(tracy_dep.artifact("tracy"), .{ .dest_dir = .{ .override = .{ .custom = "tool" } } }).step); // tracy exe has system dependencies and cannot be compiled for all targets
 
     const test_step = b.step("test", "Test");
