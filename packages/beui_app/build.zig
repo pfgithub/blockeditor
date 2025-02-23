@@ -1,5 +1,5 @@
 const std = @import("std");
-const anywhere = @import("anywhere").lib;
+const anywhere = @import("anywhere");
 const beui_impl_android = @import("beui_impl_android");
 const beui_impl_glfw_wgpu = @import("beui_impl_glfw_wgpu");
 const beui_impl_web = @import("beui_impl_web");

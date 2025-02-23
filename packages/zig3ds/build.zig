@@ -1,5 +1,5 @@
 const std = @import("std");
-const anywhere = @import("anywhere").lib;
+const anywhere = @import("anywhere");
 
 fn addTool(b: *std.Build, dep: *std.Build.Dependency, tool_name: []const u8, files: []const []const u8) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{

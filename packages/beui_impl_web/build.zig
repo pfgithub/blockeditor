@@ -1,5 +1,5 @@
 const std = @import("std");
-const anywhere = @import("anywhere").lib;
+const anywhere = @import("anywhere");
 const zig_gamedev = @import("zig_gamedev");
 
 pub fn createApp(name: []const u8, self_dep: *std.Build.Dependency, app_mod: *std.Build.Module) std.Build.LazyPath {

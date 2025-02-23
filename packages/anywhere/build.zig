@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) !void {
     b.getInstallStep().dependOn(&fmt_step.step);
 
     const mod = b.addModule("anywhere", .{
-        .root_source_file = b.path("src/anywhere.zig"),
+        .root_source_file = b.path("build.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -36,4 +36,12 @@ pub fn build(b: *std.Build) !void {
 // TODO:
 // - make build.zig the root source file of anywhere mod
 // - expose everything directly here
-pub const lib = @import("src/anywhere.zig");
+const lib = @import("src/anywhere.zig");
+pub const zgui = lib.zgui;
+pub const tracy = lib.tracy;
+pub const util = lib.util;
+pub const AnywhereCfg = lib.AnywhereCfg;
+
+test "refAllDecls" {
+    std.testing.refAllDeclsRecursive(@This());
+}

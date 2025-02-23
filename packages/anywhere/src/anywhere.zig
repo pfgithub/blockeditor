@@ -121,7 +121,3 @@ pub const tracy = struct {
 };
 
 pub const util = @import("util.zig");
-
-test "refAllDecls" {
-    std.testing.refAllDeclsRecursive(@This());
-}

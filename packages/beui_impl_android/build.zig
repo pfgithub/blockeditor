@@ -1,5 +1,5 @@
 const std = @import("std");
-const anywhere = @import("anywhere").lib;
+const anywhere = @import("anywhere");
 
 const TargetInfo = struct {
     query: std.Target.Query,
