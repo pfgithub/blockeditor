@@ -52,13 +52,13 @@ pub fn build(b: *std.Build) !void {
 
     // TODO: support cross-compiling profiler exe
 
-    const glfw_for_tracy_dep = b.dependency("glfw", .{ .target = target, .optimize = profiler_optimize });
+    const zglfw = b.dependency("zglfw", .{ .target = target, .optimize = profiler_optimize });
     const tracy_exe = b.addExecutable(.{
         .name = "tracy",
         .target = target,
         .optimize = profiler_optimize,
     });
-    tracy_exe.linkLibrary(glfw_for_tracy_dep.artifact("glfw"));
+    tracy_exe.linkLibrary(zglfw.artifact("glfw"));
     tracy_exe.addIncludePath(b.path("src"));
     const profiler_flags: []const []const u8 = &[_][]const u8{
         "-fno-sanitize=undefined",

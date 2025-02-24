@@ -7,9 +7,9 @@
             .url = "https://github.com/wolfpld/tracy/archive/8b9da2efba6937b66085a52f7281c59293ffe985.tar.gz",
             .hash = "122008f368247daaf70b0c7280d3748982aa74baac4b498ab71008f740949bbd1921",
         },
-        .glfw = .{
-            .url = "https://pkg.machengine.org/glfw/ec656e10d3643a3a71149bb96ae6b0831b84b677.tar.gz",
-            .hash = "12207be469bad84baed2ede75cf89ede37e1ed5ee8be62a54d2b2112c5f56a44cc89",
+        .zglfw = .{
+            .url = "https://github.com/zig-gamedev/zglfw/archive/e9bd486903b5904b6d4e27b8b3771b138a667ef1.tar.gz",
+            .hash = "12209fb981e7aab58c2f9062ab526bd43df3d7953aa41e131a173c37ad35d10b1132",
         },
         .zstd = .{
             .url = "https://github.com/allyourcodebase/zstd/archive/a3a19f8f67323eebdc6ea0826241e140ef21b622.zip",

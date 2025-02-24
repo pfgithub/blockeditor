@@ -87,10 +87,17 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .enable_freetype = true,
-            .freetype_use_system_zlib = false,
-            .freetype_enable_brotli = true,
         })) |dep| {
             dep.artifact("harfbuzz").root_module.addCMacro("HB_NO_MT", "");
+        }
+        if (mach_freetype_dep.builder.lazyDependency("freetype", .{
+            .target = target,
+            .optimize = optimize,
+            .use_system_zlib = false,
+            .enable_brotli = true,
+        })) |dep| {
+            //
+            _ = dep;
         }
     }
 }
