@@ -1965,7 +1965,7 @@ test "document" {
 }
 
 // fuzz test deserializing random blocks
-fn fuzzTest(input_misaligned: []const u8) anyerror!void {
+fn fuzzTest(_: void, input_misaligned: []const u8) anyerror!void {
     const gpa = std.testing.allocator;
 
     const input_aligned = try gpa.alignedAlloc(u8, 16, input_misaligned.len);
@@ -1995,7 +1995,7 @@ test "fuzz" {
     // also waiting on https://github.com/ziglang/zig/issues/20986
 
     if (@hasDecl(std.testing, "fuzzInput")) return error.SkipZigTest;
-    try std.testing.fuzz(fuzzTest, .{});
+    try std.testing.fuzz({}, fuzzTest, .{});
 }
 
 const TestDocumentRetTy = struct {

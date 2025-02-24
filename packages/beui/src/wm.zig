@@ -154,7 +154,7 @@ pub const WM = struct {
     }
 
     pub fn addFrame(self: *WM, value: FrameContent) FrameID {
-        const id: FrameID = if (self.unused_frames.popOrNull()) |reuse| blk: {
+        const id: FrameID = if (self.unused_frames.pop()) |reuse| blk: {
             break :blk reuse;
         } else blk: {
             const res: FrameID = .{ .gen = 0, .ptr = @enumFromInt(self.frames.items.len) };

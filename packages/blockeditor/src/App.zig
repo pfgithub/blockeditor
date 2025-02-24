@@ -773,7 +773,7 @@ const FsTree2 = struct {
     fn _addNode(self: *FsTree2, value: Node) *Node {
         std.debug.assert(!value.is_deleted);
         if (self.deleted_nodes.items.len > 0) {
-            const res = self.deleted_nodes.pop();
+            const res = self.deleted_nodes.pop().?;
             res.deinit(self.all_nodes.allocator);
             res.* = value;
             return res;

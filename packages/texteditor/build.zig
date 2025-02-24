@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) !void {
     const zls_dep = b.dependency("zls", .{
         .target = target,
         .optimize = .ReleaseSafe,
+        .@"version-string" = @as([]const u8, "0.14.0-dev"),
     });
     b.installArtifact(zls_dep.artifact("zls"));
 

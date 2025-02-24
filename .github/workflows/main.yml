@@ -7,7 +7,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: mlugg/setup-zig@v1
         with:
-          version: 0.14.0-dev.2563+af5e73172
+          version: 0.14.0-dev.3298+6fe1993d8
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

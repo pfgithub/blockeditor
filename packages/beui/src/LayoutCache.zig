@@ -374,7 +374,7 @@ fn layoutLine_internal(self: *LayoutCache, line_text: []const u8, layout_result_
     segments_al.append(.{ .length = line_text.len }) catch @panic("oom");
     std.debug.assert(line_text.len > 0); // handled above
     if (line_text[line_text.len - 1] == '\n') {
-        var last = segments_al.pop();
+        var last = segments_al.pop().?;
         last.length -= 1;
         if (last.length > 0) segments_al.append(last) catch @panic("oom");
         segments_al.append(.{ .length = 1, .replace_text = "_" }) catch @panic("oom");

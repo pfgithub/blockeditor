@@ -649,7 +649,7 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                 .redo => .{ &self.redo, &self.redo_tokens, &self.undo, &self.undo_tokens },
                 else => unreachable,
             };
-            const token = take_from_tokens.popOrNull() orelse return;
+            const token = take_from_tokens.pop() orelse return;
             add_to_tokens.append(.{
                 .index = add_to.headers.items.len,
                 .cursor_positions_clone_owned = token.cursor_positions_clone_owned,
@@ -1297,7 +1297,7 @@ pub fn SliceStackAligned(comptime T: type, comptime alignment: ?u29) type {
         pub fn take(self: *TextStack) ?(if (alignment) |a| []align(a) T else []T) {
             if (self.headers.items.len == 0) return null;
 
-            const header = self.headers.pop();
+            const header = self.headers.pop().?;
             const res = self.values.items[header.this_item_start..];
             self.values.items = self.values.items[0..if (alignment) |_| header.last_item_end else header.this_item_start];
             return @alignCast(res);

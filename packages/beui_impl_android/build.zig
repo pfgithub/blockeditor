@@ -153,7 +153,7 @@ fn fixAndroidLibcForBuilder(b: *std.Build) void {
 fn fixAndroidLibcForCompile(lib: *std.Build.Step.Compile) void {
     if (lib.libc_file != null) return; // already handled
     if (_fix_android_libc == null) return;
-    if (lib.rootModuleTarget().isAndroid()) {
+    if (lib.rootModuleTarget().abi.isAndroid()) {
         lib.setLibCFile(_fix_android_libc.?);
         _fix_android_libc.?.addStepDependencies(&lib.step); // work around bug where setLibCFile doesn't add the step dependency
 

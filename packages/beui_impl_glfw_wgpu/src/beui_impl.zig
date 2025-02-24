@@ -198,19 +198,45 @@ const DemoState = struct {
     update_tex: bool = true,
 };
 
+fn fn_getTime() f64 {
+    return zglfw.getTime();
+}
+fn fn_getFramebufferSize(window: ?*const anyopaque) [2]u32 {
+    const one, const two = zglfw.Window.getFramebufferSize(@constCast(@ptrCast(window)));
+    return .{ @intCast(one), @intCast(two) };
+}
+fn fn_getWin32Window(window: *const anyopaque) ?*anyopaque {
+    return @ptrCast(zglfw.getWin32Window(@constCast(@ptrCast(window))));
+}
+fn fn_getX11Display() ?*anyopaque {
+    return @ptrCast(zglfw.getX11Display());
+}
+fn fn_getX11Window(window: *const anyopaque) u32 {
+    return zglfw.getX11Window(@constCast(@ptrCast(window)));
+}
+fn fn_getWaylandDisplay() ?*anyopaque {
+    return @ptrCast(zglfw.getWaylandDisplay());
+}
+fn fn_getWaylandSurface(window: ?*const anyopaque) ?*anyopaque {
+    return @ptrCast(zglfw.getWaylandWindow(@constCast(@ptrCast(window))));
+}
+fn fn_getCocoaWindow(window: ?*const anyopaque) ?*anyopaque {
+    return @ptrCast(zglfw.getCocoaWindow(@constCast(@ptrCast(window))));
+}
+
 fn create(gpa: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
     const gctx = try zgpu.GraphicsContext.create(
         gpa,
         .{
             .window = window,
-            .fn_getTime = @ptrCast(&zglfw.getTime),
-            .fn_getFramebufferSize = @ptrCast(&zglfw.Window.getFramebufferSize),
-            .fn_getWin32Window = @ptrCast(&zglfw.getWin32Window),
-            .fn_getX11Display = @ptrCast(&zglfw.getX11Display),
-            .fn_getX11Window = @ptrCast(&zglfw.getX11Window),
-            .fn_getWaylandDisplay = @ptrCast(&zglfw.getWaylandDisplay),
-            .fn_getWaylandSurface = @ptrCast(&zglfw.getWaylandWindow),
-            .fn_getCocoaWindow = @ptrCast(&zglfw.getCocoaWindow),
+            .fn_getTime = &fn_getTime,
+            .fn_getFramebufferSize = &fn_getFramebufferSize,
+            .fn_getWin32Window = &fn_getWin32Window,
+            .fn_getX11Display = &fn_getX11Display,
+            .fn_getX11Window = &fn_getX11Window,
+            .fn_getWaylandDisplay = &fn_getWaylandDisplay,
+            .fn_getWaylandSurface = &fn_getWaylandSurface,
+            .fn_getCocoaWindow = &fn_getCocoaWindow,
         },
         .{},
     );
@@ -639,13 +665,14 @@ const callbacks = struct {
             beui.frame.mouse_offset += beui.persistent.mouse_pos - prev_pos;
         }
     }
-    fn cursorEnterCallback(window: *zglfw.Window, entered: zglfw.Bool) callconv(.C) void {
+    fn cursorEnterCallback(window: *zglfw.Window, entered: i32) callconv(.C) void {
         _ = window;
-        if (entered == zglfw.TRUE) {
-            // entered
-        } else {
-            // left
-        }
+        _ = entered; // why is it i32 now
+        // if (entered == zglfw.TRUE) {
+        //     // entered
+        // } else {
+        //     // left
+        // }
     }
     fn mouseButtonCallback(window: *zglfw.Window, button: zglfw.MouseButton, action: zglfw.Action, mods: zglfw.Mods) callconv(.C) void {
         const b2 = window.getUserPointer(B2.Beui2).?;
@@ -687,11 +714,11 @@ const BeuiVtable = struct {
     window: *zglfw.Window,
     fn setClipboard(cfg: *const Beui.FrameCfg, text_utf8: [:0]const u8) void {
         const self = cfg.castUserData(BeuiVtable);
-        setClipboardString(self.window, text_utf8);
+        self.window.setClipboardString(text_utf8);
     }
     fn getClipboard(cfg: *const Beui.FrameCfg, clipboard_contents: *std.ArrayList(u8)) void {
         const self = cfg.castUserData(BeuiVtable);
-        clipboard_contents.appendSlice(getClipboardString(self.window) orelse "") catch @panic("oom");
+        clipboard_contents.appendSlice(self.window.getClipboardString() orelse "") catch @panic("oom");
     }
     pub const vtable: *const Beui.FrameCfgVtable = &.{
         .type_id = @typeName(BeuiVtable),
@@ -699,18 +726,6 @@ const BeuiVtable = struct {
         .get_clipboard = &getClipboard,
     };
 };
-
-pub fn getClipboardString(window: *zglfw.Window) ?[:0]const u8 {
-    if (@hasDecl(zglfw, "getClipboardString") or @hasDecl(zglfw.Window, "getClipboardString")) @compileError("gcs");
-    return std.mem.span(glfwGetClipboardString(window));
-}
-extern fn glfwGetClipboardString(window: *zglfw.Window) ?[*:0]const u8;
-
-pub inline fn setClipboardString(window: *zglfw.Window, string: [:0]const u8) void {
-    if (@hasDecl(zglfw, "setClipboardString") or @hasDecl(zglfw.Window, "setClipboardString")) @compileError("gcs");
-    return glfwSetClipboardString(window, string);
-}
-extern fn glfwSetClipboardString(window: *zglfw.Window, string: [*:0]const u8) void;
 
 pub fn main() !void {
     var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};

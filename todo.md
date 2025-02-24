@@ -122,6 +122,12 @@ Tasks:
     - in zig, gpa incurs a high cost saving all those stacktraces
     - in rvemu, saving stacktraces is practically free. but getting them
       back takes some time.
+- [ ] switch to using non-collaborative storage & three way diffs
+- [ ] can we host zig ourself? host binaries & zipped lib folder. same lib folder for all platforms, one binary per platform. zig binary is 164MB though so that's still maybe a gigabyte of storage to host all the binaries 
+- [ ] would like to host downloads ourself but kind of waiting on https://github.com/ziglang/zig/pull/22994 oh wait that's a pr. it's coming. we're going to get it soon!
+  - not sure if just that PR is enough. it also needs lockfiles and newest-version conflict resolution doesn't it?
+  - nvm. we're actually waiting on https://github.com/ziglang/zig/issues/14288 . the other pr doesn't matter.
+- [ ] delete zgui! get rid of it!
 
 wishlist:
 
