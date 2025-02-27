@@ -35,6 +35,7 @@ cursor_positions: std.ArrayList(CursorPosition),
 
 config: EditorConfig = .{
     .indent_with = .{ .spaces = 4 },
+    .count_soft_tab_as_grapheme_cluster = true,
 },
 
 /// refs document
@@ -181,7 +182,7 @@ fn toWordBoundary(self: *Core, pos: Position, direction: LRDirection, stop: Curs
             .right => index += 1,
         };
         if (index <= 0 or index >= len) break; // readSlice will go out of range
-        const marker = hasStop(gendoc, index, stop) orelse continue;
+        const marker = hasStop(gendoc, index, stop, .{ .count_soft_tab_as_grapheme_cluster = if (self.config.count_soft_tab_as_grapheme_cluster and self.config.indent_with == .spaces) self.config.indent_with.spaces else 0 }) orelse continue;
         switch (mode) {
             .left => switch (marker) {
                 .left_or_select, .both => break,
@@ -284,22 +285,22 @@ pub fn select(self: *Core, selection: Selection) void {
         .pos = selection,
     }) catch @panic("oom");
 }
-fn measureMetric(self: *Core, pos: Position, metric: CursorHorizontalPositionMetric) u64 {
+fn measureMetric(self: *Core, pos: Position, metric: CursorHorizontalPositionMetric) i64 {
     const block = self.document.value;
     const this_line_start = self.getLineStart(pos);
     return switch (metric) {
-        .byte => block.docbyteFromPosition(pos) - block.docbyteFromPosition(this_line_start),
+        .byte => std.math.lossyCast(i64, block.docbyteFromPosition(pos) - block.docbyteFromPosition(this_line_start)),
         else => @panic("TODO support metric"),
     };
 }
-fn applyMetric(self: *Core, new_line_start: Position, metric: CursorHorizontalPositionMetric, metric_value: u64) Position {
+fn applyMetric(self: *Core, new_line_start: Position, metric: CursorHorizontalPositionMetric, metric_value: i64) Position {
     const block = self.document.value;
 
     const new_line_start_pos = block.docbyteFromPosition(new_line_start);
     const new_line_end_pos = block.docbyteFromPosition(self.getThisLineEnd(new_line_start));
     const new_line_len = new_line_end_pos - new_line_start_pos;
     return switch (metric) {
-        .byte => block.positionFromDocbyte(new_line_start_pos + @min(new_line_len, metric_value)),
+        .byte => block.positionFromDocbyte(new_line_start_pos + @min(new_line_len, std.math.lossyCast(u64, metric_value))),
         else => @panic("TODO support metric"),
     };
 }
@@ -381,14 +382,25 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
                     break :blk self.applyMetric(new_line_start, ud_cmd.metric, target);
                 };
 
+                // align to stop
+                const left_stopped = self.toWordBoundary(res_pos, .left, ud_cmd.stop, .select, .may_move);
+                const right_stopped = self.toWordBoundary(res_pos, .right, ud_cmd.stop, .select, .may_move);
+                const left_stopped_metric = self.measureMetric(left_stopped, ud_cmd.metric);
+                const right_stopped_metric = self.measureMetric(right_stopped, ud_cmd.metric);
+                // select the stopped position closest to the target metric
+                const stopped_pos = switch (@abs(left_stopped_metric - target) < @abs(right_stopped_metric - target)) {
+                    true => left_stopped,
+                    false => right_stopped,
+                };
+
                 switch (ud_cmd.mode) {
                     .move => {
-                        cursor_position.* = .{ .pos = .at(res_pos), .vertical_move_start = target_pos };
+                        cursor_position.* = .{ .pos = .at(stopped_pos), .vertical_move_start = target_pos };
                         cursor_position.vertical_move_start = target_pos;
                     },
-                    .select => cursor_position.* = .{ .pos = .range(cursor_position.pos.anchor, res_pos), .vertical_move_start = target_pos },
+                    .select => cursor_position.* = .{ .pos = .range(cursor_position.pos.anchor, stopped_pos), .vertical_move_start = target_pos },
                     .duplicate => {
-                        self.cursor_positions.append(.{ .pos = .at(res_pos), .vertical_move_start = target_pos }) catch @panic("oom");
+                        self.cursor_positions.append(.{ .pos = .at(stopped_pos), .vertical_move_start = target_pos }) catch @panic("oom");
                     },
                 }
                 // cursor_position pointer is invalidated
@@ -1041,16 +1053,12 @@ fn asciiClassify(char: u8) AsciiClassification {
     if (char >= 0x80) return .unicode;
     return .symbols;
 }
-fn hasStop(doc: seg_dep.GenericDocument, docbyte: u64, stop: CursorLeftRightStop) ?BetweenCharsStop {
+const StopCfg = struct {
+    /// 0 = none
+    count_soft_tab_as_grapheme_cluster: u4,
+};
+fn hasStop(doc: seg_dep.GenericDocument, docbyte: u64, stop: CursorLeftRightStop, cfg: StopCfg) ?BetweenCharsStop {
     if (docbyte == 0 or docbyte == doc.len) unreachable;
-
-    if (stop == .unicode_grapheme_cluster) {
-        if (!seg_dep.segmentation_available) return hasStop(doc, docbyte, .codepoint);
-        return switch (doc.isBoundary(docbyte)) {
-            true => .both,
-            false => null,
-        };
-    }
 
     const docl = doc.read(doc, docbyte - 1, .right);
     const left_byte = docl[0];
@@ -1058,6 +1066,52 @@ fn hasStop(doc: seg_dep.GenericDocument, docbyte: u64, stop: CursorLeftRightStop
         const docl2 = doc.read(doc, docbyte, .right);
         break :blk docl2[0];
     };
+    if (stop == .unicode_grapheme_cluster and cfg.count_soft_tab_as_grapheme_cluster >= 2 and left_byte == ' ' and right_byte == ' ') not_indent: {
+        // seek left to line start and right to first non-space byte
+        var tab_start = docbyte;
+        is_indent: while (tab_start > 0) {
+            const txt = doc.read(doc, tab_start, .left);
+            std.debug.assert(txt.len > 0);
+            std.debug.assert(txt.len <= tab_start);
+            var j = txt.len;
+            while (j > 0) {
+                j -= 1;
+                const byte = txt[j];
+                switch (byte) {
+                    ' ' => {
+                        // may be tab; continue
+                        tab_start -= 1;
+                        continue;
+                    },
+                    '\n' => {
+                        // is tab
+                        break :is_indent;
+                    },
+                    else => {
+                        // is not tab; exit
+                        break :not_indent;
+                    },
+                }
+            }
+        }
+        std.debug.assert(tab_start < docbyte); // cannot be '=' because left_byte must be ' '
+        const indent_width = docbyte - tab_start;
+        if (indent_width % cfg.count_soft_tab_as_grapheme_cluster == 0) {
+            // definitely tab stop
+            return .both;
+        }
+        // not a tab stop
+        // TODO: mark tab stops at the end of invalid indentation. eg with count_soft_tab_as_grapheme_cluster 4:
+        // `|....|....|.|.|.|` (the last indent only has three spaces so mark them all)
+        return null;
+    }
+    if (stop == .unicode_grapheme_cluster) {
+        if (!seg_dep.segmentation_available) return hasStop(doc, docbyte, .codepoint, cfg);
+        return switch (doc.isBoundary(docbyte)) {
+            true => .both,
+            false => null,
+        };
+    }
     return hasStop_bytes(left_byte, right_byte, stop);
 }
 fn hasStop_bytes(left_byte: u8, right_byte: u8, stop: CursorLeftRightStop) ?BetweenCharsStop {
@@ -1157,6 +1211,7 @@ pub const EditorCommand = union(enum) {
         direction: enum { up, down },
         mode: enum { move, select, duplicate },
         metric: CursorHorizontalPositionMetric,
+        stop: CursorLeftRightStop,
     },
     select_all: void,
     insert_text: struct {
@@ -1201,7 +1256,7 @@ pub const EditorCommand = union(enum) {
 
 pub const IndentMode = union(enum) {
     tabs,
-    spaces: usize,
+    spaces: u4,
     fn char(self: IndentMode) u8 {
         return switch (self) {
             .tabs => '\t',
@@ -1216,7 +1271,10 @@ pub const IndentMode = union(enum) {
     }
 };
 pub const EditorConfig = struct {
+    /// what to indent with
     indent_with: IndentMode,
+    /// when in 'unicode_grapheme_cluster' movement mode, if indentation counts as one grapheme cluster
+    count_soft_tab_as_grapheme_cluster: bool,
 };
 
 const DocumentDocument = struct {
@@ -1519,6 +1577,9 @@ const EditorTester = struct {
 /// right_only : `]`
 /// both : `|`
 fn testFindStops(expected: []const u8, stop_type: CursorLeftRightStop) !void {
+    return testFindStops_withOption(expected, stop_type, .{ .count_soft_tab_as_grapheme_cluster = 0 });
+}
+fn testFindStops_withOption(expected: []const u8, stop_type: CursorLeftRightStop, cfg: StopCfg) !void {
     var test_src = std.ArrayList(u8).init(std.testing.allocator);
     defer test_src.deinit();
     for (expected) |char| {
@@ -1535,7 +1596,7 @@ fn testFindStops(expected: []const u8, stop_type: CursorLeftRightStop) !void {
     for (0..test_src.items.len + 1) |i| {
         const hs_res = blk: {
             if (i == 0 or i == test_src.items.len) break :blk .both;
-            break :blk hasStop(test_src_doc, i, stop_type);
+            break :blk hasStop(test_src_doc, i, stop_type, cfg);
         };
         if (hs_res) |hr| try test_res.append(switch (hr) {
             .left_or_select => '<',
@@ -1567,6 +1628,14 @@ test hasStop {
                     try testFindStops("|\u{301}|", v);
                     if (!seg_dep.segmentation_issue_139) try testFindStops("|h|i|👨‍👩‍👧‍👧|b|y|e|", v);
                 }
+                try testFindStops_withOption(
+                    \\|m|a|i|n|
+                    \\|    |i|f| | | | | | |(| | | | | | |c|o|n|d| | | | | | |)|{|
+                    \\|    |    |e|p|i|c|!|;|
+                    \\|    |e|n|d|
+                    \\|e|n|d|
+                , v, .{ .count_soft_tab_as_grapheme_cluster = 4 });
+                try testFindStops_withOption("|    |    |", v, .{ .count_soft_tab_as_grapheme_cluster = 4 });
             },
             .word => {
                 try testFindStops("|hello> <world|", v);

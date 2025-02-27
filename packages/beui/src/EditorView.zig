@@ -184,6 +184,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
                 .up => .up,
             },
             .metric = .byte,
+            .stop = .unicode_grapheme_cluster,
             .mode = switch (hk.shift) {
                 false => .move,
                 true => .select,
@@ -197,6 +198,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
                 .up => .up,
             },
             .metric = .byte,
+            .stop = .unicode_grapheme_cluster,
             .mode = .duplicate,
         } });
     }
