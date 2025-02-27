@@ -94,12 +94,13 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
                 .vtable = &.{
                     .alloc = allocFn,
                     .resize = resizeFn,
+                    .remap = remapFn,
                     .free = freeFn,
                 },
             };
         }
 
-        fn allocFn(ptr: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
+        fn allocFn(ptr: *anyopaque, len: usize, ptr_align: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
             const tctx = trace(@src());
             defer tctx.end();
 
@@ -119,7 +120,7 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
             return result;
         }
 
-        fn resizeFn(ptr: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
+        fn resizeFn(ptr: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
             const tctx = trace(@src());
             defer tctx.end();
 
@@ -140,8 +141,16 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
             // emitting messages for it is both slow and causes clutter
             return false;
         }
+        fn remapFn(ptr: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+            _ = ptr;
+            _ = memory;
+            _ = alignment;
+            _ = new_len;
+            _ = ret_addr;
+            return null; // TODO call the backing allocator and use the tracy fns
+        }
 
-        fn freeFn(ptr: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
+        fn freeFn(ptr: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, ret_addr: usize) void {
             const tctx = trace(@src());
             defer tctx.end();
 
