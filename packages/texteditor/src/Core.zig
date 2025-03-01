@@ -759,6 +759,10 @@ pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: Copy
             self.replaceRange(token.?, .{ .position = pos_range.pos, .delete_len = pos_range.len, .insert_text = "" });
         }
     }
+    if (self.clipboard_cache) |*v| {
+        for (v.contents) |c| self.gpa.free(c);
+        self.gpa.free(v.contents);
+    }
     self.clipboard_cache = .{
         .contents = stored_buf,
         .copied_str_hash = std.hash.Wyhash.hash(0, result_str.items),
