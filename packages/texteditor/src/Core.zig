@@ -773,14 +773,6 @@ fn paste(self: *Core, clipboard_contents: []const u8) void {
 
     const token = self.addUndoToken(.always_split);
 
-    defer {
-        if (self.clipboard_cache) |*v| {
-            for (v.contents) |c| self.gpa.free(c);
-            self.gpa.free(v.contents);
-        }
-        self.clipboard_cache = null;
-    }
-
     var clip_contents: []const []const u8 = &.{clipboard_contents};
     var paste_in_new_line = false;
     if (self.clipboard_cache) |*c| if (c.copied_str_hash == std.hash.Wyhash.hash(0, clipboard_contents)) {
