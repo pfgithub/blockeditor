@@ -24,6 +24,10 @@ clipboard_cache: ?struct {
     paste_in_new_line: bool,
     /// Wyhash of copied string
     copied_str_hash: u64,
+    pub fn deinit(self: *@This(), gpa: std.mem.Allocator) void {
+        for (self.contents) |line| gpa.free(line);
+        gpa.free(self.contents);
+    }
 },
 undo: TextStack,
 undo_tokens: std.ArrayList(UndoTokenValue),
@@ -65,10 +69,7 @@ pub fn deinit(self: *Core) void {
     for (self.redo_tokens.items) |t| self.gpa.free(t.cursor_positions_clone_owned);
     self.redo_tokens.deinit();
     self.redo.deinit();
-    if (self.clipboard_cache) |*v| {
-        for (v.contents) |c| self.gpa.free(c);
-        self.gpa.free(v.contents);
-    }
+    if (self.clipboard_cache) |*v| v.deinit(self.gpa);
     self.cursor_positions.deinit();
     self.document.removeUpdateListener(util.Callback(bi.text_component.TextDocument.SimpleOperation, void).from(self, cb_onEdit));
     self.document.unref();
@@ -759,10 +760,7 @@ pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: Copy
             self.replaceRange(token.?, .{ .position = pos_range.pos, .delete_len = pos_range.len, .insert_text = "" });
         }
     }
-    if (self.clipboard_cache) |*v| {
-        for (v.contents) |c| self.gpa.free(c);
-        self.gpa.free(v.contents);
-    }
+    if (self.clipboard_cache) |*v| v.deinit(self.gpa);
     self.clipboard_cache = .{
         .contents = stored_buf,
         .copied_str_hash = std.hash.Wyhash.hash(0, result_str.items),
@@ -779,10 +777,16 @@ fn paste(self: *Core, clipboard_contents: []const u8) void {
 
     var clip_contents: []const []const u8 = &.{clipboard_contents};
     var paste_in_new_line = false;
+    // var preserve_copied_str_cache = false;
     if (self.clipboard_cache) |*c| if (c.copied_str_hash == std.hash.Wyhash.hash(0, clipboard_contents)) {
         clip_contents = c.contents;
         paste_in_new_line = c.paste_in_new_line;
+        // preserve_copied_str_cache = true;
     };
+    // defer if (!preserve_copied_str_cache) if (self.clipboard_cache) |*c| {
+    //     c.deinit(self.gpa);
+    //     self.clipboard_cache = null;
+    // };
 
     if (clip_contents.len == self.cursor_positions.items.len) {
         for (clip_contents, self.cursor_positions.items) |text, *cursor_pos| {
@@ -1720,17 +1724,17 @@ test Core {
         \\hello
         \\to the world|!
     );
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent(
         \\hello|
         \\to the world!
     );
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent(
         \\hello
         \\to the world|!
     );
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent(
         \\hello|
         \\to the world!
@@ -1740,7 +1744,7 @@ test Core {
         \\hello!|
         \\to the world!
     );
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent(
         \\hello!
         \\to the| world!
@@ -1753,24 +1757,24 @@ test Core {
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .left, .mode = .move, .stop = .byte } });
     try tester.expectContent("hel|lo");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .select } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .select, .stop = .byte } });
     try tester.expectContent("hel[lo|");
 
     tester.executeCommand(.select_all);
     tester.executeCommand(.{ .insert_text = .{ .text = "hela\n\ninput\n\n\nlo!" } });
     try tester.expectContent("hela\n\ninput\n\n\nlo!|");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent("hela\n\ninput\n\n|\nlo!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent("hela\n\ninput\n|\n\nlo!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent("hela\n\ninp|ut\n\n\nlo!");
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .byte } });
     try tester.expectContent("hela\n\ninput|\n\n\nlo!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent("hela\n|\ninput\n\n\nlo!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent("hela|\n\ninput\n\n\nlo!");
 
     tester.executeCommand(.select_all);
@@ -1813,9 +1817,9 @@ test Core {
     tester.executeCommand(.{ .move_cursor_left_right = .{ .direction = .right, .mode = .move, .stop = .word } });
     try tester.expectContent("here are a few words to traverse!|");
 
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent("|here are a few words to traverse!");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .metric = .byte, .mode = .move, .stop = .byte } });
     try tester.expectContent("here are a few words to traverse!|");
 
     tester.executeCommand(.{ .click = .{ .pos = tester.pos(13) } });
@@ -1920,11 +1924,11 @@ test Core {
     tester.executeCommand(.select_all);
     tester.executeCommand(.{ .insert_text = .{ .text = "line 1\nline 2\nline 3\nline 4" } });
     try tester.expectContent("line 1\nline 2\nline 3\nline 4|");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .duplicate } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .duplicate, .stop = .byte } });
     try tester.expectContent("line 1\nline 2\nline 3|\nline 4|");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .duplicate } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .duplicate, .stop = .byte } });
     try tester.expectContent("line 1\nline 2|\nline 3|\nline 4|");
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .duplicate } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .up, .metric = .byte, .mode = .duplicate, .stop = .byte } });
     try tester.expectContent("line 1|\nline 2|\nline 3|\nline 4|");
     tester.executeCommand(.{ .delete = .{ .direction = .left, .stop = .byte } });
     try tester.expectContent("line |\nline |\nline |\nline |");
@@ -2011,7 +2015,7 @@ test Core {
     const copy_arena = copy_arena_backing.allocator();
     var copied: []const u8 = undefined;
 
-    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .mode = .duplicate, .metric = .byte } });
+    tester.executeCommand(.{ .move_cursor_up_down = .{ .direction = .down, .mode = .duplicate, .metric = .byte, .stop = .byte } });
     try tester.expectContent("pub fn demo() !u8 {\n    |\n    |return 5;\n}\n");
     copied = tester.editor.copyAllocUtf8(copy_arena, .cut);
     try tester.expectContent("pub fn demo() !u8 {\n|}\n");
