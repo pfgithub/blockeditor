@@ -3,6 +3,7 @@ const example_src = @embedFile("tests/0.cvl");
 const parser = @import("parser.zig");
 const anywhere = @import("anywhere");
 const SrcLoc = parser.SrcLoc;
+const riscv = @import("riscv.zig");
 
 fn autoVtable(comptime Vtable: type, comptime Src: type) *const Vtable {
     return comptime blk: {
@@ -103,91 +104,6 @@ const Backends = struct {
             }
         };
 
-        const EmitBlock = struct {
-            // two pass:
-            // - one: the instrs are made with references to other instrs
-            //   and references to block jumps
-            // - two: register allocation & emit
-            //   - register allocation may require storing instructions to the stack
-            //   - explicit registers can never be stored to the stack
-            //     - (ie no saving the value in x10 before )
-            const RvVar = enum(u32) {
-                _,
-                const lowest_int_reg = std.math.maxInt(u32) - 0b11111;
-                fn fromIntReg(reg: u5) RvVar {
-                    return @enumFromInt(lowest_int_reg + @as(u32, reg));
-                }
-                fn isIntReg(rv: RvVar) ?u5 {
-                    const rvint = @intFromEnum(rv);
-                    if (rvint >= lowest_int_reg) return @intCast(rvint - (lowest_int_reg));
-                    return null;
-                }
-                pub fn format(value: RvVar, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-                    _ = fmt;
-                    _ = options;
-                    if (value.isIntReg()) |intreg| {
-                        try writer.print("x{d}", .{intreg});
-                    } else {
-                        try writer.print("%{d}", .{@intFromEnum(value)});
-                    }
-                }
-            };
-            const RvInstr = union(enum) {
-                instr: struct {
-                    op: rvemu.rvinstrs.InstrName,
-                    rs1: ?RvVar = null,
-                    rs2: ?RvVar = null,
-                    rs3: ?RvVar = null,
-                    rd: ?RvVar = null,
-                    imm_11_0: ?i12 = null,
-                },
-                fakeuser: struct {
-                    rs: ?RvVar = null,
-                    rd: ?RvVar = null,
-                },
-            };
-            instructions: std.ArrayListUnmanaged(RvInstr),
-
-            fn appendLoadImmediate(self: *EmitBlock, env: *Env, out: RvVar, imm_v: i32) Error!void {
-                if (std.math.cast(i12, imm_v)) |lower| {
-                    try self.instructions.append(env.gpa, .{
-                        .instr = .{
-                            .op = .ADDI,
-                            .rs1 = .fromIntReg(0),
-                            .rd = out,
-                            .imm_11_0 = lower,
-                        },
-                    });
-                } else {
-                    @panic("TODO lui + addi (number outside of i12 range)");
-                    // slightly complicated because addi adds an integer
-                    // so it takes a bit of thinking to implement right for
-                    // numbers where the 11th bit is '1'
-                }
-            }
-
-            fn print(self: *EmitBlock, w: std.io.AnyWriter) !void {
-                for (self.instructions.items) |instr| {
-                    switch (instr) {
-                        .instr => |in| {
-                            if (in.rd) |rd| try w.print("{} = ", .{rd});
-                            try w.print("{s}", .{@tagName(in.op)});
-                            if (in.rs1) |rs1| try w.print(" {}", .{rs1});
-                            if (in.imm_11_0) |imm_11_0| try w.print(" 0x{X}", .{imm_11_0});
-                            if (in.rs2) |rs2| try w.print(" {}", .{rs2});
-                            if (in.rs3) |rs3| try w.print(" {}", .{rs3});
-                        },
-                        .fakeuser => |in| {
-                            if (in.rd) |rd| try w.print("{} = ", .{rd});
-                            try w.print("fakeuser", .{});
-                            if (in.rs) |rs| try w.print(" {}", .{rs});
-                        },
-                    }
-                    try w.print("\n", .{});
-                }
-            }
-        };
-
         pub fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             return try std.fmt.allocPrint(env.arena, "riscv32", .{});
         }
@@ -215,8 +131,8 @@ const Backends = struct {
             const instr = instr_val.resolved_value_ptr.?.to(Types.Enum.ComptimeValue);
             const x10 = x10_val.resolved_value_ptr.?.to(Types.Int.ComptimeValue);
 
-            const block = scope.block.to(EmitBlock);
-            const li_reg: EmitBlock.RvVar = .fromIntReg(10);
+            const block = scope.block.to(riscv.EmitBlock);
+            const li_reg: riscv.EmitBlock.RvVar = .fromIntReg(10);
             try block.appendLoadImmediate(scope.env, li_reg, std.math.cast(i32, x10.*) orelse return scope.env.addErr(srcloc, "<rv32> number out of range", .{})); // TODO: this should be done by converting x10 to runtime rather than here
             try block.instructions.append(scope.env.gpa, .{
                 .instr = .{ .op = @enumFromInt(instr.*) },
