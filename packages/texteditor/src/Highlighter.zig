@@ -4,6 +4,7 @@ const blocks_mod = @import("blocks");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
 const zgui = @import("anywhere").zgui;
+const anywhere = @import("anywhere");
 const ts = @import("tree_sitter");
 
 const Highlighter = @This();
@@ -55,6 +56,9 @@ pub fn deinit(self: *Highlighter) void {
 }
 
 fn beforeUpdateCallback(self: *Highlighter, op: bi.text_component.TextDocument.EmitSimpleOperation) void {
+    const tctx = anywhere.tracy.traceNamed(@src(), "Highlighter.beforeUpdateCallback");
+    defer tctx.end();
+
     self.tree_needs_reparse = true;
 
     const block = self.document.value;

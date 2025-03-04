@@ -54,6 +54,7 @@ pub inline fn trace(comptime src: std.builtin.SourceLocation) Ctx {
     }
 }
 
+/// name must be static lifetime
 pub inline fn traceNamed(comptime src: std.builtin.SourceLocation, comptime name: [:0]const u8) Ctx {
     const global = struct {
         const loc: c.struct____tracy_source_location_data = .{

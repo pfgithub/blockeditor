@@ -1106,6 +1106,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             spanbyte_incl_deleted: u64,
         };
         fn _findEntrySpan(self: *const Doc, position: Position) EntryIndex {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
             // this should be:
             // - self.span_index_to_segments_map:
             //   - find the span that covers the position.segbyte
@@ -1195,6 +1197,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         fn _removeFromIdMap(self: *Doc, seg: SegmentID, idx: BBT.NodeIndex) void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
             const gpres = self.segment_id_map.getPtr(seg) orelse @panic("cannot remove if not found1");
             const insert_idx: usize = for (gpres.items, 0..) |itm, i| {
                 if (itm == idx) break i;
@@ -1202,6 +1206,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             gpres.replaceRangeAssumeCapacity(insert_idx, 1, &.{});
         }
         fn _insertInIdMap(self: *Doc, seg: SegmentID, start: u64, idx: BBT.NodeIndex) void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
             const ptr = switch (self.panic_on_modify_segment_id_map) {
                 // getOrPut mutates the pointer if there is 0 remaining capacity even if the item is found.
                 // so if we're not allowed to mutate, we need to use getPtr.
@@ -1225,6 +1231,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         fn _getSimpleOp(self: *Doc, position: BBT.NodeIndex, remove: ?*const Span, insert: *const Span) EmitSimpleOperation {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
             const posbyte = blk: {
                 const posinfo = self.span_bbt.getNodeDataPtrConst(position) orelse {
                     break :blk self.length();
@@ -1241,6 +1249,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
 
         /// insertBefore and updateNode are the only allowed ways to mutate the span bbt
         fn _updateNode(self: *Doc, index: BBT.NodeIndex, next_value: Span) void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
             const prev_value = self.span_bbt.getNodeDataPtrConst(index).?;
 
             const simple_op = self._getSimpleOp(index, prev_value, &next_value);
@@ -1254,6 +1264,8 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
         /// insertBefore and updateNode are the only allowed ways to mutate the span bbt
         fn _insertBefore(self: *Doc, after_index: BBT.NodeIndex, values: []const Span) void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
             for (values) |value| {
                 const simple_op = self._getSimpleOp(after_index, null, &value);
                 self.on_before_simple_operation.emit(simple_op);
@@ -1265,11 +1277,15 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
             }
         }
         fn _insertAfter(self: *Doc, before_index: BBT.NodeIndex, values: []const Span) void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
             var it = self.span_bbt.iterator(.{ .leftmost_node = before_index });
             _ = it.next().?;
             self._insertBefore(it.node, values);
         }
         fn _replaceRange(self: *Doc, index: BBT.NodeIndex, delete_count: usize, next_slice: []const Span) void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
             if (delete_count != 1) @panic("TODO replaceRange with non-1 deleteCount");
             if (next_slice.len < 1) @panic("TODO replaceRange with next_slice len lt 1");
             // hack to prevent modifying final "\x00". simple operations should never be emitted covering the last byte.
@@ -1281,6 +1297,9 @@ pub fn Document(comptime T: type, comptime T_empty: T) type {
         }
 
         fn splitSpan(self: *Doc, pos: Position) void {
+            const tctx = anywhere.tracy.trace(@src());
+            defer tctx.end();
+
             const span_position = self._findEntrySpan(pos);
             const span_index = span_position.span_index;
             const span = self.span_bbt.getNodeDataPtrConst(span_index).?;

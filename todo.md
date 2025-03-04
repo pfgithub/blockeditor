@@ -130,6 +130,8 @@ Tasks:
 - [ ] delete zgui! get rid of it!
 - [ ] perf: flip the loops. rather than for(operation) block.applyOperation() instead use block.applyOperations(operations). and this way if we have like 3000 operations to apply, we can sort them by block and apply them to every block individually. saves perf.
   - that's probably not the main reason applyOperation is slow right now though
+  - our current issue is *all* in beforeUpdateCallback. we need to
+    eliminate beforeUpdateCallback and just do diffing.
 
 wishlist:
 

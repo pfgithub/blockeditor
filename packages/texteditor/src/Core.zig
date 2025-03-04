@@ -5,6 +5,7 @@ const blocks_mod = @import("blocks");
 const seg_dep = @import("grapheme_cursor");
 const db_mod = blocks_mod.blockdb;
 const bi = blocks_mod.blockinterface2;
+const anywhere = @import("anywhere");
 const util = @import("anywhere").util;
 const diffz = @import("diffz");
 pub const Highlighter = @import("Highlighter.zig");
@@ -229,6 +230,9 @@ pub fn normalizePosition(self: *Core, pos: Position) Position {
 /// - not overlapping `he[llo[ wor|ld|` -> `he[llo world|`
 /// - in left-to-right order ``
 pub fn normalizeCursors(self: *Core) void {
+    const tctx = anywhere.tracy.traceNamed(@src(), "Core.normalizeCursors");
+    defer tctx.end();
+
     const block = self.document.value;
 
     var positions = self.getCursorPositions();
@@ -306,6 +310,9 @@ fn applyMetric(self: *Core, new_line_start: Position, metric: CursorHorizontalPo
     };
 }
 pub fn executeCommand(self: *Core, command: EditorCommand) void {
+    const tctx = anywhere.tracy.traceNamed(@src(), "Core.executeCommand");
+    defer tctx.end();
+
     const block = self.document.value;
 
     self.normalizeCursors();
@@ -512,10 +519,16 @@ pub fn executeCommand(self: *Core, command: EditorCommand) void {
             const token = self.addUndoToken(.always_split);
 
             for (self.cursor_positions.items) |*cursor_position| {
+                const tctx2 = anywhere.tracy.traceNamed(@src(), "indentSelection outer");
+                defer tctx2.end();
+
                 const pos_len = self.selectionToPosLen(cursor_position.pos);
                 const end_pos = block.positionFromDocbyte(block.docbyteFromPosition(pos_len.pos) + pos_len.len);
                 var line_start = self.getLineStart(pos_len.pos);
                 while (true) {
+                    const tctx3 = anywhere.tracy.traceNamed(@src(), "indentSelection inner");
+                    defer tctx3.end();
+
                     const next_line_start = self.getNextLineStart(line_start);
                     defer line_start = next_line_start;
                     const end = block.docbyteFromPosition(next_line_start) >= block.docbyteFromPosition(end_pos);
@@ -956,6 +969,9 @@ pub fn addUndoToken(self: *Core, classification: UndoTokenClassification) UndoTo
     return .{ .ut_len = self.undo_tokens.items.len };
 }
 pub fn replaceRange(self: *Core, token: UndoToken, operation: bi.text_component.TextDocument.SimpleOperation) void {
+    const tctx3 = anywhere.tracy.traceNamed(@src(), "Core.replaceRange");
+    defer tctx3.end();
+
     std.debug.assert(self.undo_tokens.items.len == token.ut_len);
     self.redo.clear();
     const al = self.undo.begin() catch @panic("oom");
@@ -963,6 +979,9 @@ pub fn replaceRange(self: *Core, token: UndoToken, operation: bi.text_component.
 }
 
 pub fn getCursorPositions(self: *Core) CursorPositions {
+    const tctx = anywhere.tracy.traceNamed(@src(), "Core.getCursorPositions");
+    defer tctx.end();
+
     const block = self.document.value;
 
     var positions: CursorPositions = .init(self.gpa);
