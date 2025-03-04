@@ -128,6 +128,8 @@ Tasks:
   - not sure if just that PR is enough. it also needs lockfiles and newest-version conflict resolution doesn't it?
   - nvm. we're actually waiting on https://github.com/ziglang/zig/issues/14288 . the other pr doesn't matter.
 - [ ] delete zgui! get rid of it!
+- [ ] perf: flip the loops. rather than for(operation) block.applyOperation() instead use block.applyOperations(operations). and this way if we have like 3000 operations to apply, we can sort them by block and apply them to every block individually. saves perf.
+  - that's probably not the main reason applyOperation is slow right now though
 
 wishlist:
 
