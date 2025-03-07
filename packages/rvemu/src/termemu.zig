@@ -17,7 +17,7 @@ const LogVtable = struct {
     group_end: *const fn (sys: *SysData, group: LogGroup) void,
     group_beginUpdate: *const fn (sys: *SysData, group: LogGroup) UpdateGroup,
 
-    /// .none is returned for non-TTY outputs
+    /// .none is returned for non-TTY outputs. actually that doesn't make sense
     group_registerResizeListener: *const fn (sys: *SysData, group: LogGroup) StdoutResizeListener,
     group_unregisterResizeListener: *const fn (sys: *SysData, listener: StdoutResizeListener) void,
 
