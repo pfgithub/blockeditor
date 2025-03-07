@@ -2,6 +2,9 @@ const Event = extern struct {
     id: u64,
     value: u64,
 };
+const StdoutEvent = void;
+const StdinEvent = StdinReadToken;
+const ResizeEvent = void;
 extern fn waitEvent() Event;
 
 const LogGroup = enum(u64) {
@@ -11,6 +14,12 @@ const LogGroup = enum(u64) {
     pub extern fn begin(group: LogGroup) LogGroup;
     pub extern fn end(group: LogGroup) void;
     pub extern fn beginUpdate(group: LogGroup) UpdateGroup;
+    /// [0, 0] is returned for non-TTY terminals
+    pub extern fn getSize(group: LogGroup) [2]u32;
+
+    /// if this returns a length < msg.len, you must wait for a new StdoutEvent before
+    /// you can write again.
+    pub extern fn writeStdout(group: LogGroup, msg: Slice) usize;
 };
 const UpdateGroup = enum(u64) {
     none,
@@ -34,6 +43,7 @@ const StdinHandle = enum(u64) {
     pub extern fn close(handle: StdinHandle) void;
 };
 const StdinCfg = extern struct {
+    /// in line mode, echo is true. in raw, echo is false.
     mode: enum { line, raw },
     /// mouse events are only available within update groups.
     enable_mouse_clicks: bool,
@@ -49,6 +59,7 @@ const Slice = extern struct {
 };
 const Rendered = extern struct {
     msg: Slice,
+    cursor_pos: i32 = -1,
 };
 
 // notes
