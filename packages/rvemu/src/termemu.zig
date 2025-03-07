@@ -1,41 +1,54 @@
-// events:
-//    /// indicates that there is data or EOF waiting in stdin, and stdin_read
-//    /// can be called with the token to retrieve it. a new stdin event will not
-//    /// be sent until the read token is used up. if the result of the read is '0',
-//    /// that indicates eof and no more read tokens will be sent for the handle.
-//    /// or there could be an error waiting (ie the log group was closed that
-//    /// contained the update group that had the stdin)
-// - stdin : StdinReadToken
-// methods:
-//   /// will immediately post a stdin event if one is available
-// - stdin_tryTake(UpdateGroupID, cfg: StdinCfg) ?StdinHandle
-// - stdin_config(StdinHandle, StdinCfg) void
-// - stdin_read(StdinHandle, StdinReadToken, [*]u8, usize) usize
-// - stdin_close(StdinHandle) void
-// - update_group_begin(LogGroupID, Rendered) : UpdateGroupID
-// - update_group_update(UpdateGroupID, Rendered)
-// - update_group_finish(UpdateGroupFinishMode, UpdateGroupID, Rendered)
-// - log(LogGroupID, Rendered)
-// - log_group_begin(parent: LogGroupID) : LogGroupID
-// - log_group_end(LogGroupID)
-// types:
-// - StdinHandle = enum(u64) (_);
-// - StdinReadToken = enum(u64) (_);
-// - StdinCfg = struct (
-//     /// if set to 'line', stdin is only updated after 'enter' is pressed. the terminal
-//     /// will provide an editable buffer with support for arrow keys and backspace
-//     /// and such. if set to 'raw', stdin is updated as soon as new characters are
-//     /// available.
-//     mode: enum(line, raw),
-//     /// mouse events are only available within update groups.
-//     enable_mouse_clicks: bool,
-//     enable_mouse_scroll: bool,
-//     intercept_ctrl_c: bool,
-//   );
-// - Rendered = struct ();
-// - UpdateGroupID = enum(u64) (_);
-// - UpdateGroupFinishMode = enum(log, discard);
-// - LogGroupID = enum(u64) (_);
+const Event = extern struct {
+    id: u64,
+    value: u64,
+};
+extern fn waitEvent() Event;
+
+const LogGroup = enum(u64) {
+    _,
+
+    pub extern fn log(group: LogGroup, rendered: Rendered) void;
+    pub extern fn begin(group: LogGroup) LogGroup;
+    pub extern fn end(group: LogGroup) void;
+    pub extern fn beginUpdate(group: LogGroup) UpdateGroup;
+};
+const UpdateGroup = enum(u64) {
+    none,
+    _,
+
+    pub extern fn update(group: UpdateGroup, rendered: Rendered) void;
+    pub extern fn end(group: UpdateGroup, rendered: Rendered, mode: enum { clear, log }) void;
+
+    // returns .none if someone else owns the stdin and it cannot be acquired
+    pub extern fn tryTakeStdin(group: UpdateGroup, cfg: StdinCfg) StdinHandle;
+};
+const StdinHandle = enum(u64) {
+    none,
+    _,
+
+    pub extern fn updateConfig(handle: StdinHandle, cfg: StdinCfg) void;
+    pub extern fn read(handle: StdinHandle, token: StdinReadToken, buf: Slice) usize;
+    /// after closing, any future operations on this handle are errors. any unread data is sent to the
+    /// next reader. (this means the next reader might get a few unwanted mouse events. not ideal.)
+    pub extern fn close(handle: StdinHandle) void;
+};
+const StdinCfg = extern struct {
+    mode: enum { line, raw },
+    /// mouse events are only available within update groups.
+    enable_mouse_clicks: bool,
+    enable_mouse_scroll: bool,
+    intercept_ctrl_c: bool,
+};
+const StdinReadToken = enum(u64) {
+    _,
+};
+const Slice = extern struct {
+    ptr: [*]u8,
+    len: usize,
+};
+const Rendered = extern struct {
+    msg: Slice,
+};
 
 // notes
 // - if an outer log group is closed, the inner log group is removed. further attempts to use it are an error
@@ -48,3 +61,5 @@
 // - how do programs write to stdout for processing by other programs
 // - how do programs read clean stdin from a pipe
 //   - stdin tryTake has to indicate if stdin isatty. if it is, none of the options do anything
+// with stdout, we want write(writable_token, slice): len, and if write returned len < slice.len, then
+// writable_token is discarded and you have to wait for a new write event.
