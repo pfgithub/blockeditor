@@ -20,6 +20,7 @@ const UpdateGroup = enum(u64) {
     pub extern fn end(group: UpdateGroup, rendered: Rendered, mode: enum { clear, log }) void;
 
     // returns .none if someone else owns the stdin and it cannot be acquired
+    // if data is available to read, a 'readable' event will be sent immediately.
     pub extern fn tryTakeStdin(group: UpdateGroup, cfg: StdinCfg) StdinHandle;
 };
 const StdinHandle = enum(u64) {
