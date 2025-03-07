@@ -7,7 +7,8 @@
 //    /// contained the update group that had the stdin)
 // - stdin : StdinReadToken
 // methods:
-// - stdin_tryTake(UpdateGroupID, cfg: StdinCfg) ?(StdinHandle, StdinReadToken)
+//   /// will immediately post a stdin event if one is available
+// - stdin_tryTake(UpdateGroupID, cfg: StdinCfg) ?StdinHandle
 // - stdin_config(StdinHandle, StdinCfg) void
 // - stdin_read(StdinHandle, StdinReadToken, [*]u8, usize) usize
 // - stdin_close(StdinHandle) void
