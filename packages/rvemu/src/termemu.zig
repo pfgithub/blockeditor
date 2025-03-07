@@ -30,7 +30,7 @@ const StdinHandle = enum(u64) {
     pub extern fn updateConfig(handle: StdinHandle, cfg: StdinCfg) void;
     pub extern fn read(handle: StdinHandle, token: StdinReadToken, buf: Slice) usize;
     /// after closing, any future operations on this handle are errors. any unread data is sent to the
-    /// next reader. (this means the next reader might get a few unwanted mouse events. not ideal.)
+    /// next reader. (unless the reader is in raw mode - don't buffer in this case)
     pub extern fn close(handle: StdinHandle) void;
 };
 const StdinCfg = extern struct {
