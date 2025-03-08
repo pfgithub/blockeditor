@@ -117,6 +117,11 @@ fn drawWindowTabbed(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, top: 
     // draw titlebar
 
     const window_id = man.idForFrame(@src(), win);
+
+    if (top) |_| {
+        drawDropPoint(man, window_id.sub(@src()), current_tab, .tab_right, rdl, offset_pos, .{ offset_size[0], titlebar_height });
+    }
+
     const collapsebtn_data = &(window_id.b2.frame.arena.dupe(CollapseData, &.{
         .{ .man = man, .frame = win },
     }) catch @panic("oom"))[0];
@@ -165,8 +170,8 @@ fn drawWindowTabbed(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, top: 
         return drawWindowNode(ctx, rdl, top, current_tab_node, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
     }
 }
-fn drawDropPoint(man: *WM.Manager, id: B2.ID, node: WM.WM.FrameID, dir: B2.Direction, rdl: *B2.RepositionableDrawList, pos: @Vector(2, f32), size: @Vector(2, f32)) void {
-    captureResize(rdl, man, id, .{ .insert = .{ .window = node, .dir = dir } }, pos, size);
+fn drawDropPoint(man: *WM.Manager, id: B2.ID, node: WM.WM.FrameID, tdp: DropPos, rdl: *B2.RepositionableDrawList, pos: @Vector(2, f32), size: @Vector(2, f32)) void {
+    captureResize(rdl, man, id, .{ .insert = .{ .window = node, .pos = tdp } }, pos, size);
     rdl.addRect(.{
         .pos = pos,
         .size = size,
@@ -182,10 +187,10 @@ fn drawWindowNode(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, parent_
         const right_offset: f32 = if (top.skip._right) 0 else border_width;
         const top_offset: f32 = if (top.skip._top) 0 else border_width;
         const bottom_offset: f32 = if (top.skip._bottom) 0 else border_width;
-        if (!top.skip._top) drawDropPoint(man, id.sub(@src()), win, .top, top.rdl, .{ top.pos[0] + left_offset, top.pos[1] }, .{ top.size[0] - left_offset - right_offset, border_width });
-        if (!top.skip._bottom) drawDropPoint(man, id.sub(@src()), win, .bottom, top.rdl, .{ top.pos[0] + left_offset, top.pos[1] + top.size[1] - border_width }, .{ top.size[0] - left_offset - right_offset, border_width });
-        if (!top.skip._left) drawDropPoint(man, id.sub(@src()), win, .left, top.rdl, .{ top.pos[0], top.pos[1] + top_offset }, .{ border_width, top.size[1] - top_offset - bottom_offset });
-        if (!top.skip._right) drawDropPoint(man, id.sub(@src()), win, .right, top.rdl, .{ top.pos[0] + top.size[0] - border_width, top.pos[1] + top_offset }, .{ border_width, top.size[1] - top_offset - bottom_offset });
+        if (!top.skip._top) drawDropPoint(man, id.sub(@src()), win, .split_top, top.rdl, .{ top.pos[0] + left_offset, top.pos[1] }, .{ top.size[0] - left_offset - right_offset, border_width });
+        if (!top.skip._bottom) drawDropPoint(man, id.sub(@src()), win, .split_bottom, top.rdl, .{ top.pos[0] + left_offset, top.pos[1] + top.size[1] - border_width }, .{ top.size[0] - left_offset - right_offset, border_width });
+        if (!top.skip._left) drawDropPoint(man, id.sub(@src()), win, .split_left, top.rdl, .{ top.pos[0], top.pos[1] + top_offset }, .{ border_width, top.size[1] - top_offset - bottom_offset });
+        if (!top.skip._right) drawDropPoint(man, id.sub(@src()), win, .split_right, top.rdl, .{ top.pos[0] + top.size[0] - border_width, top.pos[1] + top_offset }, .{ border_width, top.size[1] - top_offset - bottom_offset });
         child_top = .{
             .rdl = top.rdl,
             .pos = .{ top.pos[0] + left_offset, top.pos[1] + top_offset },
@@ -228,7 +233,7 @@ fn drawWindowNode(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, parent_
             for (s.children.items, 0..) |ch, i| {
                 if (i != 0) {
                     if (child_top) |t| {
-                        drawDropPoint(man, man.idForFrame(@src(), ch), ch, .left, t.rdl, s.axis.flip(@Vector(2, f32){ pos[0] - w, pos[1] }), s.axis.flip(@Vector(2, f32){ w, child_size[1] }));
+                        drawDropPoint(man, man.idForFrame(@src(), ch), ch, .tab_left, t.rdl, s.axis.flip(@Vector(2, f32){ pos[0] - w, pos[1] }), s.axis.flip(@Vector(2, f32){ w, child_size[1] }));
                     }
                     captureResize(rdl, man, man.idForFrame(@src(), ch), .{ .resize = .{ .window = man.wm.findRoot(win), .sides = .all, .cursor = switch (s.axis) {
                         .x => .resize_ew,
@@ -265,12 +270,20 @@ const WindowEventInfo = struct {
     man: *WM.Manager,
 };
 
+pub const DropPos = enum {
+    split_left,
+    split_right,
+    split_top,
+    split_bottom,
+    tab_left,
+    tab_right,
+};
 pub const WindowIkeyInteractionModel = union(enum) {
     raise: struct { window: WM.WM.FrameID },
     resize: struct { window: WM.WM.FrameID, sides: B2.Sides, cursor: Beui.Cursor = .arrow },
     ignore,
     grab_tab: struct { tab: WM.WM.FrameID, offset: @Vector(2, f32) },
-    insert: struct { window: WM.WM.FrameID, dir: B2.Direction },
+    insert: struct { window: WM.WM.FrameID, pos: DropPos },
 };
 fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2.MouseEvent) ?Beui.Cursor {
     switch (wid.im) {
@@ -294,7 +307,14 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
         .insert => |insert| {
             if (ev.action == .up and wid.man.wm.dragging != WM.WM.FrameID.not_set) {
                 if (B2.pointInRect(ev.pos.?, ev.capture_pos, ev.capture_size)) {
-                    wid.man.wm.moveFrameToSplit(wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child, insert.window, insert.dir);
+                    switch (insert.pos) {
+                        .split_top => wid.man.wm.moveFrameToSplit(wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child, insert.window, .top),
+                        .split_bottom => wid.man.wm.moveFrameToSplit(wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child, insert.window, .bottom),
+                        .split_left => wid.man.wm.moveFrameToSplit(wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child, insert.window, .left),
+                        .split_right => wid.man.wm.moveFrameToSplit(wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child, insert.window, .right),
+                        .tab_left => wid.man.wm.moveFrameToTab(wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child, insert.window, .left),
+                        .tab_right => wid.man.wm.moveFrameToTab(wid.man.wm.getFrame(wid.man.wm.dragging).self.dragging.child, insert.window, .right),
+                    }
                 }
             }
             return .pointer;
