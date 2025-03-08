@@ -880,10 +880,10 @@ const JType = packed struct(u32) {
     imm_20: i1,
     pub fn immediate(fmt: JType) i21 {
         return (0 //
-            | (@as(i21, fmt.imm_10_1) << 1) //
-            | (@as(i21, fmt.imm_11) << 11) //
-            | (@as(i21, fmt.imm_19_12) << 12) //
-            | (@as(i21, fmt.imm_20) << 20) //
+        | (@as(i21, fmt.imm_10_1) << 1) //
+        | (@as(i21, fmt.imm_11) << 11) //
+        | (@as(i21, fmt.imm_19_12) << 12) //
+        | (@as(i21, fmt.imm_20) << 20) //
         );
     }
 };
