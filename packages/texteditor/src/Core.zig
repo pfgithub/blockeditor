@@ -790,16 +790,16 @@ fn paste(self: *Core, clipboard_contents: []const u8) void {
 
     var clip_contents: []const []const u8 = &.{clipboard_contents};
     var paste_in_new_line = false;
-    // var preserve_copied_str_cache = false;
+    var preserve_copied_str_cache = false;
     if (self.clipboard_cache) |*c| if (c.copied_str_hash == std.hash.Wyhash.hash(0, clipboard_contents)) {
         clip_contents = c.contents;
         paste_in_new_line = c.paste_in_new_line;
-        // preserve_copied_str_cache = true;
+        preserve_copied_str_cache = true;
     };
-    // defer if (!preserve_copied_str_cache) if (self.clipboard_cache) |*c| {
-    //     c.deinit(self.gpa);
-    //     self.clipboard_cache = null;
-    // };
+    defer if (!preserve_copied_str_cache) if (self.clipboard_cache) |*c| {
+        c.deinit(self.gpa);
+        self.clipboard_cache = null;
+    };
 
     if (clip_contents.len == self.cursor_positions.items.len) {
         for (clip_contents, self.cursor_positions.items) |text, *cursor_pos| {
