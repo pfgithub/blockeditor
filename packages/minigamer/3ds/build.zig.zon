@@ -1,5 +1,5 @@
 .{
-    .name = "emulators/3ds",
+    .name = .emulators__3ds,
     .version = "0.1.0",
     .paths = .{""},
     .dependencies = .{

@@ -9,12 +9,13 @@ pub fn build(b: *std.Build) !void {
     const fmt_step = b.addFmt(.{ .paths = &.{ "src", "build.zig", "build.zig.zon" } });
     b.getInstallStep().dependOn(&fmt_step.step);
 
-    const zls_dep = b.dependency("zls", .{
-        .target = target,
-        .optimize = .ReleaseSafe,
-        .@"version-string" = @as([]const u8, "0.14.0-dev"),
-    });
-    b.installArtifact(zls_dep.artifact("zls"));
+    // disabled because zls doesn't build yet
+    // const zls_dep = b.dependency("zls", .{
+    //     .target = target,
+    //     .optimize = .ReleaseSafe,
+    //     .@"version-string" = @as([]const u8, "0.15.0-dev"),
+    // });
+    // b.installArtifact(zls_dep.artifact("zls"));
 
     const diffz_dep = b.dependency("diffz", .{ .target = target, .optimize = optimize });
 

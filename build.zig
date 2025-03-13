@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) void {
     //     .install_subdir = "blockeditor-docs",
     //     .source_dir = root_dep.namedLazyPath("docs")
     // });
-    b.installArtifact(texteditor_dep.artifact("zls"));
+    // b.installArtifact(texteditor_dep.artifact("zls")); // disabled because zls doesn't build yet
     b.installArtifact(blocks_dep.artifact("bench"));
     b.installArtifact(loadimage_wasm_dep.artifact("loadimage_wasm"));
     if (opts.tracy) b.getInstallStep().dependOn(&b.addInstallArtifact(tracy_dep.artifact("tracy"), .{ .dest_dir = .{ .override = .{ .custom = "tool" } } }).step); // tracy exe has system dependencies and cannot be compiled for all targets
