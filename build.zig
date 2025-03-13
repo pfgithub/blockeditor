@@ -43,7 +43,7 @@ pub fn build(b: *std.Build) void {
     // b.installDirectory(.{ // disabled because causes intermittent build failures
     //     .install_dir = .lib,
     //     .install_subdir = "blockeditor-docs",
-    //     .source_dir = root_dep.namedLazyPath("docs")
+    //     .source_dir = root_dep.namedLazyPath("docs"),
     // });
     // b.installArtifact(texteditor_dep.artifact("zls")); // disabled because zls doesn't build yet
     b.installArtifact(blocks_dep.artifact("bench"));
