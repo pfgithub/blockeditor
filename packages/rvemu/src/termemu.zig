@@ -1,3 +1,9 @@
+// one syscall:
+// - execute_and_wait_event
+//   post a list of commands to execute, wait until the next events are received, and return
+//   the array of events
+// stuff like getTime() has to be implemented using the fancy method linux uses
+
 const Sys = extern struct {
     data: *SysData,
     vtable: *const SysVtable,
