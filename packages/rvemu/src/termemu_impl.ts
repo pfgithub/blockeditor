@@ -5,6 +5,7 @@ type SendEvent = {
     rendered: Rendered,
 } | {
     kind: "update_group_update",
+    update_group: UpdateGroup,
     rendered: Rendered,
 } | {
     kind: "end_update_group",
@@ -27,6 +28,10 @@ type SendEvent = {
 } | {
     kind: "cancel_token",
     token: EventToken<any>,
+};
+type ReceiveEvent = {
+    kind: "timeout",
+    token: EventToken<undefined>,
 };
 type EventToken<T> = {filled: false} | {filled: true, value: T};
 let send_queue: SendEvent[] = [];
@@ -75,6 +80,7 @@ class UpdateGroup {
         // there should be a way to wait for a resonable time to update again, ie requestAnimationFrame
         send_queue.push({
             kind: "update_group_update",
+            update_group: this,
             rendered,
         });
     }
@@ -126,46 +132,126 @@ function main(group: Group): Token<undefined> {
             return new Done(defer.execute());
         }
         group.log("got "+value);
-        group.writeData(value);
+        group.writeData(value + "\n");
         return read();
     });
     return read();
 }
 
-async function runEventLoop() {
-    while(true) {
-        const queue = send_queue;
-        send_queue = [];
-        
-        for(const item of queue) {
-            if(item.kind === "start_update_group_from_group") {
+class EventLoop {
+    waiting_on_stdin: EventToken<any>[] = [];
+    waiting_logs: Rendered[] = [];
+    waiting_stdout: string[] = [];
+    update_groups = new Map<UpdateGroup, Rendered>();
+    recv_queue: ReceiveEvent[] = [];
+    ready: (() => void) | null = null;
 
-            }else if(item.kind === "end_update_group") {
-
-            }else if(item.kind === "group_log") {
-                
-            }else if(item.kind === "group_writeData") {
-
-            }else if(item.kind === "update_group_update") {
-
-            }else if(item.kind === "stdin_read") {
-                
-            }else if(item.kind === "timeout") {
-                const timeout_id = setTimeout(item.duration_ms, () => {
-
-                });             
-            }
+    _pushEvent(ev: ReceiveEvent): void {
+        this.recv_queue.push(ev);
+        if(this.ready) {
+            const ready_cb = this.ready;
+            this.ready = null;
+            ready_cb();
         }
     }
+
+    updateOutput() {
+        // would be nice to use clreol as a fallback for people missing STARTBUF/ENDBUF
+        const CLREOL = "\x1b[K"; // erase to end of line
+        const CLREOS = "\x1b[J"; // erase to end of screen
+        const STARTSYNC = "\x1b[?2026h"; // begin frame
+        const ENDSYNC = "\x1b[?2026l"; // begin frame
+        const CURSORUP = (n: number) => `\x1b[[${n}A`;
+        const HOME = "\r";
+        let result: string = STARTSYNC + CLREOS;
+        // the cursor is positioned before any update groups
+
+        // 1. print waiting logs
+        for(const log of this.waiting_logs) {
+            result += log + "\n";
+        }
+        this.waiting_logs = [];
+        process.stderr.write(result); result = "";
+
+        // 2. write stdout
+        process.stdout.write(this.waiting_stdout.join("\n"));
+
+        // 3. print update groups
+        let i = 0;
+        for(const rendered of this.update_groups.values()) {
+            if(i !== 0) result += "\n";
+            result += rendered;
+            i += 1;
+        }
+
+        // 4. try to return cursor
+        // (this doesn't actually work and can't ever work portably because terminals suck)
+        result += HOME + CURSORUP(i);
+
+        // 5. write
+        result += ENDSYNC;
+        process.stderr.write(result);
+    }
+
+    async waitEvents(queue: SendEvent[]): ReceiveEvent[] {
+        const waiting_on_stdin: EventToken<any>[] = [];
+        const recv_queue: ReceiveEvent[] = [];
+    
+        for(const item of queue) {
+            if(item.kind === "start_update_group_from_group") {
+                if(this.update_groups.has(item.update_group)) throw new Error("E");
+                this.update_groups.set(item.update_group, item.rendered);
+            }else if(item.kind === "end_update_group") {
+                const val = this.update_groups.get(item.update_group);
+                if(val == null) throw new Error("E");
+                if(item.mode === "log") {
+                    this.waiting_logs.push(val);
+                }
+                this.update_groups.delete(item.update_group);
+            }else if(item.kind === "group_log") {
+                this.waiting_logs.push(item.rendered);
+            }else if(item.kind === "group_writeData") {
+                this.waiting_stdout.push(item.data);
+            }else if(item.kind === "update_group_update") {
+                if(!this.update_groups.has(item.update_group)) throw new Error("E");
+                this.update_groups.set(item.update_group, item.rendered);
+            }else if(item.kind === "stdin_read") {
+                waiting_on_stdin.push(item.token);
+            }else if(item.kind === "timeout") {
+                const timeout_id = setTimeout(() => {
+                    this._pushEvent({
+                        kind: "timeout",
+                        token: item.token,
+                    });
+                }, item.duration_ms);
+            }else throw new Error("E");
+        }
+        this.updateOutput();
+
+        await Promise.withResolvers(r => {
+            if(this.ready != null) throw new Error("E");
+            this.ready = r;
+        })
+        return this.recv_queue;
+    }
 }
+
 
 {
     const defer = genDefer();
     const main_group = new Group();
-    main(main_group).handle(() => defer.execute(), () => {
+    const tok = main(main_group).handle(() => defer.execute(), () => {
         main_group.log("program completed");
         return new Done(defer.execute());
     });
-    // TODO: cancel tok after 3000ms to demonstrate
-    runEventLoop();
+    // TODO: have it cancel after 3000ms to see if cancelling works
+    while(true) {
+        const q = send_queue;
+        send_queue = null as any;
+        const recv = await waitEvents(q);
+        send_queue = [];
+
+        // TODO: synchronously all the receive events
+        tok.apply(recv);
+    }
 }
