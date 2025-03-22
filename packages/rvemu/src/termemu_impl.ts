@@ -61,7 +61,7 @@ class Done<U> {
 }
 class Token<T> {
     handle<U>(onCanceled: () => undefined, onValue: (value: T) => Token<U> | Done<U>): Token<U> {
-
+        return new Token();
     }
     cancel(): undefined {}
 }
@@ -75,6 +75,7 @@ class UpdateGroup {
             update_group: this,
             token: event_token,
         });
+        return new Token();
     }
     update(rendered: Rendered): undefined {
         // there should be a way to wait for a resonable time to update again, ie requestAnimationFrame
@@ -161,7 +162,7 @@ class EventLoop {
         const CLREOS = "\x1b[J"; // erase to end of screen
         const STARTSYNC = "\x1b[?2026h"; // begin frame
         const ENDSYNC = "\x1b[?2026l"; // begin frame
-        const CURSORUP = (n: number) => `\x1b[[${n}A`;
+        const CURSORUP = (n: number) => `\x1b[${n}A`;
         const HOME = "\r";
         let result: string = STARTSYNC + CLREOS;
         // the cursor is positioned before any update groups
@@ -186,17 +187,16 @@ class EventLoop {
 
         // 4. try to return cursor
         // (this doesn't actually work and can't ever work portably because terminals suck)
-        result += HOME + CURSORUP(i);
+        result += HOME + CURSORUP(i - 2);
 
         // 5. write
         result += ENDSYNC;
         process.stderr.write(result);
     }
 
-    async waitEvents(queue: SendEvent[]): ReceiveEvent[] {
+    async waitEvents(queue: SendEvent[]): Promise<ReceiveEvent[]> {
         const waiting_on_stdin: EventToken<any>[] = [];
-        const recv_queue: ReceiveEvent[] = [];
-    
+
         for(const item of queue) {
             if(item.kind === "start_update_group_from_group") {
                 if(this.update_groups.has(item.update_group)) throw new Error("E");
@@ -228,7 +228,7 @@ class EventLoop {
         }
         this.updateOutput();
 
-        await Promise.withResolvers(r => {
+        await new Promise(r => {
             if(this.ready != null) throw new Error("E");
             this.ready = r;
         })
@@ -245,13 +245,16 @@ class EventLoop {
         return new Done(defer.execute());
     });
     // TODO: have it cancel after 3000ms to see if cancelling works
+    const ev = new EventLoop();
     while(true) {
         const q = send_queue;
         send_queue = null as any;
-        const recv = await waitEvents(q);
+        const recv = await ev.waitEvents(q);
         send_queue = [];
 
-        // TODO: synchronously all the receive events
-        tok.apply(recv);
+        for(const ev of recv) {
+            // execute the callbacks
+            console.log("got ev", ev);
+        }
     }
 }
