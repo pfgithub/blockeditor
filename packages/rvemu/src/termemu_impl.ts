@@ -195,8 +195,6 @@ class EventLoop {
     }
 
     async waitEvents(queue: SendEvent[]): Promise<ReceiveEvent[]> {
-        const waiting_on_stdin: EventToken<any>[] = [];
-
         for(const item of queue) {
             if(item.kind === "start_update_group_from_group") {
                 if(this.update_groups.has(item.update_group)) throw new Error("E");
@@ -216,7 +214,7 @@ class EventLoop {
                 if(!this.update_groups.has(item.update_group)) throw new Error("E");
                 this.update_groups.set(item.update_group, item.rendered);
             }else if(item.kind === "stdin_read") {
-                waiting_on_stdin.push(item.token);
+                this.waiting_on_stdin.push(item.token);
             }else if(item.kind === "timeout") {
                 const timeout_id = setTimeout(() => {
                     this._pushEvent({
@@ -227,6 +225,11 @@ class EventLoop {
             }else throw new Error("E");
         }
         this.updateOutput();
+        if(this.waiting_on_stdin.length > 0) {
+            // TODO: read stdin
+        }else{
+            // TODO: process.stdin.pause();
+        }
 
         await new Promise(r => {
             if(this.ready != null) throw new Error("E");
