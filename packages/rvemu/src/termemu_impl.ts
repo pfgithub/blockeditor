@@ -1,3 +1,12 @@
+/*
+
+TODO:
+- we should use (ptr, generation) for all system handles
+- this means you can safely pass a dead system handle to a syscall, and it will safely error.
+
+*/
+
+
 type SendEvent = {
     kind: "start_update_group_from_group",
     group: Group,
@@ -32,9 +41,17 @@ type SendEvent = {
 type ReceiveEvent = {
     kind: "timeout",
     token: EventToken<undefined>,
+    value: undefined;
+} | {
+    kind: "stdin",
+    token: EventToken<string | null>,
+    value: string | null,
 };
-type EventToken<T> = {filled: false} | {filled: true, value: T};
+type EventToken<T> = {__is_event_token?: T};
+// to help print debugging, we can have the send queue in a known location in memory
+// in order to try to execute all prints if the program crashes
 let send_queue: SendEvent[] = [];
+const token_to_cb_map = new Map<EventToken<unknown>, (v: unknown) => undefined>();
 
 type Defer = {
     (cb: () => undefined): undefined,
@@ -60,22 +77,61 @@ class Done<U> {
     constructor(public value: U) {}
 }
 class Token<T> {
+    #value: {ok: T} | null = null;
+    #onValue: ((value: T) => undefined) | null = null;
+    #consumed: boolean = false;
+    #resolved: boolean = false;
+    constructor(cb: (resolve: (value: T) => undefined) => undefined) {
+        cb(this.#onResolve.bind(this));
+    }
     handle<U>(onCanceled: () => undefined, onValue: (value: T) => Token<U> | Done<U>): Token<U> {
-        return new Token();
+        if(this.#consumed) throw new Error("double-consume");
+        this.#consumed = true;
+        function gotValue(resolve: (value: U) => undefined, value: T): undefined {
+            const rsp = onValue(value);
+            if(rsp instanceof Done) {
+                resolve(rsp.value);
+            }else{
+                if(rsp.#value != null) {
+                    resolve(rsp.#value.ok);
+                }else if(!rsp.#consumed) {
+                    rsp.#onValue = value => resolve(value);
+                }else throw new Error("double-consume");
+                
+            }
+        }
+        return new Token(resolve => {
+            if(this.#value != null) {
+                gotValue(resolve, this.#value.ok);
+            }else{
+                this.#onValue = value => gotValue(resolve, value);
+            }
+        });
     }
     cancel(): undefined {}
+    #onResolve(value: T): undefined {
+        if(this.#resolved) throw new Error("double-resolve");
+        this.#resolved = true;
+        if(this.#onValue != null) {
+            this.#onValue(value);
+        }else{
+            this.#value = {ok: value};
+        }
+    }
 }
 
 class UpdateGroup {
     // read stdin. if another update group is waiting on a read, this will wait for that one first.
     readStdin(opts: ReadStdinOpts): Token<string | null> {
-        const event_token: EventToken<string | null> = {filled: false};
+        const event_token: EventToken<string | null> = {};
         send_queue.push({
             kind: "stdin_read",
             update_group: this,
             token: event_token,
         });
-        return new Token();
+        return new Token<unknown>(resolve => {
+            token_to_cb_map.set(event_token, resolve);
+        }) as Token<any>;
     }
     update(rendered: Rendered): undefined {
         // there should be a way to wait for a resonable time to update again, ie requestAnimationFrame
@@ -140,15 +196,22 @@ function main(group: Group): Token<undefined> {
 }
 
 class EventLoop {
+    waiting_stdin: (string | null)[] = [];
     waiting_on_stdin: EventToken<any>[] = [];
     waiting_logs: Rendered[] = [];
     waiting_stdout: string[] = [];
     update_groups = new Map<UpdateGroup, Rendered>();
     recv_queue: ReceiveEvent[] = [];
     ready: (() => void) | null = null;
+    #onDataBound: ((ev: unknown) => undefined) | null;
+    #onEndBound: ((ev: unknown) => undefined) | null;
+    #stdinOver: boolean = false;
 
-    _pushEvent(ev: ReceiveEvent): void {
+    #pushEvent(ev: ReceiveEvent): undefined {
         this.recv_queue.push(ev);
+        this.#triggerReady();
+    }
+    #triggerReady(): undefined {
         if(this.ready) {
             const ready_cb = this.ready;
             this.ready = null;
@@ -217,7 +280,7 @@ class EventLoop {
                 this.waiting_on_stdin.push(item.token);
             }else if(item.kind === "timeout") {
                 const timeout_id = setTimeout(() => {
-                    this._pushEvent({
+                    this.#pushEvent({
                         kind: "timeout",
                         token: item.token,
                     });
@@ -226,16 +289,71 @@ class EventLoop {
         }
         this.updateOutput();
         if(this.waiting_on_stdin.length > 0) {
-            // TODO: read stdin
+            if(this.#onDataBound == null && !this.#stdinOver) {
+                this.#onDataBound = this.#stdinOnData.bind(this);
+                this.#onEndBound = this.#stdinOnEnd.bind(this);
+                process.stdin.on("data", this.#onDataBound);
+                process.stdin.on("end", this.#onEndBound);
+                process.stdin.resume();
+            }
         }else{
             // TODO: process.stdin.pause();
+            if(this.#onDataBound != null) {
+                process.stdin.off("end", this.#onEndBound);
+                process.stdin.off("data", this.#onDataBound);
+                process.stdin.pause();
+                this.#onDataBound = null;
+            }
         }
 
         await new Promise(r => {
             if(this.ready != null) throw new Error("E");
             this.ready = r;
         })
+
+        if(this.waiting_stdin.length > 0 && this.waiting_on_stdin.length > 0) {
+            const cb = this.waiting_on_stdin.shift()!;
+            let over = false;
+            if(this.waiting_stdin[this.waiting_stdin.length - 1] == null) {
+                over = true;
+                this.waiting_stdin.pop();
+                if(this.waiting_stdin.includes(null)) throw new Error("double-end in stdin");
+            }else{
+                if(this.waiting_stdin.includes(null)) throw new Error("double-end in stdin");
+            }
+            const concatenated = this.waiting_stdin.join("");
+            if(concatenated.length > 0) {
+                this.#pushEvent({
+                    kind: "stdin",
+                    token: cb,
+                    value: concatenated,
+                });
+                if(over) {
+                    // leave it for another event I guess
+                    this.waiting_stdin.push(null);
+                }
+            }else if(over) {
+                this.#pushEvent({
+                    kind: "stdin",
+                    token: cb,
+                    value: null,
+                });
+            }
+        }
+
+        if(this.recv_queue.length === 0) throw new Error("empty recv queue");
+
         return this.recv_queue;
+    }
+    #stdinOnData(data) {
+        const str = new TextDecoder().decode(new Uint8Array(data));
+        this.waiting_stdin.push(str);
+        this.#triggerReady();
+    }
+    #stdinOnEnd() {
+        this.#stdinOver = true;
+        this.waiting_stdin.push(null);
+        this.#triggerReady();
     }
 }
 
@@ -254,10 +372,10 @@ class EventLoop {
         send_queue = null as any;
         const recv = await ev.waitEvents(q);
         send_queue = [];
-
         for(const ev of recv) {
-            // execute the callbacks
-            console.log("got ev", ev);
+            const val = token_to_cb_map.get(ev.token)!;
+            token_to_cb_map.delete(ev.token);
+            val(ev.value as unknown);
         }
     }
 }
