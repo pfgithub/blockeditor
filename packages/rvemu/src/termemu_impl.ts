@@ -47,7 +47,7 @@ type ReceiveEvent = {
     token: EventToken<string | null>,
     value: string | null,
 };
-type EventToken<T> = {__is_event_token?: T};
+type EventToken<T> = {__is_event_token?: T, id: string};
 // to help print debugging, we can have the send queue in a known location in memory
 // in order to try to execute all prints if the program crashes
 let send_queue: SendEvent[] = [];
@@ -123,7 +123,7 @@ class Token<T> {
 class UpdateGroup {
     // read stdin. if another update group is waiting on a read, this will wait for that one first.
     readStdin(opts: ReadStdinOpts): Token<string | null> {
-        const event_token: EventToken<string | null> = {};
+        const event_token: EventToken<string | null> = {id: crypto.randomUUID()};
         send_queue.push({
             kind: "stdin_read",
             update_group: this,
@@ -343,7 +343,10 @@ class EventLoop {
 
         if(this.recv_queue.length === 0) throw new Error("empty recv queue");
 
-        return this.recv_queue;
+        const res_queue = this.recv_queue;
+        this.recv_queue = [];
+
+        return res_queue;
     }
     #stdinOnData(data) {
         const str = new TextDecoder().decode(new Uint8Array(data));
