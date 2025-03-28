@@ -11,7 +11,7 @@ fn autoVtable(comptime Vtable: type, comptime Src: type) *const Vtable {
         for (@typeInfo(Vtable).@"struct".fields) |field| {
             if (@hasDecl(Src, field.name)) {
                 @field(res, field.name) = &@field(Src, field.name);
-            } else if (field.default_value) |default_v| {
+            } else if (field.default_value_ptr) |default_v| {
                 @field(res, field.name) = @as(*const field.type, @alignCast(@ptrCast(default_v))).*;
             } else {
                 @compileError("vtable for " ++ @typeName(Src) ++ " missing required field: " ++ field.name);
@@ -25,6 +25,43 @@ fn autoVtable(comptime Vtable: type, comptime Src: type) *const Vtable {
 const Backends = struct {
     const Riscv32 = struct {
         const rvemu = @import("rvemu");
+        const EmitBlock = @import("./riscv.zig").EmitBlock;
+
+        const Asm_CacheKey = struct {
+            fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
+                return 0;
+            }
+            fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
+                return true;
+            }
+            fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+                return .from(
+                    try env.srclocFromSrc(@src()),
+                    Asm,
+                    &.{},
+                    &{},
+                );
+            }
+        };
+        const Asm = struct {
+            pub const ty: Type = .from(@This(), &.{});
+            pub const ComptimeValue = void;
+
+            fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
+                return try std.fmt.allocPrint(env.arena, "#builtin.asm", .{});
+            }
+            // for lsp, we need to provide a list of keys
+            fn access(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, obj: Expr, prop: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
+                _ = slot;
+                std.debug.assert(obj.value == .compiletime);
+                const arg = try scope.handleExpr(Types.Key.ty, prop);
+                const ctk = try scope.env.expectComptimeKey(arg);
+                return scope.env.castExpr(obj, .from(Types.Bound, try anywhere.util.dupeOne(scope.env.arena, Types.Bound{ .child = obj.ty, .ctk = ctk })), srcloc);
+            }
+            fn bound_call(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, ctk: Types.Key.ComptimeValue, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
+                return callAsmInstr(scope, slot, method, ctk, arg, srcloc);
+            }
+        };
 
         const vtable = autoVtable(Backend.Vtable, @This());
         const Instr_CacheKey = struct {
@@ -78,19 +115,11 @@ const Backends = struct {
                         Types.Struct,
                         try anywhere.util.dupeOne(env.arena, Types.Struct{
                             .srcloc = try env.srclocFromSrc(@src()),
-                            .comptime_fields = try env.arena.dupe(Types.Struct.Field, &.{
-                                .{
-                                    .name = try env.comptimeKeyFromString("instr"),
-                                    .ty = (try env.resolveDeclValue(try env.cachedDecl(Instr_CacheKey, .{}))).resolved_value_ptr.?.toConst(Type).*,
-                                    .default_value = null,
-                                },
-                            }),
                             .fields = try env.arena.dupe(Types.Struct.Field, &.{
                                 .{
                                     .name = try env.comptimeKeyFromString("x10"),
                                     .ty = Types.Int.sint32,
                                     .default_value = null,
-                                    .comptime_optional = true,
                                 },
                                 // runtime:
                                 // - rs1: i32, rs2: i32, rd: bool
@@ -108,37 +137,40 @@ const Backends = struct {
             return try std.fmt.allocPrint(env.arena, "riscv32", .{});
         }
 
-        pub fn call_asm(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
+        pub fn get_asm_decl(_: anywhere.util.AnyPtr, scope: *Scope) Error!Decl.Index {
+            return try scope.env.cachedDecl(Asm_CacheKey, .{});
+        }
+        pub fn callAsmInstr(scope: *Scope, slot: Type, method: Expr, ctk: Types.Key.ComptimeValue, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
             _ = slot;
             _ = method;
+            const ctk_val = (try ctk.getString(scope.env)) orelse return scope.env.addErr(srcloc, "Asm instr symbol not allowed", .{});
+            const ctk_enum_val = std.meta.stringToEnum(rvemu.rvinstrs.InstrName, ctk_val) orelse return scope.env.addErr(srcloc, "Asm instr not found: {s}. TODO support fakeuser and regsets (x10(5) should request the %reg 5 is in to pin to x10)", .{ctk_val});
 
             const arg_ty_decl = try scope.env.cachedDecl(Arg_CacheKey, .{});
             const arg_ty = try scope.env.resolveDeclValue(arg_ty_decl);
             const arg_val = try scope.handleExpr(arg_ty.resolved_value_ptr.?.to(Type).*, arg);
             const arg_ct = try scope.env.expectComptime(arg_val, Types.Struct);
 
-            const instr_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("instr"));
             // TODO: x10_decl can be runtime
             // so convert it to runtime if it's comptime
             // something interesting here is that we will need to support mixed comptime & runtime
             // in a struct. because we have to access op as comptime. so we should mark it in the
             // type somehow?
             const x10_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("x10"));
-            const instr_val = try scope.env.resolveDeclValue(instr_decl);
             const x10_val = try scope.env.resolveDeclValue(x10_decl);
-            if (!instr_val.resolved_type.?.is(Types.Enum)) return scope.env.addErr(srcloc, "Expected enum, found <1>", .{});
             if (!x10_val.resolved_type.?.is(Types.Int)) return scope.env.addErr(srcloc, "Expected int, found <2>", .{});
-            const instr = instr_val.resolved_value_ptr.?.to(Types.Enum.ComptimeValue);
             const x10 = x10_val.resolved_value_ptr.?.to(Types.Int.ComptimeValue);
 
             const block = scope.block.to(riscv.EmitBlock);
             const li_reg: riscv.EmitBlock.RvVar = .fromIntReg(10);
-            try block.appendLoadImmediate(scope.env, li_reg, std.math.cast(i32, x10.*) orelse return scope.env.addErr(srcloc, "<rv32> number out of range", .{})); // TODO: this should be done by converting x10 to runtime rather than here
+            _ = x10;
+            // TODO
+            // try block.appendLoadImmediate(scope.env, li_reg, std.math.cast(i32, x10.*) orelse return scope.env.addErr(srcloc, "<rv32> number out of range", .{})); // TODO: this should be done by converting x10 to runtime rather than here
             try block.instructions.append(scope.env.gpa, .{
-                .instr = .{ .op = @enumFromInt(instr.*) },
+                .instr = .{ .op = ctk_enum_val },
             });
             try block.instructions.append(scope.env.gpa, .{
-                .fakeuser = .{ .rs = li_reg, .rd = li_reg },
+                .instr = .{ .op = null, .rs1 = li_reg, .rd = li_reg }, // fakeuser
                 // this is so the store to x10 won't be clobbered until
                 // it is no longer used again, which will likely be the
                 // next instruction.
@@ -158,7 +190,7 @@ const Backend = struct {
         name: *const fn (_: anywhere.util.AnyPtr, env: *Env) Error![]const u8,
 
         /// backend-dependant behaviour
-        call_asm: ?*const fn (_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
+        get_asm_decl: ?*const fn (_: anywhere.util.AnyPtr, scope: *Scope) Error!Decl.Index = null,
     };
 
     fn name(self: Backend, env: *Env) Error![]const u8 {
@@ -219,24 +251,10 @@ const Types = struct {
             const arg = try scope.handleExpr(Types.Key.ty, prop);
             const ctk = try scope.env.expectComptimeKey(arg);
             if (ctk == try scope.env.comptimeKeyFromString("asm")) {
-                // when we call a function, we know if we are calling at comptime or runtime.
-                // so we can choose how to emit code based on that.
-                // unlike the previous version, we won't ever return a value and then
-                // execute it. instead, we always return a comptime value if we can
-                // and insert at runtime if we can't.
-                // still need to figure out the borders & moving from comptime to
-                // runtime.
-                return scope.env.castExpr(obj, .from(Types.Bound, try anywhere.util.dupeOne(scope.env.arena, Types.Bound{ .child = obj.ty, .ctk = try scope.env.comptimeKeyFromString("asm") })), srcloc);
+                if (scope.env.backend.vtable.get_asm_decl == null) return scope.env.addErr(srcloc, "Backend {s} does not support #builtin.asm", .{try scope.env.backend.name(scope.env)});
+                return scope.env.declExpr(srcloc, try scope.env.backend.vtable.get_asm_decl.?(scope.env.backend.data, scope));
             }
             return scope.env.addErr(srcloc, "TODO access #bulitin", .{});
-        }
-        fn bound_call(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, ctk: Types.Key.ComptimeValue, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
-            if (ctk == try scope.env.comptimeKeyFromString("asm")) {
-                if (scope.env.backend.vtable.call_asm == null) return scope.env.addErr(srcloc, "Backend {s} does not support #builtin.asm", .{try scope.env.backend.name(scope.env)});
-                return scope.env.backend.vtable.call_asm.?(scope.env.backend.data, scope, slot, method, arg, srcloc);
-            } else {
-                return scope.env.addErr(srcloc, "TODO call #builtin.?", .{});
-            }
         }
     };
     const Key = struct {
@@ -254,6 +272,13 @@ const Types = struct {
                 return switch (v) {
                     .string => |str| try std.fmt.allocPrint(env.arena, ".{s}", .{str}),
                     .symbol => @panic("todo print symbol"),
+                };
+            }
+            fn getString(val: ComptimeValue, env: *Env) Error!?[]const u8 {
+                const v = env.comptime_keys.items[@intFromEnum(val)];
+                return switch (v) {
+                    .string => |str| return str,
+                    .symbol => return null,
                 };
             }
         };
@@ -285,18 +310,12 @@ const Types = struct {
             name: Types.Key.ComptimeValue,
             ty: Type,
             default_value: ?Decl.Index,
-
-            /// if true, default_value must be null. initializing a struct
-            /// that is missing this field will create a new struct type
-            /// with 'parent' set to this type
-            comptime_optional: bool = false,
         };
         /// for types created containing the values of compiletime
         /// or comptime_optional fields
         parent_struct: ?Type = null,
         srcloc: SrcLoc,
         fields: []const Field,
-        comptime_fields: []const Field,
         // we don't need to box values at comptime
         // we can make ComptimeValue be a byte slice
         // and do alignment and stuff
@@ -322,9 +341,6 @@ const Types = struct {
             for (self.fields, ct) |field, val| {
                 if (a_name == field.name) return val;
             }
-            for (self.comptime_fields) |field| {
-                if (a_name == field.name) return field.default_value orelse @panic("accessComptime on struct type that is not filled");
-            }
             @panic("accessComptime on struct with incorrect key");
         }
 
@@ -336,17 +352,6 @@ const Types = struct {
         pub fn from_map(self_any: anywhere.util.AnyPtr, scope: *Scope, slot: Type, ents: []MapEnt, srcloc: SrcLoc) Error!Expr {
             _ = slot;
             const self = self_any.to(Struct);
-
-            var requires_new_type = false;
-            for (self.fields) |f| if (f.comptime_optional) {
-                requires_new_type = true;
-            };
-            for (self.comptime_fields) |f| if (f.comptime_optional) {
-                requires_new_type = true;
-            };
-            for (self.comptime_fields) |f| if (f.default_value == null) {
-                requires_new_type = true;
-            };
 
             // first, try to initialize as comptime
             // if that doesn't work out, initialize as runtime
@@ -376,47 +381,10 @@ const Types = struct {
                 if (itm.* == .none) {
                     if (field.default_value) |dfv| {
                         itm.* = dfv;
-                    } else if (field.comptime_optional) {
-                        // ok.
                     } else {
                         return scope.env.addErr(srcloc, "missing field", .{});
                     }
                 }
-            }
-
-            if (requires_new_type) {
-                const new = try scope.env.arena.create(Struct);
-                // in js this would be 'fields.filter(field => field != .none)'
-                // in zig it's all these lines
-                // to be fair in zig it's precomputing the new length, it could
-                // be shorter if it was arraylist
-                var new_fields_len: usize = 0;
-                for (comptime_res, self.fields) |*itm, field| {
-                    if (itm.* == .none) {
-                        std.debug.assert(field.comptime_optional); // checked above
-                    } else {
-                        new_fields_len += 1;
-                    }
-                }
-                const new_fields = try scope.env.arena.alloc(Field, new_fields_len);
-                const new_value = try scope.env.arena.alloc(Decl.Index, new_fields_len);
-                var i: usize = 0;
-                for (comptime_res, self.fields) |*itm, field| {
-                    if (itm.* == .none) {
-                        std.debug.assert(field.comptime_optional);
-                    } else {
-                        new_fields[i] = field;
-                        new_value[i] = itm.*;
-                        i += 1;
-                    }
-                }
-                std.debug.assert(i == new_fields.len);
-                new.* = .{
-                    .parent_struct = .from(Struct, self),
-                    .srcloc = srcloc,
-                    .fields = new_fields,
-                    .comptime_fields = &.{},
-                };
             }
 
             // done!

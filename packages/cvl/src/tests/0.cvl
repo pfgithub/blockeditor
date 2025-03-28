@@ -1,9 +1,5 @@
 #builtin.symbols.main = () {
-    // we will change this to be an implicit context call
-    // no need for weird partially-comptime structs because each implicit context key
-    // is either comptime or runtime.
-    #builtin.asm(
-        .instr = .ECALL,
+    #builtin.asm.ECALL(
         .x10 = 0, // exit
     );
 };
