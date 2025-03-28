@@ -1,5 +1,6 @@
 .{
-    .name = "cvl",
+    .name = .cvl,
+    .fingerprint = 0x88b15f68f9e266a5,
     .version = "0.1.0",
     .paths = .{
         "",
