@@ -1,5 +1,14 @@
 #builtin.symbols.main = () {
+    // addi is complicated too; immediates require partial-comptime
+    // so unless we want to make arguments be implicit context, we need
+    // to implement those weird structs with mixed comptime and runtime args
+    // #builtin.asm.ADDI(
+    //     .rs1 = 26, // i32
+    //     .imm_11_0 = 10, // comptime-known
+    // );
     #builtin.asm.ECALL(
+        // ecall is a bad example to start with because it's fakeuser
+        // let's start with ADDI. ecall can come later
         .x10 = 0, // exit
     );
 };
