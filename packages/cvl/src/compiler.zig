@@ -100,6 +100,7 @@ const Backends = struct {
             }
         };
         const Arg_CacheKey = struct {
+            spec: rvemu.rvinstrs.InstrSpec,
             fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
                 return 0;
             }
@@ -116,8 +117,18 @@ const Backends = struct {
                         try anywhere.util.dupeOne(env.arena, Types.Struct{
                             .srcloc = try env.srclocFromSrc(@src()),
                             .fields = try env.arena.dupe(Types.Struct.Field, &.{
+                                // .{
+                                //     .name = try env.comptimeKeyFromString("x10"),
+                                //     .ty = Types.Int.sint32,
+                                //     .default_value = null,
+                                // },
                                 .{
-                                    .name = try env.comptimeKeyFromString("x10"),
+                                    .name = try env.comptimeKeyFromString("rs1"),
+                                    .ty = Types.Int.sint32,
+                                    .default_value = null,
+                                },
+                                .{
+                                    .name = try env.comptimeKeyFromString("rs2"),
                                     .ty = Types.Int.sint32,
                                     .default_value = null,
                                 },
@@ -146,7 +157,8 @@ const Backends = struct {
             const ctk_val = (try ctk.getString(scope.env)) orelse return scope.env.addErr(srcloc, "Asm instr symbol not allowed", .{});
             const ctk_enum_val = std.meta.stringToEnum(rvemu.rvinstrs.InstrName, ctk_val) orelse return scope.env.addErr(srcloc, "Asm instr not found: {s}. TODO support fakeuser and regsets (x10(5) should request the %reg 5 is in to pin to x10)", .{ctk_val});
 
-            const arg_ty_decl = try scope.env.cachedDecl(Arg_CacheKey, .{});
+            const instr_spec = rvemu.rvinstrs.instrData(ctk_enum_val);
+            const arg_ty_decl = try scope.env.cachedDecl(Arg_CacheKey, .{ .spec = instr_spec });
             const arg_ty = try scope.env.resolveDeclValue(arg_ty_decl);
             const arg_val = try scope.handleExpr(arg_ty.resolved_value_ptr.?.to(Type).*, arg);
             const arg_ct = try scope.env.expectComptime(arg_val, Types.Struct);
@@ -156,27 +168,19 @@ const Backends = struct {
             // something interesting here is that we will need to support mixed comptime & runtime
             // in a struct. because we have to access op as comptime. so we should mark it in the
             // type somehow?
-            const x10_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("x10"));
-            const x10_val = try scope.env.resolveDeclValue(x10_decl);
-            if (!x10_val.resolved_type.?.is(Types.Int)) return scope.env.addErr(srcloc, "Expected int, found <2>", .{});
-            const x10 = x10_val.resolved_value_ptr.?.to(Types.Int.ComptimeValue);
+            const rs1_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("rs1"));
+            const rs1_val = try scope.env.resolveDeclValue(rs1_decl);
+            if (!rs1_val.resolved_type.?.is(Types.Int)) return scope.env.addErr(srcloc, "Expected int, found <2>", .{});
+            const rs1 = rs1_val.resolved_value_ptr.?.to(Types.Int.ComptimeValue);
 
             const block = scope.block.to(riscv.EmitBlock);
             const li_reg: riscv.EmitBlock.RvVar = .fromIntReg(10);
-            _ = x10;
+            const out_reg: riscv.EmitBlock.RvVar = .fromIntReg(11);
+            _ = rs1;
             // TODO
             // try block.appendLoadImmediate(scope.env, li_reg, std.math.cast(i32, x10.*) orelse return scope.env.addErr(srcloc, "<rv32> number out of range", .{})); // TODO: this should be done by converting x10 to runtime rather than here
             try block.instructions.append(scope.env.gpa, .{
-                .instr = .{ .op = ctk_enum_val },
-            });
-            try block.instructions.append(scope.env.gpa, .{
-                .instr = .{ .op = null, .rs1 = li_reg, .rd = li_reg }, // fakeuser
-                // this is so the store to x10 won't be clobbered until
-                // it is no longer used again, which will likely be the
-                // next instruction.
-                // also the 'rd' indicates that the value in x10 may have
-                // changed, so if we wanted that number again, we
-                // have to copy it out of x10 before use.
+                .instr = .{ .op = ctk_enum_val, .rs1 = li_reg, .rs2 = .fromIntReg(12), .rd = out_reg },
             });
 
             return scope.env.declExpr(srcloc, try scope.env.cachedDecl(VoidDecl, .{}));
@@ -856,7 +860,7 @@ const MapEnt = struct {
 };
 
 test "compiler" {
-    if (true) return error.SkipZigTest;
+    // if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
     var tree = parser.parse(gpa, example_src);
@@ -912,9 +916,7 @@ test "compiler" {
     // x10 = fakeuser x10 (.fakeuser)
     if (env.has_error) return error.HasError;
     try anywhere.util.testing.snap(@src(),
-        \\x10 = ADDI x0 0x0
-        \\ECALL
-        \\x10 = fakeuser x10
+        \\x11 = ADD x10 x12
         \\
     , printed.items);
 }

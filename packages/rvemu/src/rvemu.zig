@@ -660,8 +660,8 @@ const DecodeToCall = struct {
     pub fn handle(self: DecodeToCall, comptime instr_spec: rvinstrs.InstrSpec, instr: Instruction) RetTy {
         const emu = self.emu;
 
-        const instr_name = @tagName(instr_spec.name);
-        emu.markUsedInstruction(instr_spec.name);
+        const instr_name = instr_spec.name;
+        emu.markUsedInstruction(@field(rvinstrs.InstrName, instr_spec.name));
         switch (instr_spec.format) {
             .None => {
                 if (!@hasDecl(none_type_instrs, instr_name)) @panic("TODO none_type_instrs." ++ instr_name);

@@ -6,9 +6,14 @@
     //     .rs1 = 26, // i32
     //     .imm_11_0 = 10, // comptime-known
     // );
-    #builtin.asm.ECALL(
-        // ecall is a bad example to start with because it's fakeuser
-        // let's start with ADDI. ecall can come later
-        .x10 = 0, // exit
+    // #builtin.asm.ECALL(
+    //     // ecall is a bad example to start with because it's fakeuser
+    //     // let's start with ADDI. ecall can come later
+    //     .x10 = 0, // exit
+    // );
+
+    #builtin.asm.ADD(
+        .rs1 = 10,
+        .rs2 = 20,
     );
 };
