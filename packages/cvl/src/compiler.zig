@@ -310,6 +310,15 @@ const Types = struct {
             name: Types.Key.ComptimeValue,
             ty: Type,
             default_value: ?Decl.Index,
+            // /// this indicates that initializing this struct should return a new struct type with
+            // /// 'parent_struct' = to this struct, and the field missing from the fields array.
+            // /// (field_name?: T)
+            // comptime_optional: bool,
+            // /// the slot type will be ty, but a new struct will be initialized with the type of the
+            // /// field set to the value. (mabe using field_name: infer extends U)?
+            // comptime_anytype: bool,
+            // /// value is compiletime (comptime field_name: T)
+            // compiletime: bool,
         };
         /// for types created containing the values of compiletime
         /// or comptime_optional fields
