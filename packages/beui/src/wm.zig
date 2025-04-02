@@ -87,14 +87,16 @@ pub const WM = struct {
         }
     };
     const FrameContent = union(enum) {
-        tabbed: struct {
-            current_tab: ?FrameID, // TODO manage this
+        pub const Tabbed = struct {
+            current_tab: FrameID,
             children: std.ArrayListUnmanaged(FrameID),
-        },
-        split: struct {
+        };
+        pub const Split = struct {
             axis: XY,
             children: std.ArrayListUnmanaged(FrameID),
-        },
+        };
+        tabbed: Tabbed,
+        split: Split,
         final: struct {
             // null indicates this is a placeholder window that does not contain any block
             ref: ?*db_mod.BlockRef = null,
@@ -209,12 +211,15 @@ pub const WM = struct {
         const parent_frame = self.getFrame(parent);
         switch (parent_frame.self) {
             inline .tabbed, .split => |*sv| {
-                _ = sv.children.orderedRemove(std.mem.indexOfScalar(FrameID, sv.children.items, child) orelse unreachable);
+                const idx = std.mem.indexOfScalar(FrameID, sv.children.items, child) orelse unreachable;
+                _ = sv.children.orderedRemove(idx);
                 if (sv.children.items.len == 0) unreachable;
                 if (sv.children.items.len == 1) {
                     self.getFrame(sv.children.items[0]).parent = .not_set;
                     self._replaceChild(parent_frame.parent, parent, sv.children.items[0]);
                     self._removeNode(parent);
+                } else if (@TypeOf(sv.*) == FrameContent.Tabbed) {
+                    sv.current_tab = sv.children.items[idx - 1];
                 }
             },
             .final => unreachable, // has no children
@@ -247,6 +252,12 @@ pub const WM = struct {
     fn _replaceChild(self: *WM, parent: FrameID, prev_child: FrameID, next_child: FrameID) void {
         const children = self.getFrame(parent).self.children();
         children[std.mem.indexOfScalar(FrameID, children, prev_child) orelse unreachable] = next_child;
+        switch (self.getFrame(parent).self) {
+            .tabbed => |*t| {
+                t.current_tab = next_child;
+            },
+            else => {},
+        }
         self.getFrame(next_child)._setParent(parent);
     }
     pub fn moveFrameNewWindow(self: *WM, child: FrameID) void {
@@ -308,7 +319,7 @@ pub const WM = struct {
             break :blk .{ idxof, target_parent };
         } else blk: {
             const tabbed = self.addFrame(.{ .tabbed = .{
-                .current_tab = null,
+                .current_tab = target,
                 .children = .empty,
             } });
             self.getFrame(tabbed).self.tabbed.children.append(self.gpa, target) catch @panic("oom");
@@ -318,6 +329,7 @@ pub const WM = struct {
             break :blk .{ 0, tabbed };
         };
         self.getFrame(tabbed).self.tabbed.children.insert(self.gpa, offset + target_dir.idx(), child) catch @panic("oom");
+        self.getFrame(tabbed).self.tabbed.current_tab = child;
         self.getFrame(child).parent = .not_set;
         self.getFrame(child)._setParent(tabbed);
     }
@@ -373,7 +385,7 @@ pub const WM = struct {
         switch (frame.self) {
             .tabbed => |s| {
                 if (s.children.items.len < 2) unreachable;
-                try out.writer().print(":", .{});
+                try out.writer().print(": {}", .{s.current_tab});
                 for (s.children.items) |child| {
                     try _printIndent(out, indent);
                     try self._renderFrameToString(child, frame_id, out, indent + 1);
@@ -482,34 +494,34 @@ test WM {
     my_wm.dropFrameToTab(.fromTest(1, 0), .left);
     try std.testing.expectEqualStrings(
         \\@1.1.window: @0.4.final
-        \\@3.5.window: @5.3.tabbed:
+        \\@3.5.window: @5.3.tabbed: @1.2
         \\    @1.2.final
         \\    @1.0.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.grabFrame(.fromTest(0, 4));
     try std.testing.expectEqualStrings(
-        \\@3.5.window: @5.3.tabbed:
+        \\@3.5.window: @5.3.tabbed: @1.2
         \\    @1.2.final
         \\    @1.0.final
         \\@2.1.dragging: @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.dropFrameToTab(.fromTest(1, 0), .right);
     try std.testing.expectEqualStrings(
-        \\@3.5.window: @5.3.tabbed:
+        \\@3.5.window: @5.3.tabbed: @0.4
         \\    @1.2.final
         \\    @1.0.final
         \\    @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.grabFrame(.fromTest(0, 4));
     try std.testing.expectEqualStrings(
-        \\@3.5.window: @5.3.tabbed:
+        \\@3.5.window: @5.3.tabbed: @1.0
         \\    @1.2.final
         \\    @1.0.final
         \\@3.1.dragging: @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.dropFrameToSplit(.fromTest(1, 2), .bottom);
     try std.testing.expectEqualStrings(
-        \\@3.5.window: @5.3.tabbed:
+        \\@3.5.window: @5.3.tabbed: @4.1
         \\    @4.1.split.y:
         \\        @1.2.final
         \\        @0.4.final
@@ -550,7 +562,7 @@ test WM {
     , try my_wm.testingRenderToString(&buf));
     my_wm.dropFrameToTab(.fromTest(0, 6), .right);
     try std.testing.expectEqualStrings(
-        \\@0.7.window: @5.5.tabbed:
+        \\@0.7.window: @5.5.tabbed: @4.1
         \\    @0.6.final
         \\    @4.1.split.y:
         \\        @1.2.final
@@ -560,7 +572,7 @@ test WM {
     , try my_wm.testingRenderToString(&buf));
     my_wm.removeFrame(.fromTest(1, 2));
     try std.testing.expectEqualStrings(
-        \\@0.7.window: @5.5.tabbed:
+        \\@0.7.window: @5.5.tabbed: @7.3
         \\    @0.6.final
         \\    @7.3.split.x:
         \\        @1.0.final

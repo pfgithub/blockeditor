@@ -216,7 +216,7 @@ fn drawWindowNode(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, parent_
             }
         },
         .tabbed => |t| {
-            return drawWindowTabbed(ctx, rdl, child_top, win, t.current_tab.?, t.children.items, offset_pos, offset_size);
+            return drawWindowTabbed(ctx, rdl, child_top, win, t.current_tab, t.children.items, offset_pos, offset_size);
         },
         .split => |s| {
             const len_f: f32 = @floatFromInt(s.children.items.len);
