@@ -101,13 +101,42 @@ const Backends = struct {
         };
         const Arg_CacheKey = struct {
             spec: rvemu.rvinstrs.InstrSpec,
-            fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
-                return 0;
+            fn hash(a: anywhere.util.AnyPtr, _: *Env) u32 {
+                const a_cast = a.to(Arg_CacheKey);
+                return std.array_hash_map.hashString(a_cast);
             }
-            fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
-                return true;
+            fn eql(a_raw: anywhere.util.AnyPtr, b_raw: anywhere.util.AnyPtr, _: *Env) bool {
+                const a = a_raw.to(Arg_CacheKey);
+                const b = b_raw.to(Arg_CacheKey);
+                // name must be unique
+                return a.spec.name.ptr == b.spec.name.ptr;
             }
-            fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+            fn tyFromBank(bank: rvemu.rvinstrs.RegBank) Type {
+                return switch (bank) {
+                    .sint => Types.Int.fromIntTy(i32),
+                    .uint => Types.Int.fromIntTy(u32),
+                    else => @panic("TODO bank"),
+                    // .float => Types.IEEE.ieee32,
+                    // .double => Types.IEEE.ieee64,
+                };
+            }
+            fn init(raw: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+                const self = raw.to(Arg_CacheKey);
+                const fields: []Types.Struct.Field = switch (self.spec.format) {
+                    .R => try env.arena.dupe(Types.Struct.Field, &.{
+                        .{
+                            .name = try env.comptimeKeyFromString("rs1"),
+                            .ty = Types.Int.sint32,
+                            .default_value = null,
+                        },
+                        .{
+                            .name = try env.comptimeKeyFromString("rs2"),
+                            .ty = Types.Int.sint32,
+                            .default_value = null,
+                        },
+                    }),
+                    else => return env.addErr(env.srclocFromSrc(@src()), "TODO asm instr fmt: {s}", .{@tagName(self.spec.format)}),
+                };
                 return .from(
                     try env.srclocFromSrc(@src()),
                     Types.Ty,
@@ -116,28 +145,7 @@ const Backends = struct {
                         Types.Struct,
                         try anywhere.util.dupeOne(env.arena, Types.Struct{
                             .srcloc = try env.srclocFromSrc(@src()),
-                            .fields = try env.arena.dupe(Types.Struct.Field, &.{
-                                // .{
-                                //     .name = try env.comptimeKeyFromString("x10"),
-                                //     .ty = Types.Int.sint32,
-                                //     .default_value = null,
-                                // },
-                                .{
-                                    .name = try env.comptimeKeyFromString("rs1"),
-                                    .ty = Types.Int.sint32,
-                                    .default_value = null,
-                                },
-                                .{
-                                    .name = try env.comptimeKeyFromString("rs2"),
-                                    .ty = Types.Int.sint32,
-                                    .default_value = null,
-                                },
-                                // runtime:
-                                // - rs1: i32, rs2: i32, rd: bool
-                                // - x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30
-                                // comptime:
-                                // - op, imm11_0, ...
-                            }),
+                            .fields = fields,
                         }),
                     )),
                 );
@@ -448,7 +456,10 @@ const Types = struct {
         min: i128,
         max: i128,
         pub const ComptimeValue = i128;
-        pub const sint32: Type = .from(@This(), &.{ .min = std.math.minInt(i32), .max = std.math.maxInt(i32) });
+        // if we need referential equality between the same ints this is a bit more complicated
+        pub fn fromIntTy(comptime int_ty: type) Type {
+            return .from(@This(), &.{ .min = std.math.minInt(int_ty), .max = std.math.maxInt(int_ty) });
+        }
 
         fn name(self_any: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
             const self = self_any.toConst(@This());
