@@ -150,7 +150,7 @@ fn drawWindowTabbed(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, top: 
     });
     // const user_state_id = window_id.sub(@src());
     // rdl.addUserState(user_state_id, void, &{});
-    captureResize(rdl, man, window_id.sub(@src()), .{
+    captureResize(rdl, man, man.idForFrame(@src(), tabs[0]), .{
         .grab_tab = .{ .tab = tabs[0], .offset = offset_pos },
     }, tab_pos, tab_size);
     rdl.addRect(.{
