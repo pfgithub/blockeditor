@@ -169,13 +169,13 @@ fn render__contextMenu__child(self: *App, sci: B2.StandardCallInfo, _: void) B2.
         .self = self,
         .label = "Bouncy Ball",
     });
-    return B2.button(ui.sub(@src()), .{ .onClick = .from(ctxm, render__contextMenu__child__onClick) }, .from(ctxm, render__contextMenu__child__child));
+    return B2.contextMenuLine(ui.sub(@src()), .{ .onClick = .from(ctxm, render__contextMenu__child__onClick) }, .from(ctxm, render__contextMenu__child__child));
 }
 fn render__contextMenu__child__onClick(self: *render__contextMenu__child__child_Data, _: *B2.Beui2, _: void) void {
     const bouncy_ball = self.self.db.createBlock(bi.BouncyBallViewer.deserialize(self.self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
     self.self.wm.wm.moveFrameNewWindow(self.self.wm.wm.addFrame(.{ .final = .{ .ref = bouncy_ball } }));
 }
-fn render__contextMenu__child__child(self: *render__contextMenu__child__child_Data, sci: B2.StandardCallInfo, _: B2.ButtonState) B2.StandardChild {
+fn render__contextMenu__child__child(self: *render__contextMenu__child__child_Data, sci: B2.StandardCallInfo, _: B2.ContextMenuLineState) B2.StandardChild {
     return B2.textLine(sci, .{ .text = self.label });
 }
 

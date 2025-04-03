@@ -1294,6 +1294,59 @@ fn defaultTextButton_2(msg: *const []const u8, caller_id: StandardCallInfo, _: v
     return textOnly(ui.sub(@src()), msg.*, .fromHexRgb(0xFFFF00));
 }
 
+pub const ContextMenuLineEhdl = struct {
+    onClick: BetweenFrameCallback(*Beui2, void, void),
+};
+pub const ContextMenuLineState = struct {
+    active: bool,
+    ehdl: ContextMenuLineEhdl,
+};
+/// rather than 'button', we want 'contextmenuitem'. these will follow context menu
+/// behaviour:
+/// - arrow keys to navigate
+/// - click activates & closes context menu
+/// - click & drag lets you switch to a different item to activate
+/// - when you open the context menu by right clicking & hold, it shouldn't activate items
+///   until you have held at least (min_time)ms and dragged at least (min_dist)px, then it
+///   should act the same as if you clicked and dragged on an item
+/// - the context menu is the one holding the mouse event. if you click and drag from a
+///   spot without a mouse handler, it will highlight items.
+/// how does this work?
+/// - in the context menu's click handler, we can ask for the subtree. we know it, it was just
+///   last frame. then, we can dispatch our custom event.
+pub fn contextMenuLine(call_info: StandardCallInfo, ehdl: ContextMenuLineEhdl, child_component: Component(StandardCallInfo, ContextMenuLineState, StandardChild)) StandardChild {
+    const tctx = tracy.trace(@src());
+    defer tctx.end();
+
+    const ui = call_info.ui(@src());
+
+    const draw = ui.id.b2.draw();
+
+    const draw_list_state_id = ui.id.sub(@src());
+    const prev_state = ui.id.b2.getPrevFrameDrawListState(draw_list_state_id);
+    const next_state = ui.id.b2.frame.arena.create(ContextMenuLineState) catch @panic("oom");
+    next_state.* = .{
+        .active = if (prev_state) |p| p.cast(ContextMenuLineState).active else false,
+        .ehdl = ehdl,
+    };
+    draw.addUserState(draw_list_state_id, ContextMenuLineState, next_state);
+
+    const child = child_component.call(ui.sub(@src()), next_state.*);
+    draw.place(child.rdl, .{});
+    draw.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, child.size, .{
+        .onMouseEvent = .from(next_state, contextMenuLine__onMouseEvent),
+    });
+    return .{ .size = child.size, .rdl = draw };
+}
+fn contextMenuLine__onMouseEvent(st: *ContextMenuLineState, b2: *Beui2, ev: MouseEvent) ?Beui.Cursor {
+    if (ev.action == .move_while_up) return .arrow;
+    st.active = pointInRect(ev.pos, ev.capture_pos, ev.capture_size);
+    if (ev.action == .up) {
+        if (st.active) st.ehdl.onClick.call(b2, {});
+        st.active = false;
+    }
+    return .arrow;
+}
 pub const ButtonEhdl = struct {
     onClick: BetweenFrameCallback(*Beui2, void, void),
 };
@@ -1324,6 +1377,15 @@ pub fn button(call_info: StandardCallInfo, ehdl: ButtonEhdl, child_component: Co
         .onMouseEvent = .from(next_state, button__onMouseEvent),
     });
     return .{ .size = child.size, .rdl = draw };
+}
+fn button__onMouseEvent(st: *ButtonState, b2: *Beui2, ev: MouseEvent) ?Beui.Cursor {
+    if (ev.action == .move_while_up) return .arrow;
+    st.active = pointInRect(ev.pos, ev.capture_pos, ev.capture_size);
+    if (ev.action == .up) {
+        if (st.active) st.ehdl.onClick.call(b2, {});
+        st.active = false;
+    }
+    return .arrow;
 }
 const CxState = struct {
     anchor_pos: ?@Vector(2, f32),
@@ -1439,15 +1501,6 @@ pub const ScrollEvent = struct {
     pos: ?@Vector(2, f32),
     scroll: @Vector(2, f32),
 };
-fn button__onMouseEvent(st: *ButtonState, b2: *Beui2, ev: MouseEvent) ?Beui.Cursor {
-    if (ev.action == .move_while_up) return .arrow;
-    st.active = pointInRect(ev.pos, ev.capture_pos, ev.capture_size);
-    if (ev.action == .up) {
-        if (st.active) st.ehdl.onClick.call(b2, {});
-        st.active = false;
-    }
-    return .arrow;
-}
 
 fn setBackground(call_info: StandardCallInfo, color: Beui.Color, child_component: Component(StandardCallInfo, void, StandardChild)) StandardChild {
     const ui = call_info.ui(@src());
