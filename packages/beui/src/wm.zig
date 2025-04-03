@@ -354,7 +354,7 @@ pub const WM = struct {
         return parentmost;
     }
 
-    fn testingRenderToString(self: *WM, buf: *std.ArrayList(u8)) ![]const u8 {
+    pub fn testingRenderToString(self: *WM, buf: *std.ArrayList(u8)) ![]const u8 {
         buf.clearAndFree();
 
         for (self.top_level_windows.items) |tlw| {

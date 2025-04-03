@@ -101,6 +101,10 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
             }
             self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debug_2 } }));
         }
+        if (zgui.button("Debug WM", .{})) {
+            const debugwm_viewer = self.db.createBlock(bi.DebugWMViewer.deserialize(self.gpa, bi.DebugWMViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debugwm_viewer } }));
+        }
         if (zgui.button("Minigamer", .{})) {
             const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(self.gpa, bi.MinigamerViewer.default) catch @panic("oom"));
             self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = minigamer_viewer } }));
@@ -419,6 +423,27 @@ fn render__block(self: *App, arg: WM.Manager.RenderBlockArg) *B2.RepositionableD
         },
         bi.BouncyBallViewer.uuid => {
             return render__bounceBall(ui.sub(@src()));
+        },
+        bi.DebugWMViewer.uuid => {
+            var al = std.ArrayList(u8).init(self.gpa);
+            defer al.deinit();
+            const msg = if (self.wm.wm.testingRenderToString(&al)) |val| val else |e| @errorName(e);
+            const rdl = ui.id.b2.draw();
+            var split = std.mem.splitScalar(u8, msg, '\n');
+            // ideally we could have a generic text component that would use diff-match-patch maybe to preserve
+            // selection & scroll position across updates?
+            const lp = ui.id.pushLoop(@src(), usize);
+            var i: usize = 0;
+            var pos: @Vector(2, f32) = .{ 0, 0 };
+            while (split.next()) |itm| : (i += 1) {
+                const line = B2.textLine(.{
+                    .caller_id = lp.pushLoopValueNoSrc(i),
+                    .constraints = ui.constraints,
+                }, .{ .text = itm });
+                rdl.place(line.rdl, .{ .offset = pos });
+                pos[1] += line.size[1];
+            }
+            return rdl;
         },
         else => {
             return B2.textLine(ui.sub(@src()), .{ .text = ui.id.b2.fmt("no ui provided for: {s}", .{std.mem.span(c.vtable.type_id)}) }).rdl;
