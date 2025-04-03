@@ -112,47 +112,53 @@ const CollapseData = struct {
     man: *WM.Manager,
     frame: WM.WM.FrameID,
 };
-fn drawWindowTabbed(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, top: ?TopInfo, win: WM.WM.FrameID, current_tab: WM.WM.FrameID, tabs: []const WM.WM.FrameID, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
+fn drawWindowTabbed(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, top: ?TopInfo, win: WM.WM.FrameID, current_tab_in: WM.WM.FrameID, tabs_in: []const WM.WM.FrameID, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
     const man = ctx.man;
     // draw titlebar
 
     const window_id = man.idForFrame(@src(), win);
 
     if (top) |_| {
-        drawDropPoint(man, window_id.sub(@src()), current_tab, .tab_right, rdl, offset_pos, .{ offset_size[0], titlebar_height });
+        drawDropPoint(man, window_id.sub(@src()), current_tab_in, .tab_right, rdl, offset_pos, .{ offset_size[0], titlebar_height });
     }
 
     const collapsebtn_data = &(window_id.b2.frame.arena.dupe(CollapseData, &.{
         .{ .man = man, .frame = win },
     }) catch @panic("oom"))[0];
-    const closebtn_data = &(window_id.b2.frame.arena.dupe(CollapseData, &.{
-        .{ .man = man, .frame = current_tab },
-    }) catch @panic("oom"))[0];
-    const title: []const u8 = "Untitled";
-    const text_line_res = B2.textLine(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = offset_size[0], .h = null } } }, .{ .text = title });
-    // we can replace the manual calculations with:
-    // padding(border_width / 2, h(vcenter(collapseicon), space, vcenter(tab1), space, vcenter(tab2), space, vcenter(tab3)))
     rdl.place(B2.button(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = null, .h = null } } }, .{
         .onClick = .from(collapsebtn_data, drawWindowTabbed_collapseButtonClicked),
     }, .from(collapsebtn_data, drawWindowTabbed_collapseButtonChild)).rdl, .{ .offset = offset_pos });
-    const btn_height = titlebar_height - 4.0;
-    rdl.place(text_line_res.rdl, .{ .offset = .{ offset_pos[0] + border_width * 5, offset_pos[1] + (titlebar_height - text_line_res.size[1]) / 2.0 } });
-    rdl.place(B2.button(.{ .caller_id = window_id.sub(@src()), .constraints = .{ .available_size = .{ .w = null, .h = null } } }, .{
-        .onClick = .from(closebtn_data, drawWindowTabbed_closeButtonClicked),
-    }, .from(closebtn_data, drawWindowTabbed_closeButtonChild)).rdl, .{ .offset = .{ offset_pos[0] + border_width * 5 + text_line_res.size[0], offset_pos[1] } });
-    const tab_pos: @Vector(2, f32) = .{ offset_pos[0] + border_width * 4, offset_pos[1] + (titlebar_height - btn_height) / 2.0 };
-    const tab_size: @Vector(2, f32) = .{ text_line_res.size[0] + border_width * 2, btn_height };
-    rdl.addRect(.{
-        .pos = tab_pos,
-        .size = tab_size,
-        .tint = colors.window_active_tab,
-        .rounding = .{ .corners = .all, .radius = border_width },
-    });
-    // const user_state_id = window_id.sub(@src());
-    // rdl.addUserState(user_state_id, void, &{});
-    captureResize(rdl, man, man.idForFrame(@src(), tabs[0]), .{
-        .grab_tab = .{ .tab = tabs[0], .offset = offset_pos },
-    }, tab_pos, tab_size);
+    var tab_offset: @Vector(2, f32) = offset_pos;
+    for (tabs_in) |tab| {
+        const tab_id = man.idForFrame(@src(), tab);
+        const closebtn_data = &(tab_id.b2.frame.arena.dupe(CollapseData, &.{
+            .{ .man = man, .frame = tab },
+        }) catch @panic("oom"))[0];
+        const title: []const u8 = "Untitled";
+        const text_line_res = B2.textLine(.{ .caller_id = tab_id.sub(@src()), .constraints = .{ .available_size = .{ .w = offset_size[0], .h = null } } }, .{ .text = title });
+        // we can replace the manual calculations with:
+        // padding(border_width / 2, h(vcenter(collapseicon), space, vcenter(tab1), space, vcenter(tab2), space, vcenter(tab3)))
+        const btn_height = titlebar_height - 4.0;
+        rdl.place(text_line_res.rdl, .{ .offset = .{ tab_offset[0] + border_width * 5, tab_offset[1] + (titlebar_height - text_line_res.size[1]) / 2.0 } });
+        rdl.place(B2.button(.{ .caller_id = tab_id.sub(@src()), .constraints = .{ .available_size = .{ .w = null, .h = null } } }, .{
+            .onClick = .from(closebtn_data, drawWindowTabbed_closeButtonClicked),
+        }, .from(closebtn_data, drawWindowTabbed_closeButtonChild)).rdl, .{ .offset = .{ tab_offset[0] + border_width * 5 + text_line_res.size[0], tab_offset[1] } });
+        const tab_pos: @Vector(2, f32) = .{ tab_offset[0] + border_width * 4, tab_offset[1] + (titlebar_height - btn_height) / 2.0 };
+        const tab_size: @Vector(2, f32) = .{ text_line_res.size[0] + border_width * 2, btn_height };
+        if (tab == current_tab_in) rdl.addRect(.{
+            .pos = tab_pos,
+            .size = tab_size,
+            .tint = colors.window_active_tab,
+            .rounding = .{ .corners = .all, .radius = border_width },
+        });
+        // const user_state_id = window_id.sub(@src());
+        // rdl.addUserState(user_state_id, void, &{});
+        captureResize(rdl, man, tab_id.sub(@src()), .{
+            .grab_tab = .{ .tab = tab, .offset = tab_offset },
+        }, tab_pos, tab_size);
+
+        tab_offset += .{ text_line_res.size[0] + 30, 0 };
+    }
     rdl.addRect(.{
         .pos = offset_pos,
         .size = .{ offset_size[0], titlebar_height },
@@ -160,14 +166,11 @@ fn drawWindowTabbed(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, top: 
         .rounding = .{ .corners = .all, .radius = border_width },
     });
     captureResize(rdl, man, window_id.sub(@src()), .{ .resize = .{ .window = man.wm.findRoot(win), .sides = .all } }, offset_pos, .{ offset_size[0], titlebar_height + border_width });
-    const current_tab_node = for (tabs) |tab| {
-        if (tab == current_tab) break tab;
-    } else @panic("tab not found; TODO?");
 
-    if (man.wm.getFrame(current_tab).collapsed) {
+    if (man.wm.getFrame(win).collapsed) {
         // ...
     } else {
-        return drawWindowNode(ctx, rdl, top, current_tab_node, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
+        return drawWindowNode(ctx, rdl, top, current_tab_in, offset_pos + @Vector(2, f32){ 0, titlebar_height + border_width }, offset_size - @Vector(2, f32){ 0, titlebar_height + border_width }, .{ .parent_is_tabs = true });
     }
 }
 fn drawDropPoint(man: *WM.Manager, id: B2.ID, node: WM.WM.FrameID, tdp: DropPos, rdl: *B2.RepositionableDrawList, pos: @Vector(2, f32), size: @Vector(2, f32)) void {
@@ -320,6 +323,15 @@ fn captureResize__handleWindowEvent(wid: *WindowEventInfo, b2: *B2.Beui2, ev: B2
             return .pointer;
         },
         .grab_tab => |grab_tab| {
+            if (ev.action == .down) {
+                // select the tab on mousedown, even if you're about to grab it
+                // - macos tabs work this way
+                // - vscode tabs work this way
+                // - firefox tabs work this way
+                // my intuition was tabs would only focus on mouseup if they weren't
+                // dragged but it looks like that's wrong
+                wid.man.wm.selectTab(grab_tab.tab);
+            }
             if (ev.action == .move_while_down and wid.man.wm.dragging == WM.WM.FrameID.not_set) {
                 const offset = ev.pos.? - ev.drag_start_pos.?;
                 const dist = std.math.sqrt(offset[0] * offset[0] + offset[1] * offset[1]);

@@ -219,7 +219,7 @@ pub const WM = struct {
                     self._replaceChild(parent_frame.parent, parent, sv.children.items[0]);
                     self._removeNode(parent);
                 } else if (@TypeOf(sv.*) == FrameContent.Tabbed) {
-                    sv.current_tab = sv.children.items[idx - 1];
+                    sv.current_tab = sv.children.items[idx -| 1];
                 }
             },
             .final => unreachable, // has no children
@@ -342,7 +342,17 @@ pub const WM = struct {
                 _ = self.top_level_windows.orderedRemove(idx);
                 self.top_level_windows.appendAssumeCapacity(parentmost);
             },
-            else => unreachable,
+            else => unreachable, // no other parentmost window types
+        }
+    }
+    pub fn selectTab(self: *WM, tab: FrameID) void {
+        const parent = self.getFrame(tab).parent;
+        if (parent.ptr == .not_set or parent.ptr == .top_level) return;
+        switch (self.getFrame(parent).self) {
+            .tabbed => |*t| {
+                t.current_tab = tab;
+            },
+            else => {},
         }
     }
     pub fn findRoot(self: *WM, target: FrameID) FrameID {
