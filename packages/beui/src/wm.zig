@@ -93,7 +93,16 @@ pub const WM = struct {
         };
         pub const Split = struct {
             axis: XY,
+            // center: FrameID[]
+            // left[]
+            // right[]
+            // left & right store size in pixels
+            // center stores sizes in percentages
+            // this would be hard to have clear ui for, but if you're
+            //   making an app where tabs are locked in a tab area
+            //   by default, it would be nice.
             children: std.ArrayListUnmanaged(FrameID),
+            percentages: std.ArrayListUnmanaged(f32),
         };
         tabbed: Tabbed,
         split: Split,
@@ -120,7 +129,11 @@ pub const WM = struct {
         }
         pub fn deinit(self: *FrameContent, gpa: std.mem.Allocator) void {
             switch (self.*) {
-                inline .tabbed, .split => |*s| s.children.deinit(gpa),
+                .tabbed => |*s| s.children.deinit(gpa),
+                .split => |*s| {
+                    s.children.deinit(gpa);
+                    s.percentages.deinit(gpa);
+                },
                 .final => |f| {
                     if (f.ref) |r| r.unref();
                 },
@@ -291,8 +304,10 @@ pub const WM = struct {
             const split = self.addFrame(.{ .split = .{
                 .axis = target_dir.toAxis(),
                 .children = .empty,
+                .percentages = .empty,
             } });
             self.getFrame(split).self.split.children.append(self.gpa, target) catch @panic("oom");
+            self.getFrame(split).self.split.percentages.append(self.gpa, 1) catch @panic("oom");
             self._replaceChild(target_parent, target, split);
             self.getFrame(target).parent = .not_set;
             self.getFrame(target)._setParent(split);
@@ -302,6 +317,7 @@ pub const WM = struct {
             @panic("TODO support drop split in split");
         }
         self.getFrame(split).self.split.children.insert(self.gpa, offset + target_dir.idx(), child) catch @panic("oom");
+        self.getFrame(split).self.split.percentages.insert(self.gpa, offset + target_dir.idx(), 1) catch @panic("oom");
         self.getFrame(child).parent = .not_set;
         self.getFrame(child)._setParent(split);
     }
@@ -404,8 +420,9 @@ pub const WM = struct {
             .split => |s| {
                 if (s.children.items.len < 2) unreachable;
                 try out.writer().print(".{s}:", .{@tagName(s.axis)});
-                for (s.children.items) |child| {
+                for (s.children.items, s.percentages.items) |child, percent| {
                     try _printIndent(out, indent);
+                    try out.writer().print("{d:.1}: ", .{percent});
                     try self._renderFrameToString(child, frame_id, out, indent + 1);
                 }
             },

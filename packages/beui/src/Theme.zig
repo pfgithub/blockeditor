@@ -225,15 +225,17 @@ fn drawWindowNode(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, parent_
             const len_f: f32 = @floatFromInt(s.children.items.len);
             const w = border_width * 2;
             const rem_space: f32 = s.axis.flip(offset_size)[0] - (len_f - 1.0) * w;
-            const per_child_space: f32 = @floor(rem_space / len_f);
-            var child_size = s.axis.flip(offset_size);
-            child_size[0] = per_child_space;
+            var total_rem: f32 = 0.0;
+            for (s.percentages.items) |it| total_rem += it;
             var pos = s.axis.flip(offset_pos);
             const skip: B2.Sides = switch (s.axis) {
                 .x => .left_right,
                 .y => .top_bottom,
             };
-            for (s.children.items, 0..) |ch, i| {
+            for (s.children.items, s.percentages.items, 0..) |ch, percent, i| {
+                const this_child_space: f32 = @floor(rem_space / total_rem * percent);
+                var child_size = s.axis.flip(offset_size);
+                child_size[0] = this_child_space;
                 if (i != 0) {
                     if (child_top) |t| {
                         drawDropPoint(man, man.idForFrame(@src(), ch), ch, .tab_left, t.rdl, s.axis.flip(@Vector(2, f32){ pos[0] - w, pos[1] }), s.axis.flip(@Vector(2, f32){ w, child_size[1] }));
@@ -252,7 +254,7 @@ fn drawWindowNode(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, parent_
                     s.axis.flip(child_size),
                     .{ .parent_is_tabs = false },
                 );
-                pos[0] += per_child_space + w;
+                pos[0] += this_child_space + w;
             }
         },
         else => std.debug.panic("TODO: {s}", .{@tagName(frame.self)}),
