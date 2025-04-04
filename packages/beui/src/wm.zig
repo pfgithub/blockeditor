@@ -226,6 +226,9 @@ pub const WM = struct {
             inline .tabbed, .split => |*sv| {
                 const idx = std.mem.indexOfScalar(FrameID, sv.children.items, child) orelse unreachable;
                 _ = sv.children.orderedRemove(idx);
+                if (@TypeOf(sv.*) == FrameContent.Split) {
+                    _ = sv.percentages.orderedRemove(idx);
+                }
                 if (sv.children.items.len == 0) unreachable;
                 if (sv.children.items.len == 1) {
                     self.getFrame(sv.children.items[0]).parent = .not_set;
@@ -480,36 +483,36 @@ test WM {
     my_wm.dropFrameToSplit(.fromTest(1, 0), .left);
     try std.testing.expectEqualStrings(
         \\@1.1.window: @3.3.split.x:
-        \\    @1.2.final
-        \\    @1.0.final
+        \\    1.0: @1.2.final
+        \\    1.0: @1.0.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.moveFrameNewWindow(my_wm.addFrame(.{ .final = .{} }));
     try std.testing.expectEqualStrings(
         \\@1.1.window: @3.3.split.x:
-        \\    @1.2.final
-        \\    @1.0.final
+        \\    1.0: @1.2.final
+        \\    1.0: @1.0.final
         \\@0.5.window: @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.grabFrame(.fromTest(0, 4));
     my_wm.dropFrameToSplit(.fromTest(1, 0), .right);
     try std.testing.expectEqualStrings(
         \\@1.1.window: @3.3.split.x:
-        \\    @1.2.final
-        \\    @1.0.final
-        \\    @0.4.final
+        \\    1.0: @1.2.final
+        \\    1.0: @1.0.final
+        \\    1.0: @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.grabFrame(.fromTest(1, 0));
     try std.testing.expectEqualStrings(
         \\@1.1.window: @3.3.split.x:
-        \\    @1.2.final
-        \\    @0.4.final
+        \\    1.0: @1.2.final
+        \\    1.0: @0.4.final
         \\@2.5.dragging: @1.0.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.dropFrameToNewWindow();
     try std.testing.expectEqualStrings(
         \\@1.1.window: @3.3.split.x:
-        \\    @1.2.final
-        \\    @0.4.final
+        \\    1.0: @1.2.final
+        \\    1.0: @0.4.final
         \\@3.5.window: @1.0.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.grabFrame(.fromTest(1, 2));
@@ -550,60 +553,60 @@ test WM {
     try std.testing.expectEqualStrings(
         \\@3.5.window: @5.3.tabbed: @4.1
         \\    @4.1.split.y:
-        \\        @1.2.final
-        \\        @0.4.final
+        \\        1.0: @1.2.final
+        \\        1.0: @0.4.final
         \\    @1.0.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.grabFrame(.fromTest(1, 0));
     try std.testing.expectEqualStrings(
         \\@3.5.window: @4.1.split.y:
-        \\    @1.2.final
-        \\    @0.4.final
+        \\    1.0: @1.2.final
+        \\    1.0: @0.4.final
         \\@6.3.dragging: @1.0.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.dropFrameToSplit(.fromTest(0, 4), .left);
     try std.testing.expectEqualStrings(
         \\@3.5.window: @4.1.split.y:
-        \\    @1.2.final
-        \\    @7.3.split.x:
-        \\        @1.0.final
-        \\        @0.4.final
+        \\    1.0: @1.2.final
+        \\    1.0: @7.3.split.x:
+        \\        1.0: @1.0.final
+        \\        1.0: @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.moveFrameNewWindow(my_wm.addFrame(.{ .final = .{} }));
     try std.testing.expectEqualStrings(
         \\@3.5.window: @4.1.split.y:
-        \\    @1.2.final
-        \\    @7.3.split.x:
-        \\        @1.0.final
-        \\        @0.4.final
+        \\    1.0: @1.2.final
+        \\    1.0: @7.3.split.x:
+        \\        1.0: @1.0.final
+        \\        1.0: @0.4.final
         \\@0.7.window: @0.6.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.grabFrame(.fromTest(4, 1));
     try std.testing.expectEqualStrings(
         \\@0.7.window: @0.6.final
         \\@4.5.dragging: @4.1.split.y:
-        \\    @1.2.final
-        \\    @7.3.split.x:
-        \\        @1.0.final
-        \\        @0.4.final
+        \\    1.0: @1.2.final
+        \\    1.0: @7.3.split.x:
+        \\        1.0: @1.0.final
+        \\        1.0: @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.dropFrameToTab(.fromTest(0, 6), .right);
     try std.testing.expectEqualStrings(
         \\@0.7.window: @5.5.tabbed: @4.1
         \\    @0.6.final
         \\    @4.1.split.y:
-        \\        @1.2.final
-        \\        @7.3.split.x:
-        \\            @1.0.final
-        \\            @0.4.final
+        \\        1.0: @1.2.final
+        \\        1.0: @7.3.split.x:
+        \\            1.0: @1.0.final
+        \\            1.0: @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.removeFrame(.fromTest(1, 2));
     try std.testing.expectEqualStrings(
         \\@0.7.window: @5.5.tabbed: @7.3
         \\    @0.6.final
         \\    @7.3.split.x:
-        \\        @1.0.final
-        \\        @0.4.final
+        \\        1.0: @1.0.final
+        \\        1.0: @0.4.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.removeFrame(.fromTest(7, 3));
     try std.testing.expectEqualStrings(
@@ -637,23 +640,23 @@ test WM {
     my_wm.moveFrameToSplit(.fromTest(0, 6), .fromTest(8, 3), .right);
     try std.testing.expectEqualStrings(
         \\@1.4.window: @1.7.split.x:
-        \\    @8.3.final
-        \\    @0.6.final
+        \\    1.0: @8.3.final
+        \\    1.0: @0.6.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.moveFrameToSplit(my_wm.addFrame(.{ .final = .{} }), .fromTest(0, 6), .right);
     try std.testing.expectEqualStrings(
         \\@1.4.window: @1.7.split.x:
-        \\    @8.3.final
-        \\    @0.6.final
-        \\    @2.0.final
+        \\    1.0: @8.3.final
+        \\    1.0: @0.6.final
+        \\    1.0: @2.0.final
     , try my_wm.testingRenderToString(&buf));
     my_wm.moveFrameToSplit(my_wm.addFrame(.{ .final = .{} }), .fromTest(1, 7), .right);
     try std.testing.expectEqualStrings(
         \\@1.4.window: @1.7.split.x:
-        \\    @8.3.final
-        \\    @0.6.final
-        \\    @2.0.final
-        \\    @6.5.final
+        \\    1.0: @8.3.final
+        \\    1.0: @0.6.final
+        \\    1.0: @2.0.final
+        \\    1.0: @6.5.final
     , try my_wm.testingRenderToString(&buf));
 }
 
