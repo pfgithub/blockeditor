@@ -4,7 +4,7 @@
     .dependencies = .{
         .us = .{
             .url = "https://github.com/pfgithub/blockeditor/releases/download/unicode_segmentation_binaries/unicode_segmentation-2.zip",
-            .hash = "122090682680648bed7bf7632903639e736dfe9a37248048b469a8df50e2a267e81c",
+            .hash = "N-V-__8AAFRqqAWQaCaAZIvte_djKQNjnnNt_po3JIBItGmo",
         },
         .us_local = .{
             .path = "bin",

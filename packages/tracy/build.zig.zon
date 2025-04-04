@@ -5,15 +5,15 @@
     .dependencies = .{
         .tracy = .{
             .url = "https://github.com/wolfpld/tracy/archive/8b9da2efba6937b66085a52f7281c59293ffe985.tar.gz",
-            .hash = "122008f368247daaf70b0c7280d3748982aa74baac4b498ab71008f740949bbd1921",
+            .hash = "N-V-__8AAK9SmgEI82gkfar3CwxygNN0iYKqdLqsS0mKtxAI",
         },
         .zglfw = .{
-            .url = "https://github.com/zig-gamedev/zglfw/archive/e9bd486903b5904b6d4e27b8b3771b138a667ef1.tar.gz",
-            .hash = "12209fb981e7aab58c2f9062ab526bd43df3d7953aa41e131a173c37ad35d10b1132",
+            .url = "https://github.com/zig-gamedev/zglfw/archive/dcb1dae7d4a90f88b70dbae73300ab9b19fb250c.tar.gz",
+            .hash = "zglfw-0.10.0-dev-zgVDNJmZIQCIiO_94Sp5jqrPtz4Eumk3bDcxS7dSZfIj",
         },
         .zstd = .{
-            .url = "https://github.com/allyourcodebase/zstd/archive/a3a19f8f67323eebdc6ea0826241e140ef21b622.zip",
-            .hash = "12207fbcce718cc3cfb91f193b75b8c3fd468be77e94f283218333d8e797f6822ac1",
+            .url = "https://github.com/allyourcodebase/zstd/archive/01327d49cbc56dc24c20a167bb0055d7fc23de84.zip",
+            .hash = "zstd-1.5.7-KEItkJ8vAAC5_rRlKmLflYQ-eKXbAIQBWZNmmJtS18q0",
         },
     },
 }

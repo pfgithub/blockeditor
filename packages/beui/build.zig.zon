@@ -9,12 +9,12 @@
             .path = "../loadimage",
         },
         .mach_freetype = .{
-            .url = "https://github.com/pfgithub/mach-freetype/archive/2b35a498ac795a8e1b7d389c3f4a4286b1ffcd11.zip",
-            .hash = "1220a049f86bdfdfaffac7d082dcc80f9421b619375665e5d5d8998a4e7e7d3bcb90",
+            .url = "https://github.com/pfgithub/mach-freetype/archive/7a1cd79641c2b4bb8efa5c64ba53f1a6a7909425.zip",
+            .hash = "mach_freetype-0.0.0-MGgvcPAUAgBa6paVXDkJjb3GkknAnS0vgzwE4msoDgoT",
         },
         .fonts = .{
             .url = "https://github.com/pfgithub/fonts/archive/a34bfc717f5f2df359a4114d99be0eb5a2aeeadb.tar.gz",
-            .hash = "12203c981fe586bbf29ab77c3db0564a218d99bb428ec083fba9df9c8a8fcbffbe01",
+            .hash = "N-V-__8AAAxjEgA8mB_lhrvymrd8PbBWSiGNmbtCjsCD-6nf",
         },
         .sheen_bidi = .{ .path = "../sheen_bidi" },
         .anywhere = .{ .path = "../anywhere" },
