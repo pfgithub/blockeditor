@@ -314,7 +314,8 @@ const Tokenizer = struct {
 
     has_error: ?struct { pos: u32, byte: u8, msg: Emsg },
     in_string: bool,
-    const Emsg = enum { invalid_byte, invalid_identifier, newline_not_allowed_in_string };
+    indent_level: u32,
+    const Emsg = enum { invalid_byte, invalid_identifier, newline_not_allowed_in_string, char_not_allowed_in_indent, indent_must_be_in_fours };
 
     fn init(src: []const u8, state: State) Tokenizer {
         std.debug.assert(src.len < std.math.maxInt(u32));
@@ -325,6 +326,7 @@ const Tokenizer = struct {
             .token_end_srcloc = 0,
             .has_error = null,
             .in_string = false,
+            .indent_level = 0,
         };
         res.next(state);
         return res;
@@ -361,6 +363,27 @@ const Tokenizer = struct {
                             },
                             else => break @intCast(i),
                         } else @intCast(rem.len);
+                        if (self.token == .whitespace_newline) {
+                            var spc_count: u32 = 0;
+                            var i = self.token_end_srcloc;
+                            while (i > self.token_start_srcloc) {
+                                i -= 1;
+                                const byte = self.source[i];
+                                switch (byte) {
+                                    ' ' => spc_count += 1,
+                                    '\n' => break,
+                                    else => {
+                                        if (self.has_error == null) self.has_error = .{ .pos = i, .byte = byte, .msg = .char_not_allowed_in_indent };
+                                    },
+                                }
+                            } else unreachable; // it's a whitespace_newline therefore it must contain '\n'
+                            if (spc_count % 4 != 0) {
+                                self.has_error = .{ .pos = i, .byte = '\n', .msg = .indent_must_be_in_fours };
+                                self.indent_level = 0; // only one error can be produced by the tokenizer, so it's fine that this will cause future errors
+                            } else {
+                                self.indent_level = @divExact(spc_count, 4);
+                            }
+                        }
                     },
                     'a'...'z', 'A'...'Z', '0'...'9', '_' => |c| {
                         self.token_end_srcloc += for (rem[1..], 1..) |byte, i| switch (byte) {
@@ -957,6 +980,8 @@ pub fn parse(gpa: std.mem.Allocator, src: []const u8) AstTree {
         } else {
             p.wrapErr(start.node, tkz_err.pos, "Invalid byte in file: 0x{X:0>2}", .{tkz_err.byte});
         },
+        .char_not_allowed_in_indent => p.wrapErr(start.node, tkz_err.pos, "Character '{'}' not allowed in indent", .{std.zig.fmtEscapes(&.{tkz_err.byte})}),
+        .indent_must_be_in_fours => p.wrapErr(start.node, tkz_err.pos, "Indentation must be in fours", .{}),
     };
     // now serialize and test snapshot
     const tree: AstTree = .{ .tags = p.out_nodes.items(.tag), .values = p.out_nodes.items(.value), .string_buf = p.strings.items, .owner = p };
@@ -1075,7 +1100,7 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
         \\[err [err_skip [map [string "hello " [code [ref "user" @3] @1] "" @0] @0] @2] "Newline not allowed inside string" @2]
     , try testParser(&out, .{},
         \\|"hello \|{|
-        \\  |user
+        \\    |user
         \\}"
     ));
     try snap(@src(),
