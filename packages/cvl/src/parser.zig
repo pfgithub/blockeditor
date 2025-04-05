@@ -1201,3 +1201,62 @@ pub const StringContext = struct {
 test {
     _ = @import("compiler.zig");
 }
+
+// indentation rules:
+// - four spaces (maybe we should do '\t'? or auto-determine based on the first indent we see?)
+// - ')' must be on a line with the same indentation level as its matching '('
+// - ']' must be on a line with the same indentation level as its matching '['
+// - '}' must be on a line with the same indentation level as its matching '{'
+//
+// const formattedLines = [];
+//
+// let currentIndentLevel = 0;
+// for (let rawLine of src.split("\n")) {
+//   let openBrackets = 0;
+//   let hasUnmatchedClosing = false;
+//
+//   const line = rawLine.trim();
+//
+//   for (const char of line) {
+//     if ("({[".includes(char)) {
+//       openBrackets += 1;
+//     } else if (")}]".includes(char)) {
+//       if (openBrackets > 0) {
+//         openBrackets -= 1;
+//       } else {
+//         hasUnmatchedClosing = true;
+//       }
+//     }
+//   }
+//
+//   if (hasUnmatchedClosing) {
+//     currentIndentLevel -= 1;
+//   }
+//
+//   const indent = "    ".repeat(currentIndentLevel);
+//   formattedLines.push(line ? indent + line : "");
+//
+//   if (openBrackets > 0) {
+//     currentIndentLevel += 1;
+//   }
+// }
+//
+// console.log(formattedLines.join("\n"));
+//
+// the only thing this is missing is
+// const a = [
+//     \\abcd
+// ,
+//     \\defg
+// ]
+// to do that, you need:
+// const a = [(
+//    \\abcd
+// ), (
+//    \\defg
+// )]
+//
+// this also doesn't catch errors - we need to do that
+// eg `myfn((\n)\n)` is an error - all parens which were opened on one line must be closed on the same line together
+// and the point of forced-correct indentation is to give better error locations for when you close your brackets wrong,
+//   so we should make sure it does that
