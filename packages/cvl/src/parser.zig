@@ -315,7 +315,17 @@ const Tokenizer = struct {
     has_error: ?struct { pos: u32, byte: u8, msg: Emsg },
     in_string: bool,
     indent_level: u32,
-    const Emsg = enum { invalid_byte, invalid_identifier, newline_not_allowed_in_string, char_not_allowed_in_indent, indent_must_be_in_fours };
+    expected_indent_level: u32,
+    this_line_opens: u32,
+    this_line_opens_went_negative: bool,
+    const Emsg = enum {
+        invalid_byte,
+        invalid_identifier,
+        newline_not_allowed_in_string,
+        char_not_allowed_in_indent,
+        indent_must_be_in_fours,
+        indent_wrong,
+    };
 
     fn init(src: []const u8, state: State) Tokenizer {
         std.debug.assert(src.len < std.math.maxInt(u32));
@@ -327,6 +337,9 @@ const Tokenizer = struct {
             .has_error = null,
             .in_string = false,
             .indent_level = 0,
+            .expected_indent_level = 0,
+            .this_line_opens = 0,
+            .this_line_opens_went_negative = false,
         };
         res.next(state);
         return res;
@@ -358,6 +371,20 @@ const Tokenizer = struct {
                             '\n' => {
                                 if (self.in_string) {
                                     if (self.has_error == null) self.has_error = .{ .pos = @intCast(self.token_start_srcloc + i), .byte = '\n', .msg = .newline_not_allowed_in_string };
+                                }
+                                if (self.token == .whitespace_inline) {
+                                    if (self.this_line_opens_went_negative) {
+                                        if (self.expected_indent_level == 0) {
+                                            self.has_error = .{ .pos = @intCast(self.token_start_srcloc + i), .byte = '\n', .msg = .indent_wrong };
+                                        }
+                                        self.expected_indent_level -|= 1;
+                                    }
+                                    if (self.indent_level != self.expected_indent_level) {
+                                        self.has_error = .{ .pos = @intCast(self.token_start_srcloc + i), .byte = '\n', .msg = .indent_wrong };
+                                    }
+                                    if (self.this_line_opens > 0) self.expected_indent_level += 1;
+                                    self.this_line_opens = 0;
+                                    self.this_line_opens_went_negative = false;
                                 }
                                 self.token = .whitespace_newline;
                             },
@@ -400,12 +427,33 @@ const Tokenizer = struct {
                     '"' => self._setSingleByteToken(.double_quote),
                     '\'' => self._setSingleByteToken(.single_quote),
                     '.' => self._setSingleByteToken(.dot),
-                    '{' => self._setSingleByteToken(.code_begin),
-                    '(' => self._setSingleByteToken(.map_begin),
-                    '[' => self._setSingleByteToken(.unused_begin),
-                    ']' => self._setSingleByteToken(.unused_end),
-                    ')' => self._setSingleByteToken(.map_end),
-                    '}' => self._setSingleByteToken(.code_end),
+                    '{' => {
+                        self.this_line_opens += 1;
+                        self._setSingleByteToken(.code_begin);
+                    },
+                    '(' => {
+                        self.this_line_opens += 1;
+                        self._setSingleByteToken(.map_begin);
+                    },
+                    '[' => {
+                        self.this_line_opens += 1;
+                        self._setSingleByteToken(.unused_begin);
+                    },
+                    ']' => {
+                        if (self.this_line_opens == 0) self.this_line_opens_went_negative = true;
+                        self.this_line_opens -|= 1;
+                        self._setSingleByteToken(.unused_end);
+                    },
+                    ')' => {
+                        if (self.this_line_opens == 0) self.this_line_opens_went_negative = true;
+                        self.this_line_opens -|= 1;
+                        self._setSingleByteToken(.map_end);
+                    },
+                    '}' => {
+                        if (self.this_line_opens == 0) self.this_line_opens_went_negative = true;
+                        self.this_line_opens -|= 1;
+                        self._setSingleByteToken(.code_end);
+                    },
                     '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '|', '<', '>', '/', '?', ':' => {
                         self.token_end_srcloc += for (rem[1..], 1..) |byte, i| switch (byte) {
                             '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '|', '<', '>', '/', '?' => {},
@@ -714,16 +762,24 @@ const Parser = struct {
                 return .other;
             },
             .code_begin => {
+                const indent = p.tokenizer.indent_level;
                 p.assertEatToken(.code_begin, .root);
                 p.parseCodeContents(start.src);
+                if (p.tokenizer.indent_level != indent) {
+                    p.wrapErr(start.node, p.here().src, "Expected close paren for code to be at the same indent level as its open bracket", .{});
+                }
                 if (!p.tryEatToken(.code_end, .root)) {
                     p.wrapErr(start.node, p.here().src, "Expected '{s}' to end map", .{Token.map_end.name()});
                 }
                 return .other;
             },
             .map_begin => {
+                const indent = p.tokenizer.indent_level;
                 p.assertEatToken(.map_begin, .root);
                 p.parseMapContents(start.src);
+                if (p.tokenizer.indent_level != indent) {
+                    p.wrapErr(start.node, p.here().src, "Expected close bracket for map to be at the same indent level as its open bracket", .{});
+                }
                 if (!p.tryEatToken(.map_end, .root)) {
                     p.wrapErr(start.node, p.here().src, "Expected '{s}' to end map", .{Token.map_end.name()});
                 }
@@ -982,6 +1038,7 @@ pub fn parse(gpa: std.mem.Allocator, src: []const u8) AstTree {
         },
         .char_not_allowed_in_indent => p.wrapErr(start.node, tkz_err.pos, "Character '{'}' not allowed in indent", .{std.zig.fmtEscapes(&.{tkz_err.byte})}),
         .indent_must_be_in_fours => p.wrapErr(start.node, tkz_err.pos, "Indentation must be in fours", .{}),
+        .indent_wrong => p.wrapErr(start.node, tkz_err.pos, "Wrong level of indentation", .{}),
     };
     // now serialize and test snapshot
     const tree: AstTree = .{ .tags = p.out_nodes.items(.tag), .values = p.out_nodes.items(.value), .string_buf = p.strings.items, .owner = p };
@@ -1201,62 +1258,3 @@ pub const StringContext = struct {
 test {
     _ = @import("compiler.zig");
 }
-
-// indentation rules:
-// - four spaces (maybe we should do '\t'? or auto-determine based on the first indent we see?)
-// - ')' must be on a line with the same indentation level as its matching '('
-// - ']' must be on a line with the same indentation level as its matching '['
-// - '}' must be on a line with the same indentation level as its matching '{'
-//
-// const formattedLines = [];
-//
-// let currentIndentLevel = 0;
-// for (let rawLine of src.split("\n")) {
-//   let openBrackets = 0;
-//   let hasUnmatchedClosing = false;
-//
-//   const line = rawLine.trim();
-//
-//   for (const char of line) {
-//     if ("({[".includes(char)) {
-//       openBrackets += 1;
-//     } else if (")}]".includes(char)) {
-//       if (openBrackets > 0) {
-//         openBrackets -= 1;
-//       } else {
-//         hasUnmatchedClosing = true;
-//       }
-//     }
-//   }
-//
-//   if (hasUnmatchedClosing) {
-//     currentIndentLevel -= 1;
-//   }
-//
-//   const indent = "    ".repeat(currentIndentLevel);
-//   formattedLines.push(line ? indent + line : "");
-//
-//   if (openBrackets > 0) {
-//     currentIndentLevel += 1;
-//   }
-// }
-//
-// console.log(formattedLines.join("\n"));
-//
-// the only thing this is missing is
-// const a = [
-//     \\abcd
-// ,
-//     \\defg
-// ]
-// to do that, you need:
-// const a = [(
-//    \\abcd
-// ), (
-//    \\defg
-// )]
-//
-// this also doesn't catch errors - we need to do that
-// eg `myfn((\n)\n)` is an error - all parens which were opened on one line must be closed on the same line together
-// and the point of forced-correct indentation is to give better error locations for when you close your brackets wrong,
-//   so we should make sure it does that
