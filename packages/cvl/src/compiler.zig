@@ -103,7 +103,7 @@ const Backends = struct {
             spec: rvemu.rvinstrs.InstrSpec,
             fn hash(a: anywhere.util.AnyPtr, _: *Env) u32 {
                 const a_cast = a.to(Arg_CacheKey);
-                return std.array_hash_map.hashString(a_cast);
+                return std.array_hash_map.hashString(a_cast.spec.name);
             }
             fn eql(a_raw: anywhere.util.AnyPtr, b_raw: anywhere.util.AnyPtr, _: *Env) bool {
                 const a = a_raw.to(Arg_CacheKey);
@@ -126,16 +126,16 @@ const Backends = struct {
                     .R => try env.arena.dupe(Types.Struct.Field, &.{
                         .{
                             .name = try env.comptimeKeyFromString("rs1"),
-                            .ty = Types.Int.sint32,
+                            .ty = tyFromBank(self.spec.banks.?.rs1.?),
                             .default_value = null,
                         },
                         .{
                             .name = try env.comptimeKeyFromString("rs2"),
-                            .ty = Types.Int.sint32,
+                            .ty = tyFromBank(self.spec.banks.?.rs2.?),
                             .default_value = null,
                         },
                     }),
-                    else => return env.addErr(env.srclocFromSrc(@src()), "TODO asm instr fmt: {s}", .{@tagName(self.spec.format)}),
+                    else => return env.addErr(try env.srclocFromSrc(@src()), "TODO asm instr fmt: {s}", .{@tagName(self.spec.format)}),
                 };
                 return .from(
                     try env.srclocFromSrc(@src()),
@@ -176,23 +176,24 @@ const Backends = struct {
             // in a struct. because we have to access op as comptime. so we should mark it in the
             // type somehow?
             // slot.access(scope, slot, arg_val, prop: parser.AstExpr, srcloc); // huh
-            const arg_ct = undefined;
-            const rs1_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("rs1"));
-            const rs1_val = try scope.env.resolveDeclValue(rs1_decl);
-            if (!rs1_val.resolved_type.?.is(Types.Int)) return scope.env.addErr(srcloc, "Expected int, found <2>", .{});
-            const rs1 = rs1_val.resolved_value_ptr.?.to(Types.Int.ComptimeValue);
+            if (true) return scope.env.addErr(srcloc, "TODO read runtime value from struct", .{});
+            _ = arg_val;
+            // const rs1_decl = Types.Struct.accessComptime(arg_val.ty, arg_ct.*, try scope.env.comptimeKeyFromString("rs1"));
+            // const rs1_val = try scope.env.resolveDeclValue(rs1_decl);
+            // if (!rs1_val.resolved_type.?.is(Types.Int)) return scope.env.addErr(srcloc, "Expected int, found <2>", .{});
+            // const rs1 = rs1_val.resolved_value_ptr.?.to(Types.Int.ComptimeValue);
 
-            const block = scope.block.to(riscv.EmitBlock);
-            const li_reg: riscv.EmitBlock.RvVar = .fromIntReg(10);
-            const out_reg: riscv.EmitBlock.RvVar = .fromIntReg(11);
-            _ = rs1;
-            // TODO
-            // try block.appendLoadImmediate(scope.env, li_reg, std.math.cast(i32, x10.*) orelse return scope.env.addErr(srcloc, "<rv32> number out of range", .{})); // TODO: this should be done by converting x10 to runtime rather than here
-            try block.instructions.append(scope.env.gpa, .{
-                .instr = .{ .op = ctk_enum_val, .rs1 = li_reg, .rs2 = .fromIntReg(12), .rd = out_reg },
-            });
+            // const block = scope.block.to(riscv.EmitBlock);
+            // const li_reg: riscv.EmitBlock.RvVar = .fromIntReg(10);
+            // const out_reg: riscv.EmitBlock.RvVar = .fromIntReg(11);
+            // _ = rs1;
+            // // TODO
+            // // try block.appendLoadImmediate(scope.env, li_reg, std.math.cast(i32, x10.*) orelse return scope.env.addErr(srcloc, "<rv32> number out of range", .{})); // TODO: this should be done by converting x10 to runtime rather than here
+            // try block.instructions.append(scope.env.gpa, .{
+            //     .instr = .{ .op = ctk_enum_val, .rs1 = li_reg, .rs2 = .fromIntReg(12), .rd = out_reg },
+            // });
 
-            return scope.env.declExpr(srcloc, try scope.env.cachedDecl(VoidDecl, .{}));
+            // return scope.env.declExpr(srcloc, try scope.env.cachedDecl(VoidDecl, .{}));
         }
     };
 };
