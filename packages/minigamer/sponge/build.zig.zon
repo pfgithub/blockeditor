@@ -1,5 +1,6 @@
 .{
-    .name = "sponge",
+    .name = .sponge,
+    .fingerprint = 0xf3ce57cbc5241f63,
     .version = "0.1.0",
     .paths = .{""},
     .dependencies = .{

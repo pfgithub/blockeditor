@@ -1,5 +1,6 @@
 .{
-    .name = "blocks",
+    .name = .blocks,
+    .fingerprint = 0xceed9578e82bb7f2,
     .version = "0.1.0",
     .paths = .{
         "",

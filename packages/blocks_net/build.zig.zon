@@ -1,5 +1,6 @@
 .{
-    .name = "blocks_net",
+    .name = .blocks_net,
+    .fingerprint = 0x7dde9c7b32eafca7,
     .version = "0.0.0",
 
     .dependencies = .{

@@ -1,5 +1,6 @@
 .{
-    .name = "tree_sitter",
+    .name = .tree_sitter,
+    .fingerprint = 0x841224b474d1367c,
     .version = "0.0.0",
     .dependencies = .{
         .tree_sitter = .{

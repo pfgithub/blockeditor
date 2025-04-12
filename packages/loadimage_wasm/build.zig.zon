@@ -1,5 +1,6 @@
 .{
-    .name = "loadimage_wasm",
+    .name = .loadimage_wasm,
+    .fingerprint = 0xb5f2fe636ca1e850,
     .version = "0.1.0",
     .paths = .{
         "",

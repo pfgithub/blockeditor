@@ -1,5 +1,6 @@
 .{
-    .name = "loadimage",
+    .name = .loadimage,
+    .fingerprint = 0xe82e2d56c45a4d5f,
     .version = "0.1.0",
     .paths = .{
         "",

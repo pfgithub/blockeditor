@@ -1,5 +1,6 @@
 .{
-    .name = "minigamer_emulator",
+    .name = .minigamer_emulator,
+    .fingerprint = 0x47b02a7f39be73c0,
     .version = "0.0.0",
     .paths = .{""},
     .dependencies = .{

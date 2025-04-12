@@ -1,5 +1,6 @@
 .{
-    .name = "texteditor",
+    .name = .texteditor,
+    .fingerprint = 0x107da77b22e3b749,
     .version = "0.0.0",
     .dependencies = .{
         .blocks = .{ .path = "../blocks" },

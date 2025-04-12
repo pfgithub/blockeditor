@@ -1,5 +1,6 @@
 .{
-    .name = "androidapp",
+    .name = .beui_impl_android,
+    .fingerprint = 0xf5f762584fc910b2,
     .version = "0.1.0",
     .paths = .{
         "",

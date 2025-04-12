@@ -1,5 +1,6 @@
 .{
-    .name = "rvemu",
+    .name = .rvemu,
+    .fingerprint = 0xb5442260b74fcb9a,
     .version = "0.0.0",
     .paths = .{""},
     .dependencies = .{

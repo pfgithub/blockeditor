@@ -1,5 +1,6 @@
 .{
-    .name = "unicode_segmentation",
+    .name = .unicode_segmentation,
+    .fingerprint = 0x2a1ed900c92f308,
     .version = "0.0.0",
     .dependencies = .{
         .us = .{

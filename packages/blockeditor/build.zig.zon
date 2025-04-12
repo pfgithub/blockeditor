@@ -1,5 +1,6 @@
 .{
-    .name = "blockeditor",
+    .name = .blockeditor,
+    .fingerprint = 0x81d8dbc0c71ceb7d,
     .version = "0.1.0",
     .paths = .{
         "",
