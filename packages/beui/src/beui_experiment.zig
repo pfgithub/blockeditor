@@ -696,20 +696,31 @@ pub const ID = struct {
         // no need for duplicate safety; it's guaranteed not to be a duplicate
         return .{ .b2 = b2, .frame = b2.persistent.frame_num, .str = res };
     }
-    pub fn pushLoop(self: ID, src: std.builtin.SourceLocation, comptime ChildT: type) ID {
+    pub fn LoopValue(comptime Child: type) type {
         comptime {
-            if (@sizeOf(ChildT) > IDSegment.IDSegmentSize) @compileError("loop ChildT size > max size");
-            if (!std.meta.hasUniqueRepresentation(ChildT)) @compileError("loop ChildT must have unique representation");
+            if (@sizeOf(Child) > IDSegment.IDSegmentSize) @compileError("loop Child size > max size");
+            if (!std.meta.hasUniqueRepresentation(Child)) @compileError("loop Child must have unique representation");
         }
-        return self._pushLoopTypeName(src, @typeName(ChildT));
+        return struct {
+            _id: ID,
+            pub fn value(self: @This(), src: std.builtin.SourceLocation, child_t: Child) ID {
+                return self._id.pushLoopValue(src, child_t);
+            }
+            pub fn valueNoSrc(self: @This(), child_t: Child) ID {
+                return self._id.pushLoopValueNoSrc(child_t);
+            }
+        };
+    }
+    pub fn pushLoop(self: ID, src: std.builtin.SourceLocation, comptime Child: type) LoopValue(Child) {
+        return .{ ._id = self._pushLoopTypeName(src, @typeName(Child)) };
     }
     fn _pushLoopTypeName(self: ID, src: std.builtin.SourceLocation, child_t: [*:0]const u8) ID {
         return self._addInternal(&.{ .fromSrc(src), .fromTagValue(.loop, IDSegment.LoopStruct, .{ .child_t = child_t }) });
     }
-    pub fn pushLoopValue(self: ID, src: std.builtin.SourceLocation, child_t: anytype) ID {
+    fn pushLoopValue(self: ID, src: std.builtin.SourceLocation, child_t: anytype) ID {
         return self._addInternal(&.{ .fromSrc(src), self._loopValue(@typeName(@TypeOf(child_t)), std.mem.asBytes(&child_t)) });
     }
-    pub fn pushLoopValueNoSrc(self: ID, child_t: anytype) ID {
+    fn pushLoopValueNoSrc(self: ID, child_t: anytype) ID {
         return self._addInternal(&.{self._loopValue(@typeName(@TypeOf(child_t)), std.mem.asBytes(&child_t))});
     }
     fn _loopValue(self: ID, child_t: [*:0]const u8, child_v: []const u8) IDSegment {
@@ -1564,7 +1575,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
         while (backwards_cursor > 0) {
             backwards_index = backwards_index.prev(context) orelse break;
 
-            const child = child_component.call(.{ .caller_id = loop_index.pushLoopValueNoSrc(backwards_index), .constraints = .{
+            const child = child_component.call(.{ .caller_id = loop_index.valueNoSrc(backwards_index), .constraints = .{
                 .available_size = .{ .w = ui.constraints.available_size.w.?, .h = null },
             } }, backwards_index);
 
@@ -1577,7 +1588,7 @@ pub fn virtualScroller(call_info: StandardCallInfo, context: anytype, comptime I
     while (idx != null) {
         if (cursor > height) break;
 
-        const child = child_component.call(.{ .caller_id = loop_index.pushLoopValueNoSrc(idx.?), .constraints = .{
+        const child = child_component.call(.{ .caller_id = loop_index.valueNoSrc(idx.?), .constraints = .{
             .available_size = .{ .w = ui.constraints.available_size.w.?, .h = null },
         } }, idx.?);
 

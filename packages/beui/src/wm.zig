@@ -689,7 +689,7 @@ pub const Manager = struct {
     }),
 
     final_rdl: ?*B2.RepositionableDrawList,
-    id_for_frame: ?B2.ID,
+    id_for_frame: ?B2.ID.LoopValue(WM.FrameID),
 
     /// not owned
     current_window: ?B2.ID,
@@ -789,7 +789,7 @@ pub const Manager = struct {
     }
 
     pub fn idForFrame(self: *Manager, src: std.builtin.SourceLocation, frame: WM.FrameID) B2.ID {
-        return self.id_for_frame.?.pushLoopValue(src, frame);
+        return self.id_for_frame.?.value(src, frame);
     }
 
     pub fn beginFrame(self: *Manager, cfg: FrameCfg) void {

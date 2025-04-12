@@ -160,23 +160,63 @@ fn render__contextMenu(self: *App, sci: B2.ContextMenuCallInfo, _: void) B2.Stan
     return B2.contextMenuList(ui.sub(@src()), .from(self, render__contextMenu__child));
 }
 const render__contextMenu__child__child_Data = struct {
+    const Details = struct {
+        label: []const u8,
+    };
     self: *App,
-    label: []const u8,
+    details: Details,
 };
 fn render__contextMenu__child(self: *App, sci: B2.StandardCallInfo, _: void) B2.StandardChild {
     const ui = sci.ui(@src());
-    const ctxm = ui.id.b2.dupeOne(render__contextMenu__child__child_Data{
-        .self = self,
-        .label = "Bouncy Ball",
-    });
-    return B2.contextMenuLine(ui.sub(@src()), .{ .onClick = .from(ctxm, render__contextMenu__child__onClick) }, .from(ctxm, render__contextMenu__child__child));
+    var size: @Vector(2, f32) = @splat(0);
+    const rdl = ui.id.b2.draw();
+    const id_outer = ui.id.pushLoop(@src(), usize);
+    for (&[_]render__contextMenu__child__child_Data.Details{
+        .{
+            .label = "Debug 1",
+        },
+        .{
+            .label = "Debug 2",
+        },
+        .{
+            .label = "Debug WM",
+        },
+        .{
+            .label = "Minigamer",
+        },
+        .{
+            .label = "File Tree",
+        },
+        .{
+            .label = "Bouncy Ball",
+        },
+        .{
+            .label = "Editor (App.zig)",
+        },
+        .{
+            .label = "Editor (Empty)",
+        },
+    }, 0..) |ctxm_stack, i| {
+        const id_inner = id_outer.valueNoSrc(i);
+        const ui_inner: B2.StandardUI = .{ .constraints = ui.constraints, .id = id_inner };
+        const ctxm = ui_inner.id.b2.dupeOne(render__contextMenu__child__child_Data{ .self = self, .details = ctxm_stack });
+        const itm = B2.contextMenuLine(ui_inner.sub(@src()), .{ .onClick = .from(ctxm, render__contextMenu__child__onClick) }, .from(ctxm, render__contextMenu__child__child));
+        rdl.place(itm.rdl, .{ .offset = .{ 0, size[1] } });
+        size[0] = @max(size[0], itm.size[0]);
+        size[1] += itm.size[1];
+    }
+
+    return .{
+        .size = size,
+        .rdl = rdl,
+    };
 }
 fn render__contextMenu__child__onClick(self: *render__contextMenu__child__child_Data, _: *B2.Beui2, _: void) void {
     const bouncy_ball = self.self.db.createBlock(bi.BouncyBallViewer.deserialize(self.self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
     self.self.wm.wm.moveFrameNewWindow(self.self.wm.wm.addFrame(.{ .final = .{ .ref = bouncy_ball } }));
 }
 fn render__contextMenu__child__child(self: *render__contextMenu__child__child_Data, sci: B2.StandardCallInfo, _: B2.ContextMenuLineState) B2.StandardChild {
-    return B2.textLine(sci, .{ .text = self.label });
+    return B2.textLine(sci, .{ .text = self.details.label });
 }
 
 const BounceBallState = struct {
@@ -437,7 +477,7 @@ fn render__block(self: *App, arg: WM.Manager.RenderBlockArg) *B2.RepositionableD
             var pos: @Vector(2, f32) = .{ 0, 0 };
             while (split.next()) |itm| : (i += 1) {
                 const line = B2.textLine(.{
-                    .caller_id = lp.pushLoopValueNoSrc(i),
+                    .caller_id = lp.valueNoSrc(i),
                     .constraints = ui.constraints,
                 }, .{ .text = itm });
                 rdl.place(line.rdl, .{ .offset = pos });

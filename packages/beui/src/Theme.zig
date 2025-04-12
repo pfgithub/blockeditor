@@ -46,7 +46,7 @@ pub const colors = struct {
 const titlebar_height: f32 = border_width * 4;
 
 fn drawWindowFinal(ctx: RenderWindowCtx, rdl: *B2.RepositionableDrawList, window_content_id: WM.WM.FrameID, offset_pos: @Vector(2, f32), offset_size: @Vector(2, f32)) void {
-    const clip = ctx.man.id_for_frame.?.b2.draw();
+    const clip = rdl.b2.draw();
     rdl.addClip(clip, .{ .pos = offset_pos, .size = offset_size });
     clip.place(ctx.cb.call(.{ .block = ctx.man.wm.getFrame(window_content_id).self.final.ref, .call_info = .{
         .caller_id = ctx.man.idForFrame(@src(), window_content_id),
