@@ -86,47 +86,6 @@ pub fn render(self: *App, call_id: B2.ID) *B2.RepositionableDrawList {
         renderCounter(self.counter_component);
     }
 
-    if (zgui.beginWindow("App launcher", .{})) {
-        defer zgui.endWindow();
-        if (zgui.button("Debug 1", .{})) {
-            const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
-            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debug_1 } }));
-        }
-        if (zgui.button("Debug 2", .{})) {
-            const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
-            {
-                const debug_2_component = debug_2.typedComponent(bi.DebugViewer).?;
-                defer debug_2_component.unref();
-                debug_2_component.applySimpleOperation(.{ .set = 1 }, null);
-            }
-            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debug_2 } }));
-        }
-        if (zgui.button("Debug WM", .{})) {
-            const debugwm_viewer = self.db.createBlock(bi.DebugWMViewer.deserialize(self.gpa, bi.DebugWMViewer.default) catch @panic("oom"));
-            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debugwm_viewer } }));
-        }
-        if (zgui.button("Minigamer", .{})) {
-            const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(self.gpa, bi.MinigamerViewer.default) catch @panic("oom"));
-            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = minigamer_viewer } }));
-        }
-        if (zgui.button("File Tree", .{})) {
-            const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(self.gpa, bi.FileTreeViewer.default) catch @panic("oom"));
-            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = filetree_viewer } }));
-        }
-        if (zgui.button("Bouncy Ball", .{})) {
-            const bouncy_ball = self.db.createBlock(bi.BouncyBallViewer.deserialize(self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
-            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = bouncy_ball } }));
-        }
-        if (zgui.button("Editor (App.zig)", .{})) {
-            const editor_full = self.addTab(@embedFile("App.zig"));
-            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = editor_full } }));
-        }
-        if (zgui.button("Editor (Empty)", .{})) {
-            const editor_empty = self.addTab("abc\ndef\nghi");
-            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = editor_empty } }));
-        }
-    }
-
     // const wm = b2.windowManager();
     // b2.windows.add()
 
@@ -162,6 +121,16 @@ fn render__contextMenu(self: *App, sci: B2.ContextMenuCallInfo, _: void) B2.Stan
 const render__contextMenu__child__child_Data = struct {
     const Details = struct {
         label: []const u8,
+        kind: enum {
+            debug_1,
+            debug_2,
+            debug_wm,
+            minigamer,
+            file_tree,
+            bouncy_ball,
+            editor_app_zig,
+            editor_empty,
+        },
     };
     self: *App,
     details: Details,
@@ -174,27 +143,35 @@ fn render__contextMenu__child(self: *App, sci: B2.StandardCallInfo, _: void) B2.
     for (&[_]render__contextMenu__child__child_Data.Details{
         .{
             .label = "Debug 1",
+            .kind = .debug_1,
         },
         .{
             .label = "Debug 2",
+            .kind = .debug_2,
         },
         .{
             .label = "Debug WM",
+            .kind = .debug_wm,
         },
         .{
             .label = "Minigamer",
+            .kind = .minigamer,
         },
         .{
             .label = "File Tree",
+            .kind = .file_tree,
         },
         .{
             .label = "Bouncy Ball",
+            .kind = .bouncy_ball,
         },
         .{
             .label = "Editor (App.zig)",
+            .kind = .editor_app_zig,
         },
         .{
             .label = "Editor (Empty)",
+            .kind = .editor_empty,
         },
     }, 0..) |ctxm_stack, i| {
         const id_inner = id_outer.valueNoSrc(i);
@@ -211,12 +188,50 @@ fn render__contextMenu__child(self: *App, sci: B2.StandardCallInfo, _: void) B2.
         .rdl = rdl,
     };
 }
-fn render__contextMenu__child__onClick(self: *render__contextMenu__child__child_Data, _: *B2.Beui2, _: void) void {
-    const bouncy_ball = self.self.db.createBlock(bi.BouncyBallViewer.deserialize(self.self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
-    self.self.wm.wm.moveFrameNewWindow(self.self.wm.wm.addFrame(.{ .final = .{ .ref = bouncy_ball } }));
+fn render__contextMenu__child__onClick(ctx: *render__contextMenu__child__child_Data, _: *B2.Beui2, _: void) void {
+    const self = ctx.self;
+    switch (ctx.details.kind) {
+        .debug_1 => {
+            const debug_1 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debug_1 } }));
+        },
+        .debug_2 => {
+            const debug_2 = self.db.createBlock(bi.DebugViewer.deserialize(self.gpa, bi.DebugViewer.default) catch @panic("oom"));
+            {
+                const debug_2_component = debug_2.typedComponent(bi.DebugViewer).?;
+                defer debug_2_component.unref();
+                debug_2_component.applySimpleOperation(.{ .set = 1 }, null);
+            }
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debug_2 } }));
+        },
+        .debug_wm => {
+            const debugwm_viewer = self.db.createBlock(bi.DebugWMViewer.deserialize(self.gpa, bi.DebugWMViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = debugwm_viewer } }));
+        },
+        .minigamer => {
+            const minigamer_viewer = self.db.createBlock(bi.MinigamerViewer.deserialize(self.gpa, bi.MinigamerViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = minigamer_viewer } }));
+        },
+        .file_tree => {
+            const filetree_viewer = self.db.createBlock(bi.FileTreeViewer.deserialize(self.gpa, bi.FileTreeViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = filetree_viewer } }));
+        },
+        .bouncy_ball => {
+            const bouncy_ball = self.db.createBlock(bi.BouncyBallViewer.deserialize(self.gpa, bi.BouncyBallViewer.default) catch @panic("oom"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = bouncy_ball } }));
+        },
+        .editor_app_zig => {
+            const editor_full = self.addTab(@embedFile("App.zig"));
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = editor_full } }));
+        },
+        .editor_empty => {
+            const editor_empty = self.addTab("abc\ndef\nghi");
+            self.wm.wm.moveFrameNewWindow(self.wm.wm.addFrame(.{ .final = .{ .ref = editor_empty } }));
+        },
+    }
 }
-fn render__contextMenu__child__child(self: *render__contextMenu__child__child_Data, sci: B2.StandardCallInfo, _: B2.ContextMenuLineState) B2.StandardChild {
-    return B2.textLine(sci, .{ .text = self.details.label });
+fn render__contextMenu__child__child(ctx: *render__contextMenu__child__child_Data, sci: B2.StandardCallInfo, _: B2.ContextMenuLineState) B2.StandardChild {
+    return B2.textLine(sci, .{ .text = ctx.details.label });
 }
 
 const BounceBallState = struct {
