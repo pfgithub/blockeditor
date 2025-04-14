@@ -497,3 +497,7 @@ pub fn dupeOne(allocator: std.mem.Allocator, value: anytype) !*@TypeOf(value) {
     value_ptr.* = value;
     return value_ptr;
 }
+
+pub fn centerIn(container_max: f32, item_height: f32) f32 {
+    return (container_max - item_height) / 2;
+}

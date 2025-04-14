@@ -9,6 +9,7 @@ const tracy = anywhere.tracy;
 const zgui = anywhere.zgui;
 const B2 = Beui.beui_experiment;
 const WM = B2.WM;
+const util = anywhere.util;
 
 pub const std_options = std.Options{
     .log_scope_levels = &.{
@@ -601,12 +602,23 @@ fn render__tree__child__child(tc: *const TreeChild, call_info: B2.StandardCallIn
     const offset_x: f32 = @as(f32, @floatFromInt(tree_node.indent_level)) * 6;
 
     const draw = ui.id.b2.draw();
-    const res = B2.textLine(ui.subWithOffset(@src(), .{ offset_x, 0 }), .{ .text = tree_node.basename_owned }); //, .fromHexRgb(0xFFFFFF));
-    draw.place(res.rdl, .{ .offset = .{ offset_x, 0 } });
+    const icon = switch (tc.node.node_type) {
+        .dir => switch (tc.node.opened) {
+            true => B2.components.Icon.Icon(ui.sub(@src()), B2.Theme.icons.arrow_revealed, "Collapse"),
+            false => B2.components.Icon.Icon(ui.sub(@src()), B2.Theme.icons.arrow_collapsed, "Reveal"),
+        },
+        else => B2.components.Icon.Icon(ui.sub(@src()), B2.Theme.icons.bullet, "Open"),
+    };
+    const res = B2.textLine(ui.subWithOffset(@src(), .{ offset_x + icon.size[0], 0 }), .{ .text = tree_node.basename_owned }); //, .fromHexRgb(0xFFFFFF));
+    const container_max = @max(icon.size[1], res.size[1]);
+    // HSplit(.(.self_x, .center_y) Icon(), .(.rem_x, .center_y) textLine())
+    // (to run hsplit, it has to run all 'rem's last, which is interesting.)
+    draw.place(icon.rdl, .{ .offset = .{ offset_x, util.centerIn(container_max, icon.size[1]) } });
+    draw.place(res.rdl, .{ .offset = .{ offset_x + icon.size[0], util.centerIn(container_max, res.size[1]) } });
     if (state.active) {
-        draw.addRect(.{ .pos = .{ 0, 0 }, .size = .{ call_info.constraints.available_size.w.?, res.size[1] }, .tint = .fromHexRgb(0x747474) });
+        draw.addRect(.{ .pos = .{ 0, 0 }, .size = .{ call_info.constraints.available_size.w.?, container_max }, .tint = .fromHexRgb(0x747474) });
     }
-    return .{ .rdl = draw, .size = .{ call_info.constraints.available_size.w.?, res.size[1] } };
+    return .{ .rdl = draw, .size = .{ call_info.constraints.available_size.w.?, container_max } };
 }
 
 fn renderCounter(counter: db_mod.TypedComponentRef(bi.CounterComponent)) void {

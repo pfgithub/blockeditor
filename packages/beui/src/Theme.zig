@@ -507,6 +507,14 @@ pub const icons = struct {
             .{ .pos = .{ 10, 18 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
         }, &.{ 0, 1, 2 });
     }
+    fn appendBullet(rdl: *B2.RepositionableDrawList) void {
+        rdl.addVertices(null, &.{
+            .{ .pos = .{ 15, 9 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 15, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 9, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 9, 9 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        }, &.{ 0, 1, 2, 0, 2, 3 });
+    }
     pub const arrow_revealed: *const B2.components.Icon.IconData = &.{
         .append = &appendArrowOpened,
     };
@@ -514,4 +522,7 @@ pub const icons = struct {
         .append = &appendArrowClosed,
     };
     pub const close = arrow_revealed;
+    pub const bullet: *const B2.components.Icon.IconData = &.{
+        .append = &appendBullet,
+    };
 };
