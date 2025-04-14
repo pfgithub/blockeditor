@@ -514,7 +514,7 @@ const TreeState = struct {
         var outbuf: [std.fs.max_path_bytes]u8 = undefined;
         var res: FsTree2 = .init(if (@import("builtin").os.tag == .wasi) (
             // realpath should never be used. but until then:
-            "/") else std.fs.cwd().realpath(".", &outbuf) catch |e| blk: {
+            "/") else std.fs.cwd().realpath("../..", &outbuf) catch |e| blk: {
             std.log.err("unable to get realpath: {s}", .{@errorName(e)});
             break :blk "";
         }, gpa);
