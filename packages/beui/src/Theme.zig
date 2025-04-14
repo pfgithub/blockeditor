@@ -515,13 +515,32 @@ pub const icons = struct {
             .{ .pos = .{ 9, 9 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
         }, &.{ 0, 1, 2, 0, 2, 3 });
     }
+    fn appendClose(rdl: *B2.RepositionableDrawList) void {
+        rdl.addVertices(null, &.{
+            .{ .pos = .{ 9, 9 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 15, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 13, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 9, 11 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 15, 9 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 9, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 11, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 15, 11 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        }, &.{
+            0, 1, 2, 0, 2, 3,
+            6, 5, 4, 7, 6, 4,
+        });
+    }
+
+    pub const close: *const B2.components.Icon.IconData = &.{
+        .append = &appendClose,
+    };
+
     pub const arrow_revealed: *const B2.components.Icon.IconData = &.{
         .append = &appendArrowOpened,
     };
     pub const arrow_collapsed: *const B2.components.Icon.IconData = &.{
         .append = &appendArrowClosed,
     };
-    pub const close = arrow_revealed;
     pub const bullet: *const B2.components.Icon.IconData = &.{
         .append = &appendBullet,
     };
