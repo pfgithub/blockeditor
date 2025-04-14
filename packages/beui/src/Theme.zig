@@ -65,12 +65,7 @@ fn drawWindowTabbed_collapseButtonClicked(data: *CollapseData, _: *B2.Beui2, _: 
 fn drawWindowTabbed_closeButtonChild(_: *CollapseData, call_info: B2.StandardCallInfo, btn_state: B2.ButtonState) B2.StandardChild {
     const ui = call_info.ui(@src());
     const rdl = ui.id.b2.draw();
-    rdl.addVertices(null, &.{
-        // TODO x shape
-        .{ .pos = .{ 8, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-        .{ .pos = .{ 18, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-        .{ .pos = .{ 13, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-    }, &.{ 0, 1, 2 });
+    rdl.place(B2.components.Icon.Icon(ui.sub(@src()), icons.close, "Close").rdl, .{});
     if (btn_state.active) {
         rdl.addRect(.{
             .pos = .{ 2, 2 },
@@ -86,17 +81,9 @@ fn drawWindowTabbed_collapseButtonChild(data: *CollapseData, call_info: B2.Stand
     const rdl = ui.id.b2.draw();
     // this is missing antialiasing, we should use an icon instead
     if (data.man.wm.getFrame(data.frame).collapsed) {
-        rdl.addVertices(null, &.{
-            .{ .pos = .{ 10, 7 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-            .{ .pos = .{ 15, 13 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-            .{ .pos = .{ 10, 18 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-        }, &.{ 0, 1, 2 });
+        rdl.place(B2.components.Icon.Icon(ui.sub(@src()), icons.arrow_collapsed, "Reveal").rdl, .{});
     } else {
-        rdl.addVertices(null, &.{
-            .{ .pos = .{ 8, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-            .{ .pos = .{ 18, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-            .{ .pos = .{ 13, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
-        }, &.{ 0, 1, 2 });
+        rdl.place(B2.components.Icon.Icon(ui.sub(@src()), icons.arrow_revealed, "Collapse").rdl, .{});
     }
     if (btn_state.active) {
         rdl.addRect(.{
@@ -503,4 +490,28 @@ const TopInfo = struct {
             .skip = skip,
         };
     }
+};
+
+pub const icons = struct {
+    fn appendArrowOpened(rdl: *B2.RepositionableDrawList) void {
+        rdl.addVertices(null, &.{
+            .{ .pos = .{ 8, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 18, 10 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 13, 15 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        }, &.{ 0, 1, 2 });
+    }
+    fn appendArrowClosed(rdl: *B2.RepositionableDrawList) void {
+        rdl.addVertices(null, &.{
+            .{ .pos = .{ 10, 7 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 15, 13 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+            .{ .pos = .{ 10, 18 }, .uv = .{ -1, -1 }, .tint = .{ 255, 255, 255, 255 }, .circle = .{ 0.0, 0.0 } },
+        }, &.{ 0, 1, 2 });
+    }
+    pub const arrow_revealed: *const B2.components.Icon.IconData = &.{
+        .append = &appendArrowOpened,
+    };
+    pub const arrow_collapsed: *const B2.components.Icon.IconData = &.{
+        .append = &appendArrowClosed,
+    };
+    pub const close = arrow_revealed;
 };

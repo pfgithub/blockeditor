@@ -9,6 +9,11 @@ pub const Theme = @import("Theme.zig");
 pub const WM = @import("wm.zig");
 pub const ImageCache = @import("ImageCache.zig");
 
+pub const components = struct {
+    pub const Icon = @import("components/Icon.zig");
+    pub const Tree = @import("components/Tree.zig");
+};
+
 pub fn IdMap(comptime V: type) type {
     const IDContext = struct {
         pub fn hash(_: @This(), id: ID) u64 {
