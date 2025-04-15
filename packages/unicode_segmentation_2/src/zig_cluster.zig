@@ -112,6 +112,9 @@ fn hasBoundary(iter: *ReverseCodepointIterator, data: *const grapheme.GraphemeDa
             var allow_another_linker = true;
             while (true) {
                 // just consumed .Linker
+                // TODO: this is implemented wrong. the square brackets are supposed to be like regex
+                //  \p{InCB=Consonant} ([\p{InCB=Extend} \p{InCB=Linker}]* \p{InCB=Linker} [\p{InCB=Extend} \p{InCB=Linker}]* \p{InCB=Consonant})+
+                // the actual is simpler than what we did
                 const cp = iter_dup.left() orelse break :extended;
                 const indic_prop = data.indic(cp);
                 switch (indic_prop) {
