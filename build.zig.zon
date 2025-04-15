@@ -22,5 +22,6 @@
         .tracy = .{ .path = "packages/tracy" },
         .tree_sitter = .{ .path = "packages/tree_sitter" },
         .unicode_segmentation = .{ .path = "packages/unicode_segmentation" },
+        .unicode_segmentation_2 = .{ .path = "packages/unicode_segmentation_2" },
     },
 }

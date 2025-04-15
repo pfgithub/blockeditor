@@ -35,6 +35,7 @@ pub fn build(b: *std.Build) void {
     const texteditor_dep = b.dependency("texteditor", .{ .target = target, .optimize = optimize });
     const tracy_dep = b.dependency("tracy", .{ .target = b.resolveTargetQuery(.{}), .optimize = .ReleaseSafe });
     const unicode_segmentation_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
+    const unicode_segmentation_2_dep = b.dependency("unicode_segmentation_2", .{ .target = target, .optimize = optimize });
 
     const blockeditor_app = deps.beui_app.app(blockeditor_dep, "blockeditor");
     const blockeditor_app_install = deps.beui_app.installApp(b, blockeditor_app);
@@ -62,6 +63,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(sheen_bidi_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(unicode_segmentation_dep.artifact("test")).step);
+    test_step.dependOn(&b.addRunArtifact(unicode_segmentation_2_dep.artifact("test")).step);
 
     const run_blockeditor = deps.beui_app.addRunApp(b, blockeditor_app, blockeditor_app_install);
     if (b.args) |args| run_blockeditor.addArgs(args);

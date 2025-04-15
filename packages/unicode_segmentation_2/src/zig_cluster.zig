@@ -45,8 +45,7 @@ const Rule = enum {
 
 // [...] [left] [right] | <- iter pointer
 // https://unicode.org/reports/tr29/#GB1
-// we could have this return the match code. ie return .GB4 / return .GB11 / ...
-// and then unicode could have their tests show the expected match code
+// TODO: we can test that it returns the right rule code if we want
 fn hasBoundary(iter: *ReverseCodepointIterator, data: *const grapheme.GraphemeData) Rule {
     const extended = true;
 
@@ -96,45 +95,26 @@ fn hasBoundary(iter: *ReverseCodepointIterator, data: *const grapheme.GraphemeDa
     if (extended) {
         // GB9a
         if (right_gbp == .SpacingMark) return .GB9a;
+
         // GB9b
-        if (right_gbp == .Prepend) return .GB9b;
+        if (left_gbp == .Prepend) return .GB9b;
     }
 
     if (extended) extended: {
         // GB9c
-        if (left_indic_prop == .Linker and right_indic_prop == .Consonant) {
-            // samples:
-            // c ab ab ab ab b ab ab ab ab ab<
-            // c b<
-            // c ab b<
-            // c b ab<
+        //  \p{InCB=Consonant} [ \p{InCB=Extend} \p{InCB=Linker} ]* \p{InCB=Linker} [ \p{InCB=Extend} \p{InCB=Linker} ]*
+        if ((left_indic_prop == .Linker or left_indic_prop == .Extend) and right_indic_prop == .Consonant) {
             var iter_dup = iter.*;
-            var allow_another_linker = true;
+            var has_linker = left_indic_prop == .Linker;
             while (true) {
-                // just consumed .Linker
-                // TODO: this is implemented wrong. the square brackets are supposed to be like regex
-                //  \p{InCB=Consonant} ([\p{InCB=Extend} \p{InCB=Linker}]* \p{InCB=Linker} [\p{InCB=Extend} \p{InCB=Linker}]* \p{InCB=Consonant})+
-                // the actual is simpler than what we did
                 const cp = iter_dup.left() orelse break :extended;
-                const indic_prop = data.indic(cp);
-                switch (indic_prop) {
-                    .Linker => {
-                        // double-linker; only one of these is allowed
-                        if (!allow_another_linker) break :extended;
-                        allow_another_linker = false;
+                switch (data.indic(cp)) {
+                    .Linker => has_linker = true,
+                    .Extend => {},
+                    .Consonant => {
+                        if (has_linker) return .GB9c;
+                        break :extended;
                     },
-                    .Extend => {
-                        // consume next. it may be linker consonant
-                        // if it is extend, break :extended. if it is consonant, return false
-                        const nxt = iter_dup.left() orelse break :extended;
-                        const nxt_indic_prop = data.indic(nxt);
-                        switch (nxt_indic_prop) {
-                            .Linker => continue,
-                            .Consonant => return .GB9c,
-                            else => break :extended,
-                        }
-                    },
-                    .Consonant => return .GB9c,
                     else => break :extended,
                 }
             }
@@ -164,7 +144,7 @@ fn hasBoundary(iter: *ReverseCodepointIterator, data: *const grapheme.GraphemeDa
             if (gbp != .Regional_Indicator) break;
             count += 1;
         }
-        if (count % 2 == 1) return .GB12_13;
+        if (count % 2 == 0) return .GB12_13;
     }
 
     // GB999
