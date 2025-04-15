@@ -1,0 +1,16 @@
+.{
+    .name = .unicode_segmentation_2,
+    .fingerprint = 0x1bd7149a89df44cd,
+    .version = "0.0.0",
+    .paths = .{""},
+    .dependencies = .{
+        .zg = .{
+            .url = "https://codeberg.org/atman/zg/archive/v0.13.5.tar.gz",
+            .hash = "zg-0.13.5-oGqU3I6Z7QLV3PcngiIPop2sAiHj740sK36VsXmYUMAp",
+        },
+        .grapheme_break_test = .{
+            .url = "https://gist.github.com/pfgithub/3ef5cf73a0bd4ab131556ef693f7b55b/archive/5d3e74f38bc785eebf6e670ba2e766eff201e80d.zip",
+            .hash = "N-V-__8AAJefAgCYh1ZXEmmjF0X6cswPFP3DmTRz7Y7sjrYU",
+        },
+    },
+}
