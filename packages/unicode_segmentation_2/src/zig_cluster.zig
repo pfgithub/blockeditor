@@ -244,6 +244,7 @@ pub fn hasBoundary(doc: GenericDocument, start_idx: u64, data: *const grapheme.G
     if (extended) extended: {
         // GB9c
         //  \p{InCB=Consonant} [ \p{InCB=Extend} \p{InCB=Linker} ]* \p{InCB=Linker} [ \p{InCB=Extend} \p{InCB=Linker} ]*
+        // for ltr: if(isConsonant) { indic_match = 1 } else if(indic_match != 0 and isExtend) {} else if(indic_match != 0 and isLinker) {indic_match = 2} else {indic_match = 0}
         if ((left_indic_prop == .Linker or left_indic_prop == .Extend) and right_indic_prop == .Consonant) {
             var iter_dup = iter_main;
             var has_linker = left_indic_prop == .Linker;
@@ -263,6 +264,7 @@ pub fn hasBoundary(doc: GenericDocument, start_idx: u64, data: *const grapheme.G
     }
 
     // GB11
+    // for ltr: if(isEmoji) {emoji_match = true;} else if(emojiMatch and isExtend) {} else {emoji_match = false}
     if (left_gbp == .ZWJ and right_is_emoji) {
         var iter_dup = iter_main;
         while (true) {
@@ -276,6 +278,7 @@ pub fn hasBoundary(doc: GenericDocument, start_idx: u64, data: *const grapheme.G
     }
 
     // GB12, GB13
+    // for ltr: if(isRegionalIndicator) {ri_state = !ri_state} else {ri_state = false}
     if (left_gbp == .Regional_Indicator and right_gbp == .Regional_Indicator) {
         var iter_dup = iter_main;
         var count: usize = 0;
@@ -291,6 +294,19 @@ pub fn hasBoundary(doc: GenericDocument, start_idx: u64, data: *const grapheme.G
     // GB999
     return .GB999;
 }
+
+const LtrClusteringState = struct {
+    state: enum(u2) {
+        none, // consonant => indic_1, emoji => emoji, else => none
+        emoji, // consonant => indic_1, extend => emoji, emoji => emoji, else => none
+        indic_1, // consonant => indic_1, extend => indic_1, linker => indic_2, emoji => emoji, else => none
+        indic_2, // consonant => indic_1, extend, linker => indic_2, emoji => emoji, else => none
+    },
+    ri_state: bool, // regional_indicator => !rl_state, else => false
+
+    // so 3 bits. that's pretty good. could even be in one enum(u3) with a little care around regional indicators
+    // unfortunately, this doesn't really let us backtrack from a point to test gb9c, gb11, gb12, gb13.
+};
 
 test hasBoundary {
     const allocator = std.testing.allocator;
