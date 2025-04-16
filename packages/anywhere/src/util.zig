@@ -501,3 +501,142 @@ pub fn dupeOne(allocator: std.mem.Allocator, value: anytype) !*@TypeOf(value) {
 pub fn centerIn(container_max: f32, item_height: f32) f32 {
     return (container_max - item_height) / 2;
 }
+
+pub fn replaceInvalidUtf8(str_in: []u8) void {
+    const replacement_char = '?';
+    var str = str_in;
+    while (str.len > 0) {
+        // disallow null byte
+        if (str[0] == '\x00') {
+            str[0] = replacement_char;
+            str = str[1..];
+            continue;
+        }
+        const seq_len = std.unicode.utf8ByteSequenceLength(str[0]) catch {
+            str[0] = replacement_char;
+            str = str[1..];
+            continue;
+        };
+        if (str.len < seq_len) {
+            str[0] = replacement_char;
+            str = str[1..];
+            continue;
+        }
+        _ = std.unicode.utf8Decode(str[0..seq_len]) catch {
+            str[0] = replacement_char;
+            str = str[1..];
+            continue;
+        };
+        str = str[seq_len..];
+    }
+}
+
+const unicode = struct {
+    pub const Encoding = enum {
+        utf8_replace_invalid,
+        fn Unit(self: Encoding) type {
+            return switch (self) {
+                .utf8_replace_invalid => u8,
+            };
+        }
+        fn isWtf8(self: Encoding) bool {
+            return switch (self) {
+                .utf8_replace_invalid => false,
+            };
+        }
+        fn isAssert(self: Encoding) bool {
+            return switch (self) {
+                .utf8_replace_invalid => false,
+            };
+        }
+    };
+    pub const first_high_surrogate = 0xD800;
+    pub const last_high_surrogate = 0xDBFF;
+    pub const first_low_surrogate = 0xDC00;
+    pub const last_low_surrogate = 0xDFFF;
+    pub const replacement_character = 0xFFFD;
+    pub const DecodeResult = struct { codepoint: u21, advance: u2 };
+    pub inline fn decodeFirst(comptime encoding: unicode.Encoding, slice: []const encoding.Unit()) ?DecodeResult {
+        // inline is used because it significantly improves performance
+        // another perf improvement is to use u32 for codepoint & u32 for advance. but we are skipping that one because
+        // it's clearly a zig bug.
+        if (slice.len == 0) return null;
+        const s0 = slice[0];
+        // consider changing the advance in failure based on eg '[4][x][x][1]' could be [0xFFFD][1] rather than [0xFFFD][0xFFFD][0xFFFD][1]
+        const failure: DecodeResult = .{ .codepoint = replacement_character, .advance = 1 };
+        switch (encoding) {
+            .utf8_replace_invalid => {
+                const T = i32;
+                const len: u32 = switch (s0) {
+                    0b0000_0000...0b0111_1111 => return .{ .codepoint = s0, .advance = 1 },
+                    0b1100_0000...0b1101_1111 => 2,
+                    0b1110_0000...0b1110_1111 => 3,
+                    0b1111_0000...0b1111_0111 => 4,
+                    else => {
+                        if (comptime encoding.isAssert()) unreachable;
+                        return failure;
+                    },
+                };
+                if (len > slice.len) {
+                    if (comptime encoding.isAssert()) unreachable;
+                    // this means (0b11110)(0b10)(0b10)(0b0) will read as (?)(?)(?)(ascii)
+                    // alternatively, here we could read the actual number of trail bytes like TextDecoder does
+                    // to convert to (?)(ascii), two fewer 0xFFFD bytes
+                    return failure;
+                    // and below, rather than break :failure, we can return .advance = (number of trail bytes read)
+                    // this would not match node
+                }
+
+                const s1 = slice[1];
+                if ((s1 & 0xC0) != 0x80) {
+                    if (comptime encoding.isAssert()) unreachable;
+                    return failure;
+                }
+                if (len == 2) {
+                    const cp = @as(T, s0 & 0x1F) << 6 | @as(T, s1 & 0x3F);
+                    if (cp < 0x80) {
+                        if (comptime encoding.isAssert()) unreachable;
+                        return failure;
+                    }
+                    return .{ .codepoint = cp, .advance = 2 };
+                }
+
+                const s2 = slice[2];
+                if ((s2 & 0xC0) != 0x80) {
+                    if (comptime encoding.isAssert()) unreachable;
+                    return failure;
+                }
+                if (len == 3) {
+                    const cp = (@as(T, s0 & 0x0F) << 12) | (@as(T, s1 & 0x3F) << 6) | (@as(T, s2 & 0x3F));
+                    if (cp < 0x800) {
+                        if (comptime encoding.isAssert()) unreachable;
+                        return failure;
+                    }
+                    if (!encoding.isWtf8()) {
+                        if (cp >= first_high_surrogate and cp <= last_high_surrogate or cp >= first_low_surrogate and cp <= last_low_surrogate) {
+                            if (comptime encoding.isAssert()) unreachable;
+                            return failure;
+                        }
+                    }
+                    return .{ .codepoint = cp, .advance = 3 };
+                }
+
+                const s3 = slice[3];
+                if ((s3 & 0xC0) != 0x80) {
+                    if (comptime encoding.isAssert()) unreachable;
+                    return failure;
+                }
+                {
+                    const cp = (@as(T, s0 & 0x07) << 18) | (@as(T, s1 & 0x3F) << 12) | (@as(T, s2 & 0x3F) << 6) | (@as(T, s3 & 0x3F));
+                    if (cp < 0x10000 or cp > 0x10FFFF) {
+                        if (comptime encoding.isAssert()) unreachable;
+                        return failure;
+                    }
+                    return .{ .codepoint = cp, .advance = 4 };
+                }
+
+                unreachable;
+            },
+        }
+    }
+};

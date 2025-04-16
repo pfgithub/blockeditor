@@ -4,7 +4,7 @@
     .version = "0.0.0",
     .dependencies = .{
         .blocks = .{ .path = "../blocks" },
-        .unicode_segmentation = .{ .path = "../unicode_segmentation" },
+        .unicode_segmentation_2 = .{ .path = "../unicode_segmentation_2" },
         .anywhere = .{ .path = "../anywhere" },
         .tree_sitter = .{ .path = "../tree_sitter" },
 

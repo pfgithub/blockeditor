@@ -16,12 +16,10 @@
         .loadimage = .{ .path = "packages/loadimage" },
         .loadimage_wasm = .{ .path = "packages/loadimage_wasm" },
         .minigamer_3ds = .{ .path = "packages/minigamer/3ds" },
-        .root = .{ .path = "packages/root" },
         .sheen_bidi = .{ .path = "packages/sheen_bidi" },
         .texteditor = .{ .path = "packages/texteditor" },
         .tracy = .{ .path = "packages/tracy" },
         .tree_sitter = .{ .path = "packages/tree_sitter" },
-        .unicode_segmentation = .{ .path = "packages/unicode_segmentation" },
         .unicode_segmentation_2 = .{ .path = "packages/unicode_segmentation_2" },
     },
 }
