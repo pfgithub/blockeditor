@@ -780,7 +780,7 @@ pub fn copyArrayListUtf8(self: *Core, result_str: *std.ArrayList(u8), mode: Copy
         .paste_in_new_line = paste_in_new_line,
     };
 
-    seg_dep.replaceInvalidUtf8(result_str.items);
+    anywhere.util.replaceInvalidUtf8(result_str.items);
 }
 fn paste(self: *Core, clipboard_contents: []const u8) void {
     self.normalizeCursors();
@@ -1125,8 +1125,13 @@ fn hasStop(doc: seg_dep.GenericDocument, docbyte: u64, stop: CursorLeftRightStop
         return null;
     }
     if (stop == .unicode_grapheme_cluster) {
-        if (!seg_dep.segmentation_available) return hasStop(doc, docbyte, .codepoint, cfg);
-        return switch (doc.isBoundary(docbyte)) {
+        const outer = hasStop(doc, docbyte, .codepoint, cfg);
+        if (outer != .both) return null;
+        return switch (seg_dep.hasBoundary(
+            doc,
+            docbyte,
+            seg_dep.loadGraphemeDataSingleton(),
+        ).shouldBreak()) {
             true => .both,
             false => null,
         };
@@ -1305,10 +1310,6 @@ const DocumentDocument = struct {
         return switch (direction) {
             .right => self.text_doc.read(self.text_doc.positionFromDocbyte(offset)),
             .left => self.text_doc.readLeft(self.text_doc.positionFromDocbyte(offset)),
-            // TODO: implement and switch to .readLeft()
-            // note that switching before seg_dep.segmentation_issue_139 is fixed will cause
-            // inconsistent behaviour moving the cursor left over an emoji with zwj that is split
-            // in half with a span vs one that is not
         };
     }
 

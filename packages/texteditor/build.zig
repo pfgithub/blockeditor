@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) !void {
     const diffz_dep = b.dependency("diffz", .{ .target = target, .optimize = optimize });
 
     const blocks_dep = b.dependency("blocks", .{ .target = target, .optimize = optimize });
-    const seg_dep = b.dependency("unicode_segmentation", .{ .target = target, .optimize = optimize });
+    const seg_dep = b.dependency("unicode_segmentation_2", .{ .target = target, .optimize = optimize });
     const anywhere_mod = b.dependency("anywhere", .{}).module("anywhere");
     const tree_sitter_dep = b.dependency("tree_sitter", .{ .target = target, .optimize = treesitter_optimize });
 
@@ -36,7 +36,7 @@ pub fn build(b: *std.Build) !void {
     });
     texteditor_mod.addImport("diffz", diffz_dep.module("diffz"));
     texteditor_mod.addImport("blocks", blocks_dep.module("blocks"));
-    texteditor_mod.addImport("grapheme_cursor", seg_dep.module("grapheme_cursor"));
+    texteditor_mod.addImport("grapheme_cursor", seg_dep.module("unicode_segmentation_2"));
     texteditor_mod.addImport("anywhere", anywhere_mod);
     texteditor_mod.addImport("tree_sitter", tree_sitter_dep.module("tree_sitter"));
     texteditor_mod.linkLibrary(tree_sitter_zig_obj);
