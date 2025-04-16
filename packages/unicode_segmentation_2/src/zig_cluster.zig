@@ -21,12 +21,12 @@ fn unicodeCategory(byte: u8) UnicodeCategory {
 }
 
 // this is all wrong! both of these are assuming the index is centered on a codepoint,
-// but it's not!
+// but what if it's not!
 const RightCodepointIterator = struct {
     doc: GenericDocument,
-    index: usize,
+    index: u64,
     right_buf: []const u8,
-    fn init(doc: GenericDocument, index: usize) RightCodepointIterator {
+    fn init(doc: GenericDocument, index: u64) RightCodepointIterator {
         return .{
             .doc = doc,
             .index = index,
@@ -73,9 +73,9 @@ const RightCodepointIterator = struct {
 };
 const LeftCodepointIterator = struct {
     doc: GenericDocument,
-    index: usize,
+    index: u64,
     left_buf: []const u8,
-    fn init(doc: GenericDocument, index: usize) LeftCodepointIterator {
+    fn init(doc: GenericDocument, index: u64) LeftCodepointIterator {
         return .{
             .doc = doc,
             .index = index,
