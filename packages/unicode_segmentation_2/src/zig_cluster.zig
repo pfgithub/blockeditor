@@ -441,7 +441,3 @@ pub fn loadGraphemeDataSingleton() *const grapheme.GraphemeData {
 
 // TODO: zig needs to fix its std.log.info() impl
 const windows_output_hack = true;
-
-// TODO: remove these
-pub const segmentation_available = true;
-pub const segmentation_issue_139 = false;
