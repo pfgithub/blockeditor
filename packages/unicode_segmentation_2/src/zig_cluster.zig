@@ -295,6 +295,10 @@ pub fn hasBoundary(doc: GenericDocument, start_idx: u64, data: *const grapheme.G
     return .GB999;
 }
 
+// word break is easy
+// first we need per-language Word_Break property values (zg doesn't provide yet but should be easy to add?)
+// then it's the same as codepoint with a bunch of stuff
+
 const LtrClusteringState = struct {
     state: enum(u2) {
         none, // consonant => indic_1, emoji => emoji, else => none
