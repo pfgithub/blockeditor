@@ -279,6 +279,7 @@ const Token = enum {
     kw_defer,
     kw_builtin,
     string_identifier_start,
+    pipe, // '|'
 
     // string only
     string,
@@ -296,7 +297,7 @@ const reserved_symbols_map = std.StaticStringMap(Token).initComptime(.{
     .{ "=", .equals },
     .{ ":=", .colon_equals },
     .{ ":", .colon },
-    .{ "//", .inline_comment },
+    // .{ "//", .inline_comment }, // can't do it this way
     .{ "#", ._maybe_keyword },
     .{ "=>", .equals_gt },
 });
@@ -380,6 +381,7 @@ const Tokenizer = struct {
                                         self.expected_indent_level -|= 1;
                                     }
                                     if (self.indent_level != self.expected_indent_level) {
+                                        std.log.err("expected indent level: {d}, got: {d}, at: {d}", .{ self.indent_level, self.expected_indent_level, self.token_start_srcloc + i });
                                         self.has_error = .{ .pos = @intCast(self.token_start_srcloc + i), .byte = '\n', .msg = .indent_wrong };
                                     }
                                     if (self.this_line_opens > 0) self.expected_indent_level += 1;
@@ -427,6 +429,7 @@ const Tokenizer = struct {
                     '"' => self._setSingleByteToken(.double_quote),
                     '\'' => self._setSingleByteToken(.single_quote),
                     '.' => self._setSingleByteToken(.dot),
+                    '|' => self._setSingleByteToken(.pipe),
                     '{' => {
                         self.this_line_opens += 1;
                         self._setSingleByteToken(.code_begin);
@@ -454,16 +457,18 @@ const Tokenizer = struct {
                         self.this_line_opens -|= 1;
                         self._setSingleByteToken(.code_end);
                     },
-                    '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '|', '<', '>', '/', '?', ':' => {
+                    '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '<', '>', '/', '?', ':' => {
                         self.token_end_srcloc += for (rem[1..], 1..) |byte, i| switch (byte) {
-                            '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '|', '<', '>', '/', '?' => {},
+                            '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '<', '>', '/', '?' => {},
                             else => break @intCast(i),
                         } else @intCast(rem.len);
-                        self.token = reserved_symbols_map.get(self.slice()) orelse .symbols;
-                        if (self.token == .inline_comment) {
+                        const tok_slice = self.slice();
+                        self.token = reserved_symbols_map.get(tok_slice) orelse .symbols;
+                        if (std.mem.startsWith(u8, tok_slice, "//")) {
+                            self.token = .inline_comment;
                             const rem2 = self.source[self.token_end_srcloc..];
                             self.token_end_srcloc += for (rem2, 0..) |byte, i| switch (byte) {
-                                '\n' => break @intCast(i + 1),
+                                '\n' => break @intCast(i), // the next token will be whitespace_newline
                                 '\r' => {},
                                 else => {
                                     if (byte < ' ' or byte == 0x7F) {
@@ -579,6 +584,7 @@ const Parser = struct {
     }
     fn wrapErr(p: *Parser, node: usize, srcloc: u32, comptime msg: []const u8, args: anytype) void {
         @branchHint(.cold);
+        p.has_errors = true;
         var str = p.stringBegin();
         str.print(msg, args);
         return p._wrapErrFormatted(node, srcloc, &str);
@@ -867,7 +873,7 @@ const Parser = struct {
                         break;
                     }
                 },
-                .code_begin, .map_begin => {
+                .code_begin, .map_begin, .double_quote, .pipe => {
                     const call_src = p.here().src;
                     std.debug.assert(p.tryParseExprFinal() != null);
                     p.wrapExpr(.call, start.node, call_src);
@@ -1048,7 +1054,7 @@ pub fn parse(gpa: std.mem.Allocator, src: []const u8) AstTree {
     return tree;
 }
 
-fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, src_in: []const u8) ![]const u8 {
+pub fn testParser(out: *std.ArrayList(u8), opt: struct { no_lines: bool = false }, src_in: []const u8) ![]const u8 {
     const gpa = out.allocator;
     var src = std.ArrayList(u8).init(gpa);
     defer src.deinit();

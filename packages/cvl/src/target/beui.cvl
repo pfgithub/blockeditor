@@ -1,0 +1,34 @@
+HSplit :: #builtin.zig_raw "HSplit" // interesting to allow
+Pad :: #builtin.zig_raw "Pad"
+Button :: #builtin.zig_raw "Button"
+Text :: #builtin.zig_raw "Text"
+
+PadUsage :: (child: || void) void: {
+    HSplit.Parent || {
+        HSplit.Child.Rem || {
+            Pad || {
+                Button || {
+                    Text "hello"
+                }
+            }
+        }
+        HSplit.Child.Self || {
+            Text "hello"
+        }
+        HSplit.Child.Self || {
+            child();
+        }
+    }
+}
+
+// this could fully work if it's all stack based
+// if we want return value maybe it  needs a bit more
+
+
+// so what do we need to implement:
+// '|' is defined as a stack-capturing macro
+// - add '|'call
+//   - when passing to zig, we'll pass it as `.from(&stack_vars, anon_0)`
+//   - later, we can make that user-defined in the type how to pass it
+// - add stringcall
+// - zig emit format

@@ -1,0 +1,5 @@
+#builtin.symbols.main = () {
+    #builtin.asm(
+        // in the future we'll let you capture variables in here & set the result type & such
+    ) "std.log.info('hello, world!')";
+};

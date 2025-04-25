@@ -1,5 +1,4 @@
 const std = @import("std");
-const example_src = @embedFile("tests/0.cvl");
 const parser = @import("parser.zig");
 const anywhere = @import("anywhere");
 const SrcLoc = parser.SrcLoc;
@@ -872,12 +871,78 @@ const MapEnt = struct {
     srcloc: SrcLoc,
 };
 
-test "compiler" {
+test "rv" {
     if (true) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
-    var tree = parser.parse(gpa, example_src);
+    var tree = parser.parse(gpa, @embedFile("tests/rv.cvl"));
     defer tree.deinit();
+    try std.testing.expect(!tree.owner.has_errors);
+
+    // it is parsed. now handle the root file decl
+    const root = tree.root();
+    const first_decl = tree.firstChild(root).?;
+    const fn_def = tree.next(tree.firstChild(first_decl).?).?;
+    const fn_body = tree.next(tree.firstChild(fn_def).?).?;
+    // std.log.err("val: {s}", .{@tagName(tree.tag(fn_body))});
+    // it's a code expr
+
+    var arena_backing = std.heap.ArenaAllocator.init(gpa);
+    defer arena_backing.deinit();
+    var env: Env = .{
+        .gpa = gpa,
+        .arena = arena_backing.allocator(),
+        .decls = .empty,
+        .compiler_srclocs = .empty,
+        .comptime_keys = .empty,
+        .string_to_comptime_key_map = .empty,
+        .backend = .{
+            .data = .from(Backends.Riscv32, &.{}),
+            .vtable = Backends.Riscv32.vtable,
+        },
+        .decl_cache = .empty,
+    };
+    defer env.decl_cache.deinit(gpa);
+    defer env.string_to_comptime_key_map.deinit(gpa);
+    defer env.comptime_keys.deinit(gpa);
+    defer env.decls.deinit(env.gpa);
+    defer env.compiler_srclocs.deinit(env.gpa);
+    var emit_block: Backends.Riscv32.EmitBlock = .{
+        .instructions = .empty,
+    };
+    defer emit_block.instructions.deinit(env.gpa);
+    var scope: Scope = .{
+        .env = &env,
+        .tree = &tree,
+        .block = .from(Backends.Riscv32.EmitBlock, &emit_block),
+    };
+    const res = try scope.handleExpr(try env.makeInfer(Types.Unknown.ty), fn_body);
+    _ = res;
+
+    var printed = std.ArrayListUnmanaged(u8).empty;
+    defer printed.deinit(gpa);
+    try emit_block.print(printed.writer(gpa).any());
+    // in the future this may become:
+    // x10 = x0 (.move) (toRuntime on the number emits nothing & returns x0)
+    // ecall (.instr)
+    // x10 = fakeuser x10 (.fakeuser)
+    if (env.has_error) return error.HasError;
+    try anywhere.util.testing.snap(@src(),
+        \\x11 = ADD x10 x12
+        \\
+    , printed.items);
+}
+
+test "zig" {
+    const src_in = @embedFile("tests/zig.cvl");
+    const gpa = std.testing.allocator;
+    var tree = parser.parse(gpa, src_in);
+    defer tree.deinit();
+    if (tree.owner.has_errors) {
+        var out = std.ArrayList(u8).init(gpa);
+        defer out.deinit();
+        std.log.err("has errors: `{s}`", .{try parser.testParser(&out, .{}, src_in)});
+    }
     try std.testing.expect(!tree.owner.has_errors);
 
     // it is parsed. now handle the root file decl
