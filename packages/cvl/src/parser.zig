@@ -1,7 +1,23 @@
 // parses to rpn
 const std = @import("std");
 
-pub const SrcLoc = struct { file_id: u32, offset: u32 };
+pub const SrcLoc = packed struct(u64) {
+    tag: enum(u1) { builtin, user },
+    value: packed union {
+        builtin: u63,
+        user: packed struct(u63) {
+            file_id: u31,
+            offset: u32,
+        },
+    },
+
+    pub fn fromFileOffset(file: u31, offset: u32) SrcLoc {
+        return .{ .tag = .user, .value = .{ .user = .{ .file_id = file, .offset = offset } } };
+    }
+    pub fn fromSrc(comptime src: std.builtin.SourceLocation) SrcLoc {
+        return .{ .tag = .builtin, .value = .{ .builtin = @intCast(@intFromPtr(&src)) } };
+    }
+};
 
 pub const AstTree = struct {
     tags: []const AstNode.Tag,
@@ -36,8 +52,8 @@ pub const AstTree = struct {
         if (srcloc != null) while (t.next(srcloc.?)) |s| {
             srcloc = s;
         };
-        if (srcloc == null or t.tag(srcloc.?) != .srcloc) return .{ .file_id = 0, .offset = 0 };
-        return .{ .file_id = 0, .offset = t.atomValue(.srcloc, srcloc.?) };
+        if (srcloc == null or t.tag(srcloc.?) != .srcloc) return .fromFileOffset(0, 0);
+        return .fromFileOffset(0, t.atomValue(.srcloc, srcloc.?));
     }
 
     pub fn firstChild(t: *const AstTree, node: AstExpr) ?AstExpr {

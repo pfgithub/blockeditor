@@ -22,6 +22,74 @@ fn autoVtable(comptime Vtable: type, comptime Src: type) *const Vtable {
 }
 
 const Backends = struct {
+    const Zig = struct {
+        const EmitBlock = @import("./zig.zig").EmitBlock;
+
+        const Asm_CacheKey = struct {
+            fn hash(_: anywhere.util.AnyPtr, _: *Env) u32 {
+                return 0;
+            }
+            fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
+                return true;
+            }
+            fn init(_: anywhere.util.AnyPtr, _: *Env) Error!Decl {
+                return .from(
+                    .fromSrc(@src()),
+                    Asm,
+                    &.{},
+                    &{},
+                );
+            }
+        };
+        const Any = struct {
+            pub const ty: Type = .from(@This(), &.{});
+            fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
+                return try std.fmt.allocPrint(env.arena, "zig:any", .{});
+            }
+        };
+        const Asm = struct {
+            pub const ty: Type = .from(@This(), &.{});
+            pub const ComptimeValue = void;
+
+            fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
+                return try std.fmt.allocPrint(env.arena, "zig:#builtin.asm", .{});
+            }
+
+            fn call(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, method: Expr, arg: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
+                const block = scope.block.to(EmitBlock);
+
+                const arg_val = try scope.handleExpr(Types.ComptimeByteSlice.ty, arg);
+                const cbyteslice = try scope.env.expectComptime(arg_val, Types.ComptimeByteSlice);
+                // fix indentation. this does two passes over cbyteslice but we only need to do one.
+                var iter = std.mem.splitScalar(u8, cbyteslice.*, '\n');
+                while (iter.next()) |line| {
+                    if (line.ptr != cbyteslice.ptr) {
+                        try block.out.appendNTimes(scope.env.gpa, ' ', block.indent_level * 4);
+                    }
+                    try block.out.appendSlice(scope.env.gpa, line);
+                }
+
+                _ = slot;
+                _ = method;
+                _ = srcloc;
+                return .{
+                    .ty = Any.ty,
+                    .value = .{ .runtime = .from(EmitBlock.ZigVar, try anywhere.util.dupeOne(scope.env.arena, @as(EmitBlock.ZigVar, @enumFromInt(0)))) },
+                    .srcloc = .fromSrc(@src()),
+                };
+            }
+        };
+
+        const vtable = autoVtable(Backend.Vtable, @This());
+
+        pub fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
+            return try std.fmt.allocPrint(env.arena, "riscv32", .{});
+        }
+
+        pub fn get_asm_decl(_: anywhere.util.AnyPtr, scope: *Scope) Error!Decl.Index {
+            return try scope.env.cachedDecl(Asm_CacheKey, .{});
+        }
+    };
     const Riscv32 = struct {
         const rvemu = @import("rvemu");
         const EmitBlock = @import("./riscv.zig").EmitBlock;
@@ -33,9 +101,9 @@ const Backends = struct {
             fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
                 return true;
             }
-            fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+            fn init(_: anywhere.util.AnyPtr, _: *Env) Error!Decl {
                 return .from(
-                    try env.srclocFromSrc(@src()),
+                    .fromSrc(@src()),
                     Asm,
                     &.{},
                     &{},
@@ -47,7 +115,7 @@ const Backends = struct {
             pub const ComptimeValue = void;
 
             fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
-                return try std.fmt.allocPrint(env.arena, "#builtin.asm", .{});
+                return try std.fmt.allocPrint(env.arena, "rv:#builtin.asm", .{});
             }
             // for lsp, we need to provide a list of keys
             fn access(_: anywhere.util.AnyPtr, scope: *Scope, slot: Type, obj: Expr, prop: parser.AstExpr, srcloc: SrcLoc) Error!Expr {
@@ -85,13 +153,13 @@ const Backends = struct {
                 }
 
                 return .from(
-                    try env.srclocFromSrc(@src()),
+                    .fromSrc(@src()),
                     Types.Ty,
                     &.{},
                     try anywhere.util.dupeOne(env.arena, Types.Ty.ComptimeValue.from(
                         Types.Enum,
                         try anywhere.util.dupeOne(env.arena, Types.Enum{
-                            .srcloc = try env.srclocFromSrc(@src()),
+                            .srcloc = .fromSrc(@src()),
                             .fields = resfields,
                         }),
                     )),
@@ -134,16 +202,16 @@ const Backends = struct {
                             .default_value = null,
                         },
                     }),
-                    else => return env.addErr(try env.srclocFromSrc(@src()), "TODO asm instr fmt: {s}", .{@tagName(self.spec.format)}),
+                    else => return env.addErr(.fromSrc(@src()), "TODO asm instr fmt: {s}", .{@tagName(self.spec.format)}),
                 };
                 return .from(
-                    try env.srclocFromSrc(@src()),
+                    .fromSrc(@src()),
                     Types.Ty,
                     &.{},
                     try anywhere.util.dupeOne(env.arena, Types.Ty.ComptimeValue.from(
                         Types.Struct,
                         try anywhere.util.dupeOne(env.arena, Types.Struct{
-                            .srcloc = try env.srclocFromSrc(@src()),
+                            .srcloc = .fromSrc(@src()),
                             .fields = fields,
                         }),
                     )),
@@ -272,8 +340,8 @@ const Types = struct {
     };
     const Key = struct {
         pub const ty: Type = .from(@This(), &.{});
-        fn name(_: anywhere.util.AnyPtr, env: *Env) Error![]const u8 {
-            return try std.fmt.allocPrint(env.arena, "key", .{});
+        fn name(_: anywhere.util.AnyPtr, _: *Env) Error![]const u8 {
+            return "key";
         }
 
         // for strings <= 7 bytes long, we can store them directly in the u64
@@ -301,6 +369,23 @@ const Types = struct {
             _ = slot;
             _ = srcloc;
             return scope.handleExpr(obj, prop);
+        }
+    };
+    const ComptimeByteSlice = struct {
+        pub const ty: Type = .from(@This(), &.{});
+        fn name(_: anywhere.util.AnyPtr, _: *Env) Error![]const u8 {
+            return "comptime_byte_slice";
+        }
+        pub const ComptimeValue = []const u8;
+
+        fn from_string(self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, str: []const u8, srcloc: SrcLoc) Error!Expr {
+            _ = slot;
+            return scope.env.declExpr(srcloc, try scope.env.addDecl(.from(
+                srcloc,
+                ComptimeByteSlice,
+                self.to(ComptimeByteSlice),
+                try anywhere.util.dupeOne(scope.env.arena, str),
+            )));
         }
     };
     const Bound = struct {
@@ -497,6 +582,7 @@ const Type = struct {
         from_map: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, ents: []MapEnt, srcloc: SrcLoc) Error!Expr = null,
         access_type: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, obj: Type, prop: parser.AstExpr, srcloc: SrcLoc) Error!Expr = null,
         from_number: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, num: []const u8, srcloc: SrcLoc) Error!Expr = null,
+        from_string: ?*const fn (self: anywhere.util.AnyPtr, scope: *Scope, slot: Type, str: []const u8, srcloc: SrcLoc) Error!Expr = null,
     };
     pub fn name(self: Type, env: *Env) Error![]const u8 {
         return self.vtable.name(self.data, env);
@@ -593,7 +679,6 @@ const Env = struct {
     arena: std.mem.Allocator,
     has_error: bool = false,
     decls: std.ArrayListUnmanaged(Decl),
-    compiler_srclocs: std.ArrayListUnmanaged(std.builtin.SourceLocation),
     comptime_keys: std.ArrayListUnmanaged(ComptimeKeyValue),
     string_to_comptime_key_map: std.ArrayHashMapUnmanaged(Types.Key.ComptimeValue, void, void, true),
     backend: Backend,
@@ -645,11 +730,6 @@ const Env = struct {
         const res = self.decls.items.len;
         try self.decls.append(self.gpa, decl);
         return @enumFromInt(res);
-    }
-    pub fn srclocFromSrc(self: *Env, bsrc: std.builtin.SourceLocation) !SrcLoc {
-        const id: u32 = @intCast(self.compiler_srclocs.items.len);
-        try self.compiler_srclocs.append(self.gpa, bsrc);
-        return .{ .file_id = std.math.maxInt(u32), .offset = id };
     }
     pub fn declExpr(self: *Env, srcloc: SrcLoc, decl: Decl.Index) Error!Expr {
         const resolved = try self.resolveDeclType(decl);
@@ -706,7 +786,7 @@ const Env = struct {
             gpres.value_ptr.* = try self.addDecl(.{
                 .analysis_state = .{ .decl_cache_uninitialized = gpres.key_ptr.* },
                 .dependencies = &.{},
-                .srcloc = try self.srclocFromSrc(@src()), // will get replaced on analyze
+                .srcloc = .fromSrc(@src()), // will get replaced on analyze
                 .resolved_type = null,
                 .resolved_value_ptr = null,
             });
@@ -730,9 +810,9 @@ const BuiltinDecl = struct {
     fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
         return true;
     }
-    fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+    fn init(_: anywhere.util.AnyPtr, _: *Env) Error!Decl {
         return .from(
-            try env.srclocFromSrc(@src()),
+            .fromSrc(@src()),
             Types.Builtin,
             &.{},
             &{},
@@ -746,9 +826,9 @@ const VoidDecl = struct {
     fn eql(_: anywhere.util.AnyPtr, _: anywhere.util.AnyPtr, _: *Env) bool {
         return true;
     }
-    fn init(_: anywhere.util.AnyPtr, env: *Env) Error!Decl {
+    fn init(_: anywhere.util.AnyPtr, _: *Env) Error!Decl {
         return .from(
-            try env.srclocFromSrc(@src()),
+            .fromSrc(@src()),
             Types.Void,
             &.{},
             &{},
@@ -804,7 +884,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
             const str = tree.readStr(offset, len);
 
             return scope.env.declExpr(srcloc, try scope.env.addDecl(.from(
-                try scope.env.srclocFromSrc(@src()), // not sure what to use for this srcloc if we will have one per key
+                .fromSrc(@src()), // not sure what to use for this srcloc if we will have one per key
                 Types.Key,
                 &.{},
                 try anywhere.util.dupeOne(scope.env.arena, try scope.env.comptimeKeyFromString(str)),
@@ -843,7 +923,7 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
         .slot => {
             if (scope.with_slot_ty == null) unreachable;
             return scope.env.declExpr(srcloc, try scope.env.addDecl(.from(
-                try scope.env.srclocFromSrc(@src()),
+                .fromSrc(@src()),
                 Types.Ty,
                 &.{},
                 try anywhere.util.dupeOne(scope.env.arena, scope.with_slot_ty.?),
@@ -861,6 +941,18 @@ inline fn handleExpr_inner2(scope: *Scope, slot: Type, expr: parser.AstExpr) Err
             const num_value = tree.readStr(offset, len);
             if (slot.vtable.from_number == null) return scope.env.addErr(tree.src(expr), "Initialize number in slot {s} not supported", .{try slot.name(scope.env)});
             return slot.vtable.from_number.?(slot.data, scope, slot, num_value, srcloc);
+        },
+        .string => {
+            const offset = tree.firstChild(expr).?;
+            const len = tree.next(offset).?;
+            if (tree.tag(tree.next(len).?) != .srcloc) {
+                return scope.env.addErr(tree.src(expr), "TODO: support string aggrandizements", .{});
+            }
+
+            const str_value = tree.readStr(offset, len);
+
+            if (slot.vtable.from_string == null) return scope.env.addErr(tree.src(expr), "Initialize string in slot {s} not supported", .{try slot.name(scope.env)});
+            return slot.vtable.from_string.?(slot.data, scope, slot, str_value, srcloc);
         },
         else => |t| return scope.env.addErr(tree.src(expr), "TODO expr: {s}", .{@tagName(t)}),
     }
@@ -893,7 +985,6 @@ test "rv" {
         .gpa = gpa,
         .arena = arena_backing.allocator(),
         .decls = .empty,
-        .compiler_srclocs = .empty,
         .comptime_keys = .empty,
         .string_to_comptime_key_map = .empty,
         .backend = .{
@@ -906,7 +997,6 @@ test "rv" {
     defer env.string_to_comptime_key_map.deinit(gpa);
     defer env.comptime_keys.deinit(gpa);
     defer env.decls.deinit(env.gpa);
-    defer env.compiler_srclocs.deinit(env.gpa);
     var emit_block: Backends.Riscv32.EmitBlock = .{
         .instructions = .empty,
     };
@@ -959,12 +1049,11 @@ test "zig" {
         .gpa = gpa,
         .arena = arena_backing.allocator(),
         .decls = .empty,
-        .compiler_srclocs = .empty,
         .comptime_keys = .empty,
         .string_to_comptime_key_map = .empty,
         .backend = .{
-            .data = .from(Backends.Riscv32, &.{}),
-            .vtable = Backends.Riscv32.vtable,
+            .data = .from(Backends.Zig, &.{}),
+            .vtable = Backends.Zig.vtable,
         },
         .decl_cache = .empty,
     };
@@ -972,31 +1061,22 @@ test "zig" {
     defer env.string_to_comptime_key_map.deinit(gpa);
     defer env.comptime_keys.deinit(gpa);
     defer env.decls.deinit(env.gpa);
-    defer env.compiler_srclocs.deinit(env.gpa);
-    var emit_block: Backends.Riscv32.EmitBlock = .{
-        .instructions = .empty,
+    var emit_block: Backends.Zig.EmitBlock = .{
+        .out = .empty,
     };
-    defer emit_block.instructions.deinit(env.gpa);
+    defer emit_block.out.deinit(env.gpa);
     var scope: Scope = .{
         .env = &env,
         .tree = &tree,
-        .block = .from(Backends.Riscv32.EmitBlock, &emit_block),
+        .block = .from(Backends.Zig.EmitBlock, &emit_block),
     };
     const res = try scope.handleExpr(try env.makeInfer(Types.Unknown.ty), fn_body);
     _ = res;
 
-    var printed = std.ArrayListUnmanaged(u8).empty;
-    defer printed.deinit(gpa);
-    try emit_block.print(printed.writer(gpa).any());
-    // in the future this may become:
-    // x10 = x0 (.move) (toRuntime on the number emits nothing & returns x0)
-    // ecall (.instr)
-    // x10 = fakeuser x10 (.fakeuser)
     if (env.has_error) return error.HasError;
     try anywhere.util.testing.snap(@src(),
-        \\x11 = ADD x10 x12
-        \\
-    , printed.items);
+        \\std.log.info('hello, world!')
+    , emit_block.out.items);
 }
 
 // notes:
