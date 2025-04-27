@@ -17,6 +17,7 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(test_exe);
     const run = b.addRunArtifact(test_exe);
+    run.addFileInput(b.path("src/tests/zig.cvl"));
     run.step.dependOn(b.getInstallStep());
     b.step("test", "test").dependOn(&run.step);
 }

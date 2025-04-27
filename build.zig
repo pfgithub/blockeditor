@@ -51,7 +51,10 @@ pub fn build(b: *std.Build) void {
     if (!opts.target(b).result.abi.isAndroid()) test_step.dependOn(&b.addRunArtifact(blockeditor_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(blocks_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(blocks_net_dep.artifact("test")).step);
-    test_step.dependOn(&b.addRunArtifact(cvl_dep.artifact("test")).step);
+    const cvl_test_run = b.addRunArtifact(cvl_dep.artifact("test"));
+    cvl_test_run.setCwd(b.path("packages/cvl"));
+    cvl_test_run.addFileInput(b.path("packages/cvl/src/tests/zig.cvl"));
+    test_step.dependOn(&cvl_test_run.step);
     test_step.dependOn(&b.addRunArtifact(loadimage_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(sheen_bidi_dep.artifact("test")).step);
     test_step.dependOn(&b.addRunArtifact(texteditor_dep.artifact("test")).step);

@@ -1,3 +1,71 @@
 #builtin.symbols.main = () {
     #builtin.asm "std.log.info('hello, world!')";
 };
+
+render__tree__child :: (tco: *TreeChildOpts, call_info: B2.StandardCallInfo, index: FsTree2.Index) B2.StandardChild :return {
+    tctx :: tracy.trace(_src());
+    #defer tctx.end();
+
+    ui :: call_info.ui(_src());
+
+    tree :: tco.tree;
+    app :: tco.app;
+
+    tree_node :: _orelse(index.current_node, () _unreachable());
+
+    tree_data :: _catch(ui.id.b2.frame.arena.create(render__tree__child_onClick_data), () _panic("oom"));
+    tree_data = ( .tree = tree, .tree_node = tree_node, .app = app );
+    ehdl :: B2.ButtonEhdl (
+        .onClick = .from(tree_data, render__tree__child_onClick),
+    );
+    return: B2.Button(ui.sub(_src(), ehdl, .from({*TreeChild}: .new_stack (.tree = tree, .node = tree_node)), render__tree__child__child));
+};
+
+render__tree__child_onClick_data :: _struct (
+    .tree = *FsTree2,
+    .app = *App,
+    .tree_node = *FsTree2.Node,
+);
+
+render__tree__child_onClick :: (data: *render__tree__child_onClick_data, b2: *B2.Beui2, _: void) void {
+    tree :: data.tree;
+    tree_node :: data.tree_node;
+    
+    _if(tree_node.node_type == .file) {
+        file_path :: {*std.ArrayList(u8)}: .new_stack: std.ArrayList(u8).init(b2.frame.arena);
+        tree.getPath(tree_node, file_path);
+        _if(std.fs.cwd().readFileAlloc(b2.frame.arena, file_path.items, std.math.maxInt(usize))) {(file_cont) {
+            data.app.wm.wm.moveFrameNewWindow(data.app.wm.wm.addFrame(( .final = ( .ref = data.app.addTab(final_cont) ) )));
+        }}.else (err) {
+            std.log.err("Failed to open file: {s}", (_errorName(err)));
+        };
+    } .else {
+        _if(!tree_node.opened) {
+            _catch(tree.expand(tree_node), (e) {
+                std.log.err("Failed to open directory: {s}", (_errorName(e)));
+            });
+        }.else {
+            tree.contract(tree_node);
+        }
+    };
+};
+
+// we should have '<-' syntax:
+// {
+//     a <-
+//     b (one, two) <-
+//     c
+// }
+// is equivalent to:
+// {
+//     a {
+//         b (one, two) {
+//             c
+//         }
+//     }
+// }
+// also lets you do function defs
+// { (arg_one) <- void <-
+//     body line one;
+//     body line two;
+// }

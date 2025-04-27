@@ -245,6 +245,8 @@ const AstNode = struct {
         number,
         slot,
         with_slot,
+        infix, // infix[string ...expr]
+        prefix, // prefix[string, expr]
 
         // atom
         string_offset,
@@ -289,6 +291,7 @@ const Token = enum {
     bracket,
     equals,
     colon_equals,
+    colon_colon,
     equals_gt,
     inline_comment,
     hashtag,
@@ -313,6 +316,7 @@ const reserved_symbols_map = std.StaticStringMap(Token).initComptime(.{
     .{ "=", .equals },
     .{ ":=", .colon_equals },
     .{ ":", .colon },
+    .{ "::", .colon_colon },
     // .{ "//", .inline_comment }, // can't do it this way
     .{ "#", ._maybe_keyword },
     .{ "=>", .equals_gt },
@@ -475,12 +479,13 @@ const Tokenizer = struct {
                     },
                     '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '<', '>', '/', '?', ':' => {
                         self.token_end_srcloc += for (rem[1..], 1..) |byte, i| switch (byte) {
-                            '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '<', '>', '/', '?' => {},
+                            '~', '`', '!', '@', '#', '$', '%', '^', '&', '*', '-', '=', '+', '\\', '<', '>', '/', '?', ':' => {},
                             else => break @intCast(i),
                         } else @intCast(rem.len);
                         const tok_slice = self.slice();
                         self.token = reserved_symbols_map.get(tok_slice) orelse .symbols;
                         if (std.mem.startsWith(u8, tok_slice, "//")) {
+                            // TODO: a comment at the start of a line should have to be on the same indent level as the line below it
                             self.token = .inline_comment;
                             const rem2 = self.source[self.token_end_srcloc..];
                             self.token_end_srcloc += for (rem2, 0..) |byte, i| switch (byte) {
@@ -600,14 +605,18 @@ const Parser = struct {
     }
     fn wrapErr(p: *Parser, node: usize, srcloc: u32, comptime msg: []const u8, args: anytype) void {
         @branchHint(.cold);
-        p.has_errors = true;
         var str = p.stringBegin();
         str.print(msg, args);
         return p._wrapErrFormatted(node, srcloc, &str);
     }
     fn _wrapErrFormatted(p: *Parser, node: usize, srcloc: u32, str: *StringBuilder) void {
+        const smk = str.end();
+        if (!p.has_errors) {
+            // std.log.err("Parser error: {d}:{s}", .{ srcloc, p.strings.items[smk.offset..][0..smk.len] });
+        }
+        p.has_errors = true;
         p.wrapExpr(.err_skip, node, srcloc); // wrap the previous junk in an error node so it can be easily skipped over
-        p.postString(str.end());
+        p.postString(smk);
         p.wrapExpr(.err, node, srcloc);
     }
     fn oom(p: *Parser) void {
@@ -846,6 +855,26 @@ const Parser = struct {
         }
     }
     fn tryParseExprWithSuffixes(p: *Parser) bool {
+        var symbols = std.ArrayList(struct { start_node: usize, src: u32 }).init(p.gpa);
+        defer symbols.deinit();
+        if (p.tokenizer.token == .symbols) {
+            const h = p.here();
+            const sym = p.tokenizer.slice();
+            p.tokenizer.next(.root);
+            _ = p.tryEatWhitespace();
+
+            const key = k: {
+                var str = p.stringBegin();
+                str.appendSlice(sym);
+                break :k str.end();
+            };
+            p.postString(key);
+            symbols.append(.{ .start_node = h.node, .src = h.src }) catch p.oom();
+        }
+        defer for (symbols.items) |symbol| {
+            p.wrapExpr(.prefix, symbol.start_node, symbol.src);
+        };
+
         const start = p.here();
         var needs_with_slot_wrap: bool = false;
         const parsed_expr_kind = p.tryParseExprFinal() orelse blk: {
@@ -940,8 +969,40 @@ const Parser = struct {
             },
         }
     }
+    fn tryParseExprWithInfix(p: *Parser) bool {
+        const begin = p.here();
+        if (!p.tryParseExprWithSuffixes()) return false;
+        _ = p.tryEatWhitespace();
+        if (p.tokenizer.token != .symbols) return true;
+        const sym_here = p.here();
+        const sym = p.tokenizer.slice();
+        p.tokenizer.next(.root);
+        const key = k: {
+            var str = p.stringBegin();
+            str.appendSlice(sym);
+            break :k str.end();
+        };
+        p.postString(key);
+        while (true) {
+            _ = p.tryEatWhitespace();
+            if (!p.tryParseExprWithSuffixes()) {
+                // end. use last symbols as a suffix
+                p.wrapErr(begin.node, begin.src, "expected expression", .{});
+                break;
+            }
+            _ = p.tryEatWhitespace();
+            if (p.tokenizer.token != .symbols) break;
+
+            if (!std.mem.eql(u8, sym, p.tokenizer.slice())) {
+                p.wrapErr(begin.node, begin.src, "mixed infix exprs not allowed. first operator: '{'}' ({d}), this operator: '{'}'", .{ std.zig.fmtEscapes(sym), sym_here.src, std.zig.fmtEscapes(p.tokenizer.slice()) });
+            }
+            p.tokenizer.next(.root);
+        }
+        p.wrapExpr(.infix, begin.node, sym_here.src);
+        return true;
+    }
     fn tryParseExpr(p: *Parser) bool {
-        return p.tryParseExprWithSuffixes();
+        return p.tryParseExprWithInfix();
     }
     fn tryParseCodeOrMapExpr(p: *Parser, mode: enum { code, map }) bool {
         const begin = p.here();
@@ -967,18 +1028,19 @@ const Parser = struct {
         _ = p.tryEatWhitespace();
         const eql_loc = p.here();
         switch (p.tokenizer.token) {
-            .equals, .colon_equals => |t| {
+            .equals, .colon_equals, .colon_colon => |t| {
                 p.assertEatToken(t, .root);
                 _ = p.tryEatWhitespace();
                 if (!p.tryParseExpr()) {
                     p.wrapErr(p.here().node, p.here().src, "Expected expr here", .{});
                 }
                 p.wrapExpr(switch (t) {
-                    .colon_equals => .bind,
-                    else => switch (mode) {
+                    .colon_equals, .colon_colon => .bind,
+                    .equals => switch (mode) {
                         .code => .code_eql,
                         .map => .map_entry,
                     },
+                    else => unreachable,
                 }, begin.node, eql_loc.src);
                 return true;
             },

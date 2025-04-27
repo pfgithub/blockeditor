@@ -60,6 +60,8 @@ const Backends = struct {
 
                 const arg_val = try scope.handleExpr(Types.ComptimeByteSlice.ty, arg);
                 const cbyteslice = try scope.env.expectComptime(arg_val, Types.ComptimeByteSlice);
+                try block.out.appendNTimes(scope.env.gpa, ' ', block.indent_level * 4);
+                try block.out.writer(scope.env.gpa).print("_ = ", .{});
                 // fix indentation. this does two passes over cbyteslice but we only need to do one.
                 var iter = std.mem.splitScalar(u8, cbyteslice.*, '\n');
                 while (iter.next()) |line| {
@@ -68,6 +70,7 @@ const Backends = struct {
                     }
                     try block.out.appendSlice(scope.env.gpa, line);
                 }
+                try block.out.writer(scope.env.gpa).print(";", .{});
 
                 _ = slot;
                 _ = method;
@@ -1024,8 +1027,9 @@ test "rv" {
 }
 
 test "zig" {
-    const src_in = @embedFile("tests/zig.cvl");
     const gpa = std.testing.allocator;
+    const src_in = try std.fs.cwd().readFileAlloc(gpa, "src/tests/zig.cvl", std.math.maxInt(usize));
+    defer gpa.free(src_in);
     var tree = parser.parse(gpa, src_in);
     defer tree.deinit();
     if (tree.owner.has_errors) {
@@ -1075,7 +1079,7 @@ test "zig" {
 
     if (env.has_error) return error.HasError;
     try anywhere.util.testing.snap(@src(),
-        \\std.log.info('hello, world!')
+        \\_ = std.log.info('hello, world!');
     , emit_block.out.items);
 }
 
