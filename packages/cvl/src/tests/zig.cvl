@@ -18,7 +18,7 @@ render__tree__child :: (tco: *TreeChildOpts, call_info: B2.StandardCallInfo, ind
     ehdl :: B2.ButtonEhdl (
         .onClick = .from(tree_data, render__tree__child_onClick),
     );
-    return: B2.Button(ui.sub(_src(), ehdl, .from({*TreeChild}: .new_stack (.tree = tree, .node = tree_node)), render__tree__child__child));
+    return: B2.Button(ui.sub(_src(), ehdl, .from(*TreeChild: .new_stack (.tree = tree, .node = tree_node)), render__tree__child__child));
 };
 
 render__tree__child_onClick_data :: _struct (

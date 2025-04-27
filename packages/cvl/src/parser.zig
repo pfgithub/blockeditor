@@ -876,17 +876,7 @@ const Parser = struct {
         };
 
         const start = p.here();
-        var needs_with_slot_wrap: bool = false;
-        const parsed_expr_kind = p.tryParseExprFinal() orelse blk: {
-            if (p.tokenizer.token == .dot) {
-                // continue to suffix parsing
-                p.wrapExpr(.slot, start.node, start.src);
-                needs_with_slot_wrap = true;
-                break :blk .other;
-            } else {
-                return false;
-            }
-        };
+        const parsed_expr_kind = p.tryParseExprFinal() orelse return false;
         if (parsed_expr_kind == .map) {
             const call_src = p.here().src;
             _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
@@ -895,29 +885,13 @@ const Parser = struct {
                 return true;
             }
         }
-        // if( just parsed parens ) {
-        //     tryParseExpr
-        //     return
-        // }
+        _ = p.wrapParseSuffixes(start);
+        return true;
+    }
+    fn wrapParseSuffixes(p: *Parser, start: Here) void {
         while (true) {
             _ = p.tryEatWhitespace();
             switch (p.tokenizer.token) {
-                .colon => |x| {
-                    const call_src = p.here().src;
-                    p.assertEatToken(x, .root);
-                    _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
-                    const before_exprparse = p.here();
-                    if (p.tryParseExpr()) {
-                        p.ensureExprValidColoncallTarget(before_exprparse);
-                        // if we support map call & code call, consider disallowing those with a colon
-                        // ie `a: [b]` disallowed, requires `a[b]`. same `a: (b)` disallowed.
-                        p.wrapExpr(.call, start.node, call_src);
-                        break;
-                    } else {
-                        p.wrapErr(start.node, p.here().src, "Expected expr after ':', found {s}", .{p.tokenizer.token.name()});
-                        break;
-                    }
-                },
                 .code_begin, .map_begin, .double_quote, .pipe => {
                     const call_src = p.here().src;
                     std.debug.assert(p.tryParseExprFinal() != null);
@@ -938,10 +912,6 @@ const Parser = struct {
                 else => break,
             }
         }
-        if (needs_with_slot_wrap) {
-            p.wrapExpr(.with_slot, start.node, start.src);
-        }
-        return true;
     }
     fn ensureExprValidAccessor(p: *Parser, start: Here) void {
         var err = AstNode.Tag.err;
@@ -969,9 +939,43 @@ const Parser = struct {
             },
         }
     }
+    fn tryParseExprWithDot(p: *Parser, mode: enum { allow_colon_call, deny_colon_call }) bool {
+        const start = p.here();
+
+        var needs_with_slot_wrap: bool = false;
+        if (!p.tryParseExprWithSuffixes()) {
+            if (p.tokenizer.token == .dot) {
+                p.wrapExpr(.slot, start.node, start.src);
+                p.wrapParseSuffixes(start);
+                needs_with_slot_wrap = true;
+            } else {
+                return false;
+            }
+        }
+        defer if (needs_with_slot_wrap) {
+            p.wrapExpr(.with_slot, start.node, start.src);
+        };
+
+        _ = p.tryEatWhitespace();
+        const call_src = p.here().src;
+        if (!p.tryEatToken(.colon, .root)) return true;
+        if (mode == .deny_colon_call) p.wrapErr(start.node, p.here().src, "Colon call not allowed here", .{});
+        _ = p.tryEatWhitespace(); // (maybe error if no whitespace?)
+        const before_exprparse = p.here();
+        if (!p.tryParseExpr()) {
+            p.wrapErr(start.node, p.here().src, "Expected expr after ':', found {s}", .{p.tokenizer.token.name()});
+            return true;
+        }
+        p.ensureExprValidColoncallTarget(before_exprparse);
+        // if we support map call & code call, consider disallowing those with a colon
+        // ie `a: [b]` disallowed, requires `a[b]`. same `a: (b)` disallowed.
+        p.wrapExpr(.call, start.node, call_src);
+        return true;
+    }
     fn tryParseExprWithInfix(p: *Parser) bool {
+        // a + b: c <- not allowed
         const begin = p.here();
-        if (!p.tryParseExprWithSuffixes()) return false;
+        if (!p.tryParseExprWithDot(.allow_colon_call)) return false;
         _ = p.tryEatWhitespace();
         if (p.tokenizer.token != .symbols) return true;
         const sym_here = p.here();
@@ -985,7 +989,7 @@ const Parser = struct {
         p.postString(key);
         while (true) {
             _ = p.tryEatWhitespace();
-            if (!p.tryParseExprWithSuffixes()) {
+            if (!p.tryParseExprWithDot(.deny_colon_call)) {
                 // end. use last symbols as a suffix
                 p.wrapErr(begin.node, begin.src, "expected expression", .{});
                 break;
