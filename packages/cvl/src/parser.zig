@@ -1266,6 +1266,9 @@ fn doTestParser(gpa: std.mem.Allocator) !void {
     try snap(@src(),
         \\[marker [ref "return" @1] [code [call [ref "return" @3] [number "5" @5] @4] @2] @0] @0
     , try testParser(&out, .{}, "|:|return |{|return|: |5}"));
+    try snap(@src(),
+        \\[call [prefix "*" [ref "a" @1] @0] [ref "b" @4] @2] @0
+    , try testParser(&out, .{}, "|*|a|:| |b"));
     // try snap(@src(),
     //     \\
     // , try testParser(&out, .{}, @embedFile("sample2.cvl")));
