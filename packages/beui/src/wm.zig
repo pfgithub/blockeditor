@@ -6,6 +6,12 @@ const util = @import("anywhere").util;
 const bi = blocks_mod.blockinterface2;
 const db_mod = blocks_mod.blockdb;
 
+// TODO:
+// - add a fullscreen button to wm:
+//   - in final / tabbed windows, put a fullscreen button on the top right
+//   - it makes that window fill the whole outer window, minus a bit of border around the edge to tell
+//     you you're in fullscreen. you can click there or on the leave fullscrene button to get out.
+
 // this is the backing wm
 // but the caller will manage:
 // - remove windows by id that no longer exist
