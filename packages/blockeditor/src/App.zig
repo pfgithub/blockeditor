@@ -326,6 +326,7 @@ fn render__bounceBall(call_info: B2.StandardCallInfo) *B2.RepositionableDrawList
         .rounding = .{ .corners = .all, .style = .round, .radius = ball_diameter / 2 },
     });
     rdl.addMouseEventCapture2(ui.id.sub(@src()), state.ball_pos_px - ball_size_half, ball_size, .{
+        .buttons = .left,
         .onMouseEvent = .from(state, render__bounceBall__onMouseEvent),
     });
 

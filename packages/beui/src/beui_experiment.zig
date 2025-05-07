@@ -211,8 +211,7 @@ pub const Beui2 = struct {
             self.persistent.uncommitted_move_offset = .{ 0, 0 };
         }
     }
-    pub fn onMouseEvent(self: *Beui2, btn: enum(u4) { left, middle, right, _ }, ev: enum { down, up }) void {
-        if (btn != .left) return; // TODO
+    pub fn onMouseEvent(self: *Beui2, btn: MouseButton, ev: enum { down, up }) void {
         commitMouseMoveEvents(self);
         switch (ev) {
             .down => {
@@ -220,9 +219,11 @@ pub const Beui2 = struct {
                 self.persistent.mouse_pos_on_drag_start = mpos;
                 // find who captures this event
                 for (self.persistent.last_frame_mouse2_events.items) |item| {
+                    if (!item.cfg.buttons.matches(btn)) continue;
                     if (pointInRect(mpos, item.pos, item.size)) {
                         if (item.cfg.onMouseEvent) |onMouseEventFn| {
                             if (onMouseEventFn.call(self, .{
+                                .button = btn,
                                 .capture_pos = item.pos,
                                 .capture_size = item.size,
                                 .pos = mpos,
@@ -242,9 +243,11 @@ pub const Beui2 = struct {
                 // we give the event to the mouse focus
                 const mfid = self.persistent.mouse_focus orelse return;
                 for (self.persistent.last_frame_mouse2_events.items) |item| {
+                    if (!item.cfg.buttons.matches(btn)) continue;
                     if (item.id.eql(mfid)) {
                         if (item.cfg.onMouseEvent) |onMouseEventFn| {
                             self.persistent.beui1.frame.cursor = onMouseEventFn.call(self, .{
+                                .button = btn,
                                 .capture_pos = item.pos,
                                 .capture_size = item.size,
                                 .pos = self.persistent.mouse_pos,
@@ -268,6 +271,7 @@ pub const Beui2 = struct {
                 if (item.id.eql(mfid)) {
                     if (item.cfg.onMouseEvent) |onMouseEventFn| {
                         self.persistent.beui1.frame.cursor = onMouseEventFn.call(self, .{
+                            .button = null,
                             .capture_pos = item.pos,
                             .capture_size = item.size,
                             .pos = mpos,
@@ -286,6 +290,7 @@ pub const Beui2 = struct {
                 if (pointInRect(mpos, item.pos, item.size)) {
                     if (item.cfg.onMouseEvent) |onMouseEventFn| {
                         if (onMouseEventFn.call(self, .{
+                            .button = null,
                             .capture_pos = item.pos,
                             .capture_size = item.size,
                             .pos = mpos,
@@ -845,6 +850,7 @@ pub const Sides = packed struct(u4) {
         return .{ ._top = a._top, .left = a._left, ._bottom = a._bottom, .right = true };
     }
 };
+pub const MouseButton = enum(u4) { left, middle, right, _ };
 pub const RepositionableDrawList = struct {
     pub const Reservation = struct {
         index: usize,
@@ -1085,6 +1091,23 @@ pub const RepositionableDrawList = struct {
         // lifetimes:
         // - this is called between frames. so if something gets destroyed on frame 1,
         //   don't add a betweenframecallback for it.
+        buttons: struct {
+            _left: bool = false,
+            _middle: bool = false,
+            _right: bool = false,
+            pub const left: @This() = .{ ._left = true };
+            pub const middle: @This() = .{ ._middle = true };
+            pub const right: @This() = .{ ._right = true };
+            pub const all: @This() = .{ ._left = true, ._middle = true, ._right = true };
+            fn matches(this: @This(), btn: MouseButton) bool {
+                return switch (btn) {
+                    .left => this._left,
+                    .middle => this._middle,
+                    .right => this._right,
+                    else => false,
+                };
+            }
+        },
         onMouseEvent: ?BetweenFrameCallback(*Beui2, MouseEvent, ?Beui.Cursor) = null,
         onScrollEvent: ?BetweenFrameCallback(*Beui2, ScrollEvent, bool) = null,
     };
@@ -1350,6 +1373,7 @@ pub fn contextMenuLine(call_info: StandardCallInfo, ehdl: ContextMenuLineEhdl, c
     const child = child_component.call(ui.sub(@src()), next_state.*);
     draw.place(child.rdl, .{});
     draw.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, child.size, .{
+        .buttons = .left,
         .onMouseEvent = .from(next_state, contextMenuLine__onMouseEvent),
     });
     return .{ .size = child.size, .rdl = draw };
@@ -1390,6 +1414,7 @@ pub fn button(call_info: StandardCallInfo, ehdl: ButtonEhdl, child_component: Co
     const child = child_component.call(ui.sub(@src()), next_state.*);
     draw.place(child.rdl, .{});
     draw.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, child.size, .{
+        .buttons = .left,
         .onMouseEvent = .from(next_state, button__onMouseEvent),
     });
     return .{ .size = child.size, .rdl = draw };
@@ -1452,11 +1477,13 @@ pub fn contextMenuHolder(call_info: SizedCallInfo, context_menu: Component(Conte
         ui.id.b2.frame.overlay_rdl.place(render_res.rdl, .{});
         // place click eater
         ui.id.b2.frame.overlay_rdl.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, screen_size, .{
+            .buttons = .all,
             .onMouseEvent = .from(cxs, contextMenuHolder__overlay__onMouseEvent),
         });
     }
     const rdl = ui.id.b2.draw();
     rdl.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, ui.constraints, .{
+        .buttons = .right,
         .onMouseEvent = .from(cxs, contextMenuHolder__clickArea__onMouseEvent),
     });
 
@@ -1491,6 +1518,7 @@ pub fn contextMenuList(call_info: ContextMenuCallInfo, child: Component(Standard
         .rounding = .{ .corners = .{ .top_right = true, .bottom_left = true, .bottom_right = true }, .radius = Theme.border_width * 2 },
     });
     rdl.addMouseEventCapture2(ui.id.sub(@src()), ui.constraints.click_pos, .{ child_res.size[0] + Theme.border_width * 2, child_res.size[1] + Theme.border_width * 2 }, .{
+        .buttons = .left,
         .onMouseEvent = .from(&{}, contextMenuList__backgroundClick),
     });
     return .{ .size = @splat(0), .rdl = rdl };
@@ -1505,6 +1533,7 @@ pub fn contextMenuEntry(call_info: ContextMenuCallInfo, child_component: Compone
     _ = child_component;
 }
 pub const MouseEvent = struct {
+    button: ?MouseButton,
     capture_pos: @Vector(2, f32),
     capture_size: @Vector(2, f32),
     pos: ?@Vector(2, f32),

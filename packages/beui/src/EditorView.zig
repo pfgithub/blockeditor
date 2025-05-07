@@ -407,6 +407,7 @@ pub fn gui(self: *EditorView, call_info: B2.StandardCallInfo, beui: *Beui) B2.St
     rdl.place(res.rdl, .{});
     rdl.addRect(.{ .pos = .{ 0, 0 }, .size = content_region_size, .tint = DefaultTheme.editor_bg, .rounding = .{ .corners = .all, .radius = 6.0 } });
     rdl.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, content_region_size, .{
+        .buttons = .left,
         .onMouseEvent = .from(self, handleMouseEvent),
     });
     self.mouse_info.mouse_left_pressed_down_this_frame = false;

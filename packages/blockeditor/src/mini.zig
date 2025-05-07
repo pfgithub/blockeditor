@@ -128,6 +128,7 @@ pub fn render(_: *const void, call_info: B2.StandardCallInfo, _: void) *B2.Repos
     };
 
     rdl.addMouseEventCapture2(ui.id.sub(@src()), .{ 0, 0 }, size, .{
+        .buttons = .left,
         .onMouseEvent = .from(data, render__onMouseEvent),
     });
 

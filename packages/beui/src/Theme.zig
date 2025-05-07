@@ -366,6 +366,7 @@ fn captureResize(rdl: *B2.RepositionableDrawList, man: *WM.Manager, id: B2.ID, i
     const wid = id.b2.frame.arena.create(WindowEventInfo) catch @panic("oom");
     wid.* = .{ .im = ikey, .man = man };
     rdl.addMouseEventCapture2(id, pos, size, .{
+        .buttons = if (ikey == .ignore) .all else .left,
         .onMouseEvent = .from(wid, captureResize__handleWindowEvent),
     });
 }
