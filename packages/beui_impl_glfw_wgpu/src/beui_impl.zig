@@ -875,6 +875,14 @@ pub fn main() !void {
             // eg: right now, you can hold escape, click the close button on a window, and then
             // click the collapse button on that window. it crashes because the window is already freed.
             // what should we do about this? force a rerender after every event?
+            //
+            // what we could do is limit to one event per frame.
+            // run the event right before the frame to gather as much as possible to fit within that one event
+            // although that would mean it doesn't let you both move your mouse and type a key in one frame
+            // so a bit odd.
+            // there could be an override you put in the event handler to say 'ok to run another event handler this frame'
+            //
+            // this is a pretty bad option. don't want it.
             continue;
         }
         if (allow_skip_frames) std.log.info("frame: {d}", .{frame_num});
