@@ -870,6 +870,13 @@ pub fn main() !void {
             std.time.sleep(std.time.ns_per_ms * 4);
             continue;
         }
+        if (beui.isKeyHeld(.escape)) {
+            // used to pause input to reveal bugs
+            // eg: right now, you can hold escape, click the close button on a window, and then
+            // click the collapse button on that window. it crashes because the window is already freed.
+            // what should we do about this? force a rerender after every event?
+            continue;
+        }
         if (allow_skip_frames) std.log.info("frame: {d}", .{frame_num});
 
         if (beui.isKeyHeld(.mouse_middle)) {
