@@ -99,7 +99,6 @@ if(char.match(ident)) {
     }
   }
 }else if(char === "," || char === ";") {
-  console.log("begin", stack);
   const op_prec = 1;
   // find spot with prec <= 1
   let atComma;
@@ -108,13 +107,10 @@ let  i = 0;
 i++;
 if(i > 1000) throw new Error("oops");
     const last = stack[stack.length - 1];
-    console.log("check", last);
     if(last.prec === op_prec) {
-      console.log("atcomma");
       atComma = last;
       break;
     }else if(last.prec < op_prec) {
-      console.log("pushcomma");
     	atComma = {
         idx:start,
         lyn:start_lyn,
