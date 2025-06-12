@@ -389,11 +389,9 @@ function prettyPrintErrors(sourceText: string, errors: TokenizationError[]): str
 
             const lineNumberStr = String(pos.lyn);
             const gutterWidth = lineNumberStr.length;
-            const prevLineGutter = ` ${colors.cyan}${String(pos.lyn - 1).padStart(gutterWidth, " ")}${colors.reset} ${colors.blue}|${colors.reset}`;
             const emptyGutter = ` ${" ".repeat(gutterWidth)} ${colors.blue}|${colors.reset}`;
             const lineGutter = ` ${colors.cyan}${lineNumberStr}${colors.reset} ${colors.blue}|${colors.reset}`;
 
-            output += `${prevLineGutter} ${sourceLines[pos.lyn - 2] ?? ""}\n`;
             output += `${lineGutter} ${line}\n`;
 
             const pointer = ' '.repeat(pos.col - 1) + '^';
