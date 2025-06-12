@@ -368,10 +368,10 @@ const colors = {
     reset: "\x1b[0m",
 };
 
-function prettyPrintErrors(sourceText: string, errors: TokenizationError[]): string {
+function prettyPrintErrors(source: Source, errors: TokenizationError[]): string {
     if (errors.length === 0) return "";
 
-    const sourceLines = sourceText.split('\n');
+    const sourceLines = source.text.split('\n');
     let output = "";
 
     for (const error of errors) {
@@ -384,6 +384,7 @@ function prettyPrintErrors(sourceText: string, errors: TokenizationError[]): str
 
             output += `${pos.fyl}:${pos.lyn}:${pos.col}: ${color}${bold}${style}${colors.reset}: ${message}${colors.reset}\n`;
 
+            if (pos.fyl !== source.filename) continue;
             const line = sourceLines[pos.lyn - 1];
             if (line === undefined) continue;
 
@@ -398,9 +399,8 @@ function prettyPrintErrors(sourceText: string, errors: TokenizationError[]): str
             output += `${emptyGutter} ${color}${colors.bold}${pointer}${colors.reset}\n`;
         }
         if (error.trace.length > 0) {
-            output += `Reference Trace:\n`;
             for(const line of error.trace) {
-                output += `${line.fyl}:${line.lyn}:${line.col}:\n`;
+                output += `At ${line.fyl}:${line.lyn}:${line.col}\n`;
             }
         }
     }
@@ -411,7 +411,7 @@ function prettyPrintErrors(sourceText: string, errors: TokenizationError[]): str
 function renderTokenizedOutput(tokenizationResult: TokenizationResult, source: Source): string {
     const formattedCode = renderEntityList({ indent: "  " }, tokenizationResult.result, 0, true);
     const sExpression = renderEntityList({ indent: "  ", style: "s" }, tokenizationResult.result, 0, true);
-    const prettyErrors = prettyPrintErrors(source.text, tokenizationResult.errors);
+    const prettyErrors = prettyPrintErrors(source, tokenizationResult.errors);
     
     return (
         `// formatted\n${formattedCode}\n\n` +
@@ -434,6 +434,7 @@ const src = `abc [
     colonExample(a: 1, b: c: 2, 3)
 ] ghi`;
 if (import.meta.main) {
+    using _ = withReferenceTrace({fyl: "0", idx: 0, lyn: 1, col: 1});
     const sourceCode = new Source("src.qxc", src);
 
     const tokenized = tokenize(sourceCode);
