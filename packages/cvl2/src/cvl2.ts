@@ -25,7 +25,7 @@ class Source {
         this.currentLine = 1;
         this.currentCol = 1;
         this.filename = filename;
-        this.calculateIndent();
+        this.currentLineIndentLevel = this.calculateIndent();
     }
 
     peek(): string {
@@ -39,17 +39,17 @@ class Source {
         if (character === "\n") {
             this.currentLine += 1;
             this.currentCol = 1;
-            this.calculateIndent();
+            this.currentLineIndentLevel = this.calculateIndent();
         } else {
             this.currentCol += character.length;
         }
         return character;
     }
 
-    private calculateIndent(): void {
+    private calculateIndent(): number {
         const subString = this.text.substring(this.currentIndex);
         const indentMatch = subString.match(/^ */);
-        this.currentLineIndentLevel = indentMatch ? indentMatch[0].length : 0;
+        return indentMatch ? indentMatch[0].length : 0;
     }
 
     getPosition(): TokenPosition {
@@ -167,7 +167,7 @@ function tokenize(source: Source): TokenizationResult {
                 kind: "block",
                 pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
                 start: currentChar,
-                end: currentChar === ":" ? "" : rightBrackets[leftBrackets.indexOf(currentChar)],
+                end: currentChar === ":" ? "" : rightBrackets[leftBrackets.indexOf(currentChar)]!,
                 items: newBlockItems,
             });
             parseStack.push({
@@ -180,7 +180,7 @@ function tokenize(source: Source): TokenizationResult {
             });
             currentSyntaxNodes = newBlockItems;
         } else if (rightBrackets.includes(currentChar)) {
-            const correspondingLeftBracket = leftBrackets[rightBrackets.indexOf(currentChar)];
+            const correspondingLeftBracket = leftBrackets[rightBrackets.indexOf(currentChar)]!;
             const currentIndent = source.currentLineIndentLevel;
 
             while (parseStack.length > 1) {
@@ -188,7 +188,7 @@ function tokenize(source: Source): TokenizationResult {
                 if (!lastStackItem) unreachable();
 
                 if (lastStackItem.char === correspondingLeftBracket && lastStackItem.indent === currentIndent) {
-                    currentSyntaxNodes = parseStack[parseStack.length - 1].val;
+                    currentSyntaxNodes = parseStack[parseStack.length - 1]!.val;
                     break;
                 }
 
@@ -218,7 +218,7 @@ function tokenize(source: Source): TokenizationResult {
                             trace: [...referenceTrace],
                         });
                     }
-                    currentSyntaxNodes = parseStack[parseStack.length - 1].val;
+                    currentSyntaxNodes = parseStack[parseStack.length - 1]!.val;
                 }
             }
         } else if (currentChar === "," || currentChar === ";") {
@@ -226,7 +226,7 @@ function tokenize(source: Source): TokenizationResult {
             let targetCommaBlock: TokenizerStackItem | undefined;
 
             while (parseStack.length > 0) {
-                const lastStackItem = parseStack[parseStack.length - 1];
+                const lastStackItem = parseStack[parseStack.length - 1]!;
 
                 if (lastStackItem.prec === operatorPrecedence) {
                     targetCommaBlock = lastStackItem;
@@ -271,7 +271,7 @@ function tokenize(source: Source): TokenizationResult {
                 throw new Error("Unreachable: No target block found for comma/semicolon.");
             }
 
-            currentSyntaxNodes = parseStack[parseStack.length - 1].val;
+            currentSyntaxNodes = parseStack[parseStack.length - 1]!.val;
             currentSyntaxNodes.push({
                 kind: "op",
                 pos: start,
@@ -289,7 +289,7 @@ function tokenize(source: Source): TokenizationResult {
         }
     }
 
-    return { result: parseStack[0].val, errors };
+    return { result: parseStack[0]!.val, errors };
 }
 
 interface RenderConfig {
@@ -304,14 +304,14 @@ function renderEntityList(config: RenderConfig, entities: SyntaxNode[], level: n
     let lastNewlineIndex = -1;
 
     for (let i = 0; i < entities.length; i++) {
-        const entity = entities[i];
+        const entity = entities[i]!;
         if (entity.kind === "ws" && entity.nl) {
             lastNewlineIndex = i;
         }
     }
 
     for (let i = 0; i < entities.length; i++) {
-        const entity = entities[i];
+        const entity = entities[i]!;
         if (entity.kind === "ws") {
             if (entity.nl && !didInsertNewline) {
                 needsDeeperIndent = !isTopLevel && i < lastNewlineIndex;
