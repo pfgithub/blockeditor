@@ -2,6 +2,15 @@ function unreachable(): never {
     throw new Error("unreachable");
 }
 
+const referenceTrace: TokenPosition[] = [];
+function withReferenceTrace(pos: TokenPosition): {[Symbol.dispose]: () => void} {
+    referenceTrace.push(pos);
+    return {[Symbol.dispose]() {
+        const popped = referenceTrace.pop();
+        if(popped !== pos) unreachable();
+    }};
+}
+
 class Source {
     public text: string;
     public currentIndex: number;
@@ -190,7 +199,7 @@ function tokenize(source: Source): TokenizationResult {
                             style: "error",
                             pos: start,
                         }],
-                        trace: [],
+                        trace: [...referenceTrace],
                     });
                     parseStack.push(lastStackItem);
                     break;
@@ -206,7 +215,7 @@ function tokenize(source: Source): TokenizationResult {
                                 style: "note",
                                 pos: start,
                             }],
-                            trace: [],
+                            trace: [...referenceTrace],
                         });
                     }
                     currentSyntaxNodes = parseStack[parseStack.length - 1].val;
@@ -251,7 +260,7 @@ function tokenize(source: Source): TokenizationResult {
                                 style: "note",
                                 pos: start,
                             }],
-                            trace: [],
+                            trace: [...referenceTrace],
                         });
                     }
                     parseStack.pop();
@@ -275,7 +284,7 @@ function tokenize(source: Source): TokenizationResult {
                     style: "error",
                     pos: start,
                 }],
-                trace: [],
+                trace: [...referenceTrace],
             });
         }
     }
@@ -351,15 +360,65 @@ function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, i
     }
 }
 
+const colors = {
+    red: "\x1b[31m",
+    blue: "\x1b[34m",
+    cyan: "\x1b[36m",
+    bold: "\x1b[1m",
+    reset: "\x1b[0m",
+};
+
+function prettyPrintErrors(sourceText: string, errors: TokenizationError[]): string {
+    if (errors.length === 0) return "";
+
+    const sourceLines = sourceText.split('\n');
+    let output = "";
+
+    for (const error of errors) {
+        output += "\n";
+
+        for (const entry of error.entries) {
+            const { pos, style, message } = entry;
+            const color = style === 'error' ? colors.red : colors.blue;
+            const bold = style === 'error' ? colors.bold : "";
+
+            output += `${pos.fyl}:${pos.lyn}:${pos.col}: ${color}${bold}${style}${colors.reset}: ${message}${colors.reset}\n`;
+
+            const line = sourceLines[pos.lyn - 1];
+            if (line === undefined) continue;
+
+            const lineNumberStr = String(pos.lyn);
+            const gutterWidth = lineNumberStr.length;
+            const prevLineGutter = ` ${colors.cyan}${String(pos.lyn - 1).padStart(gutterWidth, " ")}${colors.reset} ${colors.blue}|${colors.reset}`;
+            const emptyGutter = ` ${" ".repeat(gutterWidth)} ${colors.blue}|${colors.reset}`;
+            const lineGutter = ` ${colors.cyan}${lineNumberStr}${colors.reset} ${colors.blue}|${colors.reset}`;
+
+            output += `${prevLineGutter} ${sourceLines[pos.lyn - 2] ?? ""}\n`;
+            output += `${lineGutter} ${line}\n`;
+
+            const pointer = ' '.repeat(pos.col - 1) + '^';
+            output += `${emptyGutter} ${color}${colors.bold}${pointer}${colors.reset}\n`;
+        }
+        if (error.trace.length > 0) {
+            output += `Reference Trace:\n`;
+            for(const line of error.trace) {
+                output += `${line.fyl}:${line.lyn}:${line.col}:\n`;
+            }
+        }
+    }
+
+    return output;
+}
+
 function renderTokenizedOutput(tokenizationResult: TokenizationResult, source: Source): string {
     const formattedCode = renderEntityList({ indent: "  " }, tokenizationResult.result, 0, true);
     const sExpression = renderEntityList({ indent: "  ", style: "s" }, tokenizationResult.result, 0, true);
-    const errorsJson = JSON.stringify(tokenizationResult.errors, null, 2);
-
+    const prettyErrors = prettyPrintErrors(source.text, tokenizationResult.errors);
+    
     return (
         `// formatted\n${formattedCode}\n\n` +
         `// s-expr:\n${sExpression}\n\n` +
-        `// errors:\n${errorsJson}`
+        `// errors:\n${prettyErrors}`
     );
 }
 const src = `abc [
