@@ -10,20 +10,20 @@ class Source {
     public filename: string;
     public currentLineIndentLevel: number;
 
-    constructor(text: string) {
+    constructor(filename: string, text: string) {
         this.text = text;
         this.currentIndex = 0;
         this.currentLine = 1;
         this.currentCol = 1;
-        this.filename = "file";
+        this.filename = filename;
         this.calculateIndent();
     }
 
-    public peek(): string {
+    peek(): string {
         return this.text[this.currentIndex] ?? "";
     }
 
-    public take(): string {
+    take(): string {
         const character = this.peek();
         this.currentIndex += character.length;
 
@@ -42,9 +42,19 @@ class Source {
         const indentMatch = subString.match(/^ */);
         this.currentLineIndentLevel = indentMatch ? indentMatch[0].length : 0;
     }
+
+    getPosition(): TokenPosition {
+        return {
+            fyl: this.filename,
+            idx: this.currentIndex,
+            lyn: this.currentLine,
+            col: this.currentCol,
+        }
+    }
 }
 
 interface TokenPosition {
+    fyl: string;
     idx: number;
     lyn: number;
     col: number;
@@ -86,9 +96,7 @@ interface BinaryExpressionToken {
 type SyntaxNode = IdentifierToken | WhitespaceToken | OperatorToken | BlockToken | BinaryExpressionToken;
 
 interface TokenizerStackItem {
-    idx: number;
-    lyn: number;
-    col: number;
+    pos: TokenPosition,
     char: string;
     indent: number;
     val: SyntaxNode[];
@@ -96,22 +104,29 @@ interface TokenizerStackItem {
     autoClose?: boolean;
 }
 
+type TokenizationErrorEntry = {
+    pos: TokenPosition,
+    style: "note" | "error",
+    message: string,
+};
+type TokenizationError = {
+    entries: TokenizationErrorEntry[],
+    trace: TokenPosition[],
+};
 interface TokenizationResult {
     result: SyntaxNode[];
-    errors: (string | string[])[];
+    errors: TokenizationError[];
 }
 
 function tokenize(source: Source): TokenizationResult {
     let currentSyntaxNodes: SyntaxNode[] = [];
-    const errors: (string | string[])[] = [];
+    const errors: TokenizationError[] = [];
     const parseStack: TokenizerStackItem[] = [];
 
-    parseStack.push({ idx: 0, char: "", indent: -1, val: currentSyntaxNodes, prec: 0, lyn: 1, col: 1 });
+    parseStack.push({ pos: source.getPosition(), char: "", indent: -1, val: currentSyntaxNodes, prec: 0 });
 
     while (source.peek()) {
-        const startIdx = source.currentIndex;
-        const startLine = source.currentLine;
-        const startCol = source.currentCol;
+        const start = source.getPosition();
         const currentChar = source.take();
 
         const identifierRegex = /^[a-zA-Z0-9]$/;
@@ -125,8 +140,8 @@ function tokenize(source: Source): TokenizationResult {
             }
             currentSyntaxNodes.push({
                 kind: "ident",
-                pos: { idx: startIdx, lyn: startLine, col: startCol },
-                str: source.text.substring(startIdx, source.currentIndex),
+                pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
+                str: source.text.substring(start.idx, source.currentIndex),
             });
         } else if (currentChar.match(whitespaceRegex)) {
             while (source.peek().match(whitespaceRegex)) {
@@ -134,22 +149,20 @@ function tokenize(source: Source): TokenizationResult {
             }
             currentSyntaxNodes.push({
                 kind: "ws",
-                pos: { idx: startIdx, lyn: startLine, col: startCol },
-                nl: source.text.substring(startIdx, source.currentIndex).includes("\n"),
+                pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
+                nl: source.text.substring(start.idx, source.currentIndex).includes("\n"),
             });
         } else if (leftBrackets.includes(currentChar) || currentChar === ":") {
             const newBlockItems: SyntaxNode[] = [];
             currentSyntaxNodes.push({
                 kind: "block",
-                pos: { idx: startIdx, lyn: startLine, col: startCol },
+                pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
                 start: currentChar,
                 end: currentChar === ":" ? "" : rightBrackets[leftBrackets.indexOf(currentChar)],
                 items: newBlockItems,
             });
             parseStack.push({
-                idx: startIdx,
-                lyn: startLine,
-                col: startCol,
+                pos: start,
                 char: currentChar,
                 indent: source.currentLineIndentLevel,
                 val: newBlockItems,
@@ -171,15 +184,30 @@ function tokenize(source: Source): TokenizationResult {
                 }
 
                 if (lastStackItem.indent < currentIndent) {
-                    errors.push(`${source.filename}:${startLine}:${startCol} error: extra close bracket`);
+                    errors.push({
+                        entries: [{
+                            message: "extra close bracket",
+                            style: "error",
+                            pos: start,
+                        }],
+                        trace: [],
+                    });
                     parseStack.push(lastStackItem);
                     break;
                 } else {
                     if (!lastStackItem.autoClose) {
-                        errors.push([
-                            `${source.filename}:${lastStackItem.lyn}:${lastStackItem.col} error: open bracket missing close bracket`,
-                            `${source.filename}:${startLine}:${startCol} note: expected for '${lastStackItem.char}' indent '${lastStackItem.indent}', got '${currentChar}' indent '${currentIndent}'`,
-                        ]);
+                        errors.push({
+                            entries: [{
+                                message: "open bracket missing close bracket",
+                                style: "error",
+                                pos: lastStackItem.pos,
+                            }, {
+                                message: `expected for '${lastStackItem.char}' indent '${lastStackItem.indent}', got '${currentChar}' indent '${currentIndent}'`,
+                                style: "note",
+                                pos: start,
+                            }],
+                            trace: [],
+                        });
                     }
                     currentSyntaxNodes = parseStack[parseStack.length - 1].val;
                 }
@@ -196,9 +224,7 @@ function tokenize(source: Source): TokenizationResult {
                     break;
                 } else if (lastStackItem.prec < operatorPrecedence) {
                     targetCommaBlock = {
-                        idx: startIdx,
-                        lyn: startLine,
-                        col: startCol,
+                        pos: start,
                         char: currentChar,
                         val: [...lastStackItem.val],
                         indent: lastStackItem.indent,
@@ -208,17 +234,25 @@ function tokenize(source: Source): TokenizationResult {
                     parseStack.push(targetCommaBlock);
                     lastStackItem.val.splice(0, lastStackItem.val.length, {
                         kind: "binary",
-                        pos: { idx: startIdx, lyn: startLine, col: startCol },
+                        pos: start,
                         prec: operatorPrecedence,
                         items: targetCommaBlock.val,
                     });
                     break;
                 } else {
                     if (!lastStackItem.autoClose) {
-                        errors.push([
-                            `${source.filename}:${startLine}:${startCol} auto-closing non auto-closeable item.`,
-                            `${source.filename}:${lastStackItem.lyn}:${lastStackItem.col} note: opened here`,
-                        ]);
+                        errors.push({
+                            entries: [{
+                                message: "item is never closed.",
+                                style: "error",
+                                pos: lastStackItem.pos,
+                            }, {
+                                message: "automatically closed here.",
+                                style: "note",
+                                pos: start,
+                            }],
+                            trace: [],
+                        });
                     }
                     parseStack.pop();
                 }
@@ -231,11 +265,18 @@ function tokenize(source: Source): TokenizationResult {
             currentSyntaxNodes = parseStack[parseStack.length - 1].val;
             currentSyntaxNodes.push({
                 kind: "op",
-                pos: { idx: startIdx, lyn: startLine, col: startCol },
+                pos: start,
                 op: currentChar,
             });
         } else {
-            errors.push(`${source.filename}:${startLine}:${startCol} error: bad char ${JSON.stringify(currentChar)}`);
+            errors.push({
+                entries: [{
+                    message: "bad char "+JSON.stringify(currentChar),
+                    style: "error",
+                    pos: start,
+                }],
+                trace: [],
+            });
         }
     }
 
@@ -336,7 +377,7 @@ const src = `abc [
     colonExample(a: 1, b: c: 2, 3)
 ] ghi`;
 if (import.meta.main) {
-    const sourceCode = new Source(src);
+    const sourceCode = new Source("src.qxc", src);
 
     const tokenized = tokenize(sourceCode);
     console.log(renderTokenizedOutput(tokenized, sourceCode));
