@@ -434,7 +434,6 @@ const src = `abc [
     colonExample(a: 1, b: c: 2, 3)
 ] ghi`;
 if (import.meta.main) {
-    using _ = withReferenceTrace({fyl: "0", idx: 0, lyn: 1, col: 1});
     const sourceCode = new Source("src.qxc", src);
 
     const tokenized = tokenize(sourceCode);
