@@ -2,6 +2,26 @@ function unreachable(): never {
     throw new Error("unreachable");
 }
 
+type Config = {
+    style: "open" | "close" | "join",
+    prec: number,
+    close?: string,
+};
+const config: Record<string, Config> = {
+    "(": {style: "open", prec: 0, close: ")"},
+    "{": {style: "open", prec: 0, close: "}"},
+    "[": {style: "open", prec: 0, close: "]"},
+    ")": {style: "close", prec: 0},
+    "}": {style: "close", prec: 0},
+    "]": {style: "close", prec: 0},
+    ",": {style: "join", prec: 1},
+    ";": {style: "join", prec: 1},
+    ":": {style: "open", prec: 2},
+
+    // TODO: "=>"
+    // TODO: "\()" as style open prec 0 autoclose display{open: "(", close: ")"}
+};
+
 const referenceTrace: TokenPosition[] = [];
 function withReferenceTrace(pos: TokenPosition): {[Symbol.dispose]: () => void} {
     referenceTrace.push(pos);
@@ -140,9 +160,8 @@ function tokenize(source: Source): TokenizationResult {
 
         const identifierRegex = /^[a-zA-Z0-9]$/;
         const whitespaceRegex = /^\s$/;
-        const leftBrackets = ["(", "[", "{"];
-        const rightBrackets = [")", "]", "}"];
 
+        const cfg = config[currentChar];
         if (currentChar.match(identifierRegex)) {
             while (source.peek().match(identifierRegex)) {
                 source.take();
@@ -161,33 +180,32 @@ function tokenize(source: Source): TokenizationResult {
                 pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
                 nl: source.text.substring(start.idx, source.currentIndex).includes("\n"),
             });
-        } else if (leftBrackets.includes(currentChar) || currentChar === ":") {
+        } else if (cfg?.style === "open") {
             const newBlockItems: SyntaxNode[] = [];
             currentSyntaxNodes.push({
                 kind: "block",
                 pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
                 start: currentChar,
-                end: currentChar === ":" ? "" : rightBrackets[leftBrackets.indexOf(currentChar)]!,
+                end: cfg.close ?? "",
                 items: newBlockItems,
             });
             parseStack.push({
                 pos: start,
-                char: currentChar,
+                char: cfg.close ?? "",
                 indent: source.currentLineIndentLevel,
                 val: newBlockItems,
-                prec: currentChar === ":" ? 2 : 0,
-                autoClose: currentChar === ":",
+                prec: cfg.prec,
+                autoClose: cfg.close == null,
             });
             currentSyntaxNodes = newBlockItems;
-        } else if (rightBrackets.includes(currentChar)) {
-            const correspondingLeftBracket = leftBrackets[rightBrackets.indexOf(currentChar)]!;
+        } else if (cfg?.style === "close") {
             const currentIndent = source.currentLineIndentLevel;
 
             while (parseStack.length > 1) {
                 const lastStackItem = parseStack.pop();
                 if (!lastStackItem) unreachable();
 
-                if (lastStackItem.char === correspondingLeftBracket && lastStackItem.indent === currentIndent) {
+                if (lastStackItem.char === currentChar && lastStackItem.indent === currentIndent) {
                     currentSyntaxNodes = parseStack[parseStack.length - 1]!.val;
                     break;
                 }
@@ -211,7 +229,7 @@ function tokenize(source: Source): TokenizationResult {
                                 style: "error",
                                 pos: lastStackItem.pos,
                             }, {
-                                message: `expected for '${lastStackItem.char}' indent '${lastStackItem.indent}', got '${currentChar}' indent '${currentIndent}'`,
+                                message: `expected '${lastStackItem.char}' indent '${lastStackItem.indent}', got '${currentChar}' indent '${currentIndent}'`,
                                 style: "note",
                                 pos: start,
                             }],
@@ -221,8 +239,8 @@ function tokenize(source: Source): TokenizationResult {
                     currentSyntaxNodes = parseStack[parseStack.length - 1]!.val;
                 }
             }
-        } else if (currentChar === "," || currentChar === ";") {
-            const operatorPrecedence = 1;
+        } else if (cfg?.style === "join") {
+            const operatorPrecedence = cfg.prec;
             let targetCommaBlock: TokenizerStackItem | undefined;
 
             while (parseStack.length > 0) {
