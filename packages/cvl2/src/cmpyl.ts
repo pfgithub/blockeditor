@@ -34,3 +34,25 @@ std.build = mc.Datapack (
 
 // Entity implicitly casts to EntityList, but not EntityList to Entity
 */
+type Slot = {
+    src: Node | Fn,
+    dst: Node | Fn,
+};
+type Fn = {
+    args: Slot[],
+    ret: Slot[],
+};
+type Node = {
+    referenced_by: Slot[],
+    references: Slot[],
+    data: {
+        kind: "number",
+        value: number,
+    },
+};
+
+const example = `
+i, world =>
+world = print(i)
+=> world
+`;
