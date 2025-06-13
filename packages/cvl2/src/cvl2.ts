@@ -17,6 +17,7 @@ const config: Record<string, Config> = {
     "=>": {style: "join", prec: 1},
     ",": {style: "join", prec: 2},
     ";": {style: "join", prec: 2},
+    "\n": {style: "join", prec: 2},
     ":": {style: "open", prec: 3},
     "=": {style: "join", prec: 4},
 
@@ -174,20 +175,15 @@ function tokenize(source: Source): TokenizationResult {
                 str: source.text.substring(start.idx, source.currentIndex),
             });
             continue;
-        } else if (firstChar.match(whitespaceRegex)) {
-            while (source.peek().match(whitespaceRegex)) {
-                source.take();
-            }
-            currentSyntaxNodes.push({
-                kind: "ws",
-                pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
-                nl: source.text.substring(start.idx, source.currentIndex).includes("\n"),
-            });
-            continue;
         }
         
         let currentToken: string;
-        if ("()[]{}:,;\"'`".includes(firstChar)) {
+        if (firstChar.match(whitespaceRegex)) {
+            while (source.peek().match(whitespaceRegex)) {
+                source.take();
+            }
+            currentToken = source.text.substring(start.idx, source.currentIndex).includes("\n") ? "\n" : " ";
+        }else if ("()[]{}:,;\"'`".includes(firstChar)) {
             currentToken = source.text.substring(start.idx, source.currentIndex);
         }else if(operatorChars.includes(firstChar)) {
             while (operatorChars.includes(source.peek())) {
@@ -331,6 +327,19 @@ function tokenize(source: Source): TokenizationResult {
                 pos: start,
                 op: currentToken,
             });
+            if(currentToken === "\n") {
+                currentSyntaxNodes.push({
+                    kind: "ws",
+                    pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
+                    nl: true,
+                });
+            }
+        }else if(currentToken === " ") {
+            currentSyntaxNodes.push({
+                kind: "ws",
+                pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
+                nl: false,
+            });
         } else {
             errors.push({
                 entries: [{
@@ -407,6 +416,7 @@ function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, i
         } else if (entity.kind === "ident") {
             return entity.str;
         } else if (entity.kind === "op") {
+            if(entity.op === "\n") return "";
             return entity.op;
         } else {
             return `%TODO<${(entity as {kind: string}).kind}>%`;
@@ -473,22 +483,21 @@ function renderTokenizedOutput(tokenizationResult: TokenizationResult, source: S
         `// errors:\n${prettyErrors}`
     );
 }
-// const src = `abc [
-//     def [jkl]
-//     if (
-//             amazing;
-//     ] else {
-//             wow!;
-//     }
-//     demoFn(1, 2,
-//         3,
-//         4, 5, 6,
-//     7, 8)
-//     commaExample(1, 2, 3, 4)
-//     colonExample(a: 1, b: c: 2, 3)
-//     (a, b => c, d = e, f => g, h)
-// ] ghi`;
-const src = `a = b, c = d`;
+const src = `abc [
+    def [jkl]
+    if (
+            amazing
+    ] else {
+            wow!
+    }
+    demoFn(1, 2
+        3
+        4, 5, 6
+    7, 8)
+    commaExample(1, 2, 3, 4)
+    colonExample(a: 1, b: c: 2, 3)
+    (a, b => c, d = e, f => g, h)
+] ghi`;
 if (import.meta.main) {
     const sourceCode = new Source("src.qxc", src);
 
