@@ -6,10 +6,14 @@ sample code:
 mc := std.targets.mc;
 
 hello_world := (entity: mc.Entity) kw.void: {
-    entity.tellraw([("text" = "hello")])
+    // it returns mc.Status so you have to discard it
+    _ = entity.tellraw([("text" = "hello")])
 }
+// mc.Status is `kw.union(kw.i32, .fail)`
+status_native_number := () kw.i32: 5
 status_number := () mc.Status: 5
 status_fail := () mc.Status: .fail
+status_native_fail := () mc.Status.fail: .fail
 
 std.build = mc.Datapack (
     "example" = (
