@@ -264,24 +264,37 @@ function tokenize(source: Source): TokenizationResult {
         } else if (cfg?.style === "join") {
             const operatorPrecedence = cfg.prec;
             let targetCommaBlock: TokenizerStackItem | undefined;
+            console.log("BEGIN JOIN FOR '"+currentToken+"'");
 
             while (parseStack.length > 0) {
                 const lastStackItem = parseStack[parseStack.length - 1]!;
+                console.log("  check stack item '"+lastStackItem.char+"' @ "+lastStackItem.prec);
 
                 if (lastStackItem.prec === operatorPrecedence) {
+                    console.log("  -> set");
                     targetCommaBlock = lastStackItem;
                     break;
                 } else if (lastStackItem.prec < operatorPrecedence) {
+                    console.log("  -> lt; append");
+                    let valStartIdx = 0;
+                    for(let i = lastStackItem.val.length; i > 0;) {
+                        i -= 1;
+                        const itm = lastStackItem.val[i]!;
+                        if(itm.kind === "op") {
+                            valStartIdx = i + 1;
+                            break;
+                        }
+                    }
                     targetCommaBlock = {
                         pos: start,
                         char: currentToken,
-                        val: [...lastStackItem.val],
+                        val: lastStackItem.val.slice(valStartIdx),
                         indent: lastStackItem.indent,
                         autoClose: true,
                         prec: operatorPrecedence,
                     };
                     parseStack.push(targetCommaBlock);
-                    lastStackItem.val.splice(0, lastStackItem.val.length, {
+                    lastStackItem.val.splice(valStartIdx, lastStackItem.val.length, {
                         kind: "binary",
                         pos: start,
                         prec: operatorPrecedence,
@@ -289,6 +302,7 @@ function tokenize(source: Source): TokenizationResult {
                     });
                     break;
                 } else {
+                    console.log("  -> gt; autoClose");
                     if (!lastStackItem.autoClose) {
                         errors.push({
                             entries: [{
@@ -373,7 +387,7 @@ function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, i
         if (entity.kind === "block") {
             return `(${JSON.stringify(entity.start + entity.end)} ` + renderEntityList(config, entity.items, level, false) + ")";
         } else if (entity.kind === "binary") {
-            return "(binary " + renderEntityList(config, entity.items, level, isTopLevel) + ")";
+            return "(" + renderEntityList(config, entity.items, level, isTopLevel) + ")";
         } else if (entity.kind === "ws") {
             throw new Error("Unreachable: Whitespace should be handled by renderEntityList.");
         } else if (entity.kind === "ident") {
@@ -459,21 +473,22 @@ function renderTokenizedOutput(tokenizationResult: TokenizationResult, source: S
         `// errors:\n${prettyErrors}`
     );
 }
-const src = `abc [
-    def [jkl]
-    if (
-            amazing;
-    ] else {
-            wow!;
-    }
-    demoFn(1, 2,
-        3,
-        4, 5, 6,
-    7, 8)
-    commaExample(1, 2, 3, 4)
-    colonExample(a: 1, b: c: 2, 3)
-    (a, b => c, d = e, f => g, h)
-] ghi`;
+// const src = `abc [
+//     def [jkl]
+//     if (
+//             amazing;
+//     ] else {
+//             wow!;
+//     }
+//     demoFn(1, 2,
+//         3,
+//         4, 5, 6,
+//     7, 8)
+//     commaExample(1, 2, 3, 4)
+//     colonExample(a: 1, b: c: 2, 3)
+//     (a, b => c, d = e, f => g, h)
+// ] ghi`;
+const src = `a = b, c = d`;
 if (import.meta.main) {
     const sourceCode = new Source("src.qxc", src);
 
