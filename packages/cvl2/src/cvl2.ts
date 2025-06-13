@@ -14,9 +14,11 @@ const config: Record<string, Config> = {
     ")": {style: "close", prec: 0},
     "}": {style: "close", prec: 0},
     "]": {style: "close", prec: 0},
-    ",": {style: "join", prec: 1},
-    ";": {style: "join", prec: 1},
-    ":": {style: "open", prec: 2},
+    "=>": {style: "join", prec: 1},
+    ",": {style: "join", prec: 2},
+    ";": {style: "join", prec: 2},
+    ":": {style: "open", prec: 3},
+    "=": {style: "join", prec: 4},
 
     // TODO: "=>"
     // TODO: "\()" as style open prec 0 autoclose display{open: "(", close: ")"}
@@ -147,6 +149,10 @@ interface TokenizationResult {
     errors: TokenizationError[];
 }
 
+const identifierRegex = /^[a-zA-Z0-9]$/;
+const whitespaceRegex = /^\s$/;
+const operatorChars = [..."~!@#$%^&*-=+|/<>"];
+
 function tokenize(source: Source): TokenizationResult {
     let currentSyntaxNodes: SyntaxNode[] = [];
     const errors: TokenizationError[] = [];
@@ -156,13 +162,9 @@ function tokenize(source: Source): TokenizationResult {
 
     while (source.peek()) {
         const start = source.getPosition();
-        const currentChar = source.take();
+        const firstChar = source.take();
 
-        const identifierRegex = /^[a-zA-Z0-9]$/;
-        const whitespaceRegex = /^\s$/;
-
-        const cfg = config[currentChar];
-        if (currentChar.match(identifierRegex)) {
+        if (firstChar.match(identifierRegex)) {
             while (source.peek().match(identifierRegex)) {
                 source.take();
             }
@@ -171,7 +173,8 @@ function tokenize(source: Source): TokenizationResult {
                 pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
                 str: source.text.substring(start.idx, source.currentIndex),
             });
-        } else if (currentChar.match(whitespaceRegex)) {
+            continue;
+        } else if (firstChar.match(whitespaceRegex)) {
             while (source.peek().match(whitespaceRegex)) {
                 source.take();
             }
@@ -180,12 +183,31 @@ function tokenize(source: Source): TokenizationResult {
                 pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
                 nl: source.text.substring(start.idx, source.currentIndex).includes("\n"),
             });
-        } else if (cfg?.style === "open") {
+            continue;
+        }
+        
+        let currentToken: string;
+        if ("()[]{}:,;\"'`".includes(firstChar)) {
+            currentToken = source.text.substring(start.idx, source.currentIndex);
+        }else if(operatorChars.includes(firstChar)) {
+            while (operatorChars.includes(source.peek())) {
+                source.take();
+            }
+            currentToken = source.text.substring(start.idx, source.currentIndex);
+        }else if(firstChar === "\\") {
+            // todo: if '\()' token = '\()'
+            currentToken = "\\";
+        }else{
+            currentToken = firstChar;
+        }
+
+        const cfg = config[currentToken];
+        if (cfg?.style === "open") {
             const newBlockItems: SyntaxNode[] = [];
             currentSyntaxNodes.push({
                 kind: "block",
                 pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
-                start: currentChar,
+                start: currentToken,
                 end: cfg.close ?? "",
                 items: newBlockItems,
             });
@@ -205,7 +227,7 @@ function tokenize(source: Source): TokenizationResult {
                 const lastStackItem = parseStack.pop();
                 if (!lastStackItem) unreachable();
 
-                if (lastStackItem.char === currentChar && lastStackItem.indent === currentIndent) {
+                if (lastStackItem.char === currentToken && lastStackItem.indent === currentIndent) {
                     currentSyntaxNodes = parseStack[parseStack.length - 1]!.val;
                     break;
                 }
@@ -229,7 +251,7 @@ function tokenize(source: Source): TokenizationResult {
                                 style: "error",
                                 pos: lastStackItem.pos,
                             }, {
-                                message: `expected '${lastStackItem.char}' indent '${lastStackItem.indent}', got '${currentChar}' indent '${currentIndent}'`,
+                                message: `expected ${JSON.stringify(lastStackItem.char)} indent '${lastStackItem.indent}', got ${JSON.stringify(currentToken)} indent '${currentIndent}'`,
                                 style: "note",
                                 pos: start,
                             }],
@@ -252,7 +274,7 @@ function tokenize(source: Source): TokenizationResult {
                 } else if (lastStackItem.prec < operatorPrecedence) {
                     targetCommaBlock = {
                         pos: start,
-                        char: currentChar,
+                        char: currentToken,
                         val: [...lastStackItem.val],
                         indent: lastStackItem.indent,
                         autoClose: true,
@@ -293,12 +315,12 @@ function tokenize(source: Source): TokenizationResult {
             currentSyntaxNodes.push({
                 kind: "op",
                 pos: start,
-                op: currentChar,
+                op: currentToken,
             });
         } else {
             errors.push({
                 entries: [{
-                    message: "bad char "+JSON.stringify(currentChar),
+                    message: "bad token "+JSON.stringify(currentToken),
                     style: "error",
                     pos: start,
                 }],
@@ -450,6 +472,7 @@ const src = `abc [
     7, 8)
     commaExample(1, 2, 3, 4)
     colonExample(a: 1, b: c: 2, 3)
+    (a, b => c, d = e, f => g, h)
 ] ghi`;
 if (import.meta.main) {
     const sourceCode = new Source("src.qxc", src);
