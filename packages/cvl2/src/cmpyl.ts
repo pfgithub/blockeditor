@@ -48,6 +48,10 @@ type Node = {
     data: {
         kind: "number",
         value: number,
+    } | {
+        kind: "call",
+        target: Fn,
+        args: Slot[],
     },
 };
 
