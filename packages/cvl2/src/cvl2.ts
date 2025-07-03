@@ -34,7 +34,7 @@ function withReferenceTrace(pos: TokenPosition): {[Symbol.dispose]: () => void} 
     }};
 }
 
-class Source {
+export class Source {
     public text: string;
     public currentIndex: number;
     public currentLine: number;
@@ -154,7 +154,7 @@ const identifierRegex = /^[a-zA-Z0-9]$/;
 const whitespaceRegex = /^\s$/;
 const operatorChars = [..."~!@#$%^&*-=+|/<>"];
 
-function tokenize(source: Source): TokenizationResult {
+export function tokenize(source: Source): TokenizationResult {
     let currentSyntaxNodes: SyntaxNode[] = [];
     const errors: TokenizationError[] = [];
     const parseStack: TokenizerStackItem[] = [];
@@ -472,7 +472,7 @@ function prettyPrintErrors(source: Source, errors: TokenizationError[]): string 
     return output;
 }
 
-function renderTokenizedOutput(tokenizationResult: TokenizationResult, source: Source): string {
+export function renderTokenizedOutput(tokenizationResult: TokenizationResult, source: Source): string {
     const formattedCode = renderEntityList({ indent: "  " }, tokenizationResult.result, 0, true);
     const sExpression = renderEntityList({ indent: "  ", style: "s" }, tokenizationResult.result, 0, true);
     const prettyErrors = prettyPrintErrors(source, tokenizationResult.errors);
