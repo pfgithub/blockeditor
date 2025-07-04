@@ -147,12 +147,6 @@ interface OperatorSegmentToken {
     items: SyntaxNode[],
 }
 
-interface OperatorGroupToken {
-    kind: "opGroup";
-    pos: TokenPosition;
-    items: SyntaxNode[],
-}
-
 interface BlockToken {
     kind: "block";
     pos: TokenPosition;
@@ -174,7 +168,7 @@ interface StrSegToken {
     str: string;
 }
 
-type SyntaxNode = IdentifierToken | WhitespaceToken | OperatorToken | BlockToken | BinaryExpressionToken | OperatorSegmentToken | OperatorGroupToken | StrSegToken;
+type SyntaxNode = IdentifierToken | WhitespaceToken | OperatorToken | BlockToken | BinaryExpressionToken | OperatorSegmentToken | StrSegToken;
 
 interface TokenizerStackItem {
     pos: TokenPosition,
@@ -490,6 +484,51 @@ function renderEntityList(config: RenderConfig, entities: SyntaxNode[], level: n
     return result;
 }
 
+function renderEntityJ(entity: SyntaxNode): unknown {
+    const kind = `${entity.kind}:${entity.pos.lyn}:${entity.pos.col}`;
+    if(entity.kind === "block") {
+        return {
+            kind,
+            start: entity.start,
+            end: entity.end,
+            items: entity.items.map(renderEntityJ),
+        };
+    }else if(entity.kind === "binary") {
+        return {
+            kind,
+            prec: entity.prec,
+            items: entity.items.map(renderEntityJ),
+        };
+    }else if(entity.kind === "ws") {
+        return {
+            kind: kind,
+            nl: entity.nl,
+        }
+    }else if(entity.kind === "op") {
+        return {
+            kind,
+            op: entity.op,
+        }
+    }else if(entity.kind === "opSeg") {
+        return {
+            kind,
+            items: entity.items.map(renderEntityJ),
+        };
+    }else if(entity.kind === "strSeg") {
+        return {
+            kind,
+            str: entity.str,
+        };
+    }else if(entity.kind === "ident") {
+        return {
+            kind,
+            str: entity.str,
+        }
+    }else return {
+        kind,
+        TODO: true,
+    };
+}
 function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, isTopLevel: boolean): string {
     if (config.style === "s") {
         if (entity.kind === "block") {
@@ -582,11 +621,13 @@ function prettyPrintErrors(source: Source, errors: TokenizationError[]): string 
 export function renderTokenizedOutput(tokenizationResult: TokenizationResult, source: Source): string {
     const formattedCode = renderEntityList({ indent: "  " }, tokenizationResult.result, 0, true);
     const sExpression = renderEntityList({ indent: "  ", style: "s" }, tokenizationResult.result, 0, true);
+    const jsonCode = JSON.stringify(tokenizationResult.result.map(renderEntityJ), null, 1);
     const prettyErrors = prettyPrintErrors(source, tokenizationResult.errors);
     
     return (
-        `// formatted\n${formattedCode}\n\n` +
+        `// json:\n${jsonCode}\n\n` +
         `// s-expr:\n${sExpression}\n\n` +
+        `// formatted\n${formattedCode}\n\n` +
         `// errors:\n${prettyErrors}`
     );
 }
