@@ -529,28 +529,29 @@ function renderEntityJ(entity: SyntaxNode): unknown {
         TODO: true,
     };
 }
-function renderS(config: RenderConfig, tag: string, s: (SyntaxNode | string)[], level: number): string {
+function renderS(config: RenderConfig, tag: string, s: (SyntaxNode | string)[], level: number, s0?: string, inh?: boolean): string {
     const sub = (itm: string | SyntaxNode, level: number) => (typeof itm === "string" ? itm : renderEntity(config, itm, level, false));
-    if(s.length === 0) return `${tag}()`;
-    if(s.length === 1) return `${tag}(${sub(s[0]!, level)})`;
-    return tag + "(" + s.map(itm => "\n" + config.indent.repeat(level + 1) + sub(itm, level + 1)).join("") + "\n" + config.indent.repeat(level) + ")";
+    if(s.length === 0) return `${tag}(${s0 ?? ""})`;
+    if(s.length === 1 && !s0 && !inh) return `${tag}(${s0 ? s0 + " " : ""}${sub(s[0]!, level)})`;
+    return tag + "(" + (s0 ?? "") + s.map(itm => "\n" + config.indent.repeat(level + 1) + sub(itm, level + 1)).join("") + "\n" + config.indent.repeat(level) + ")";
 }
 function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, isTopLevel: boolean): string {
     if(config.style === "s2") {
         if(entity.kind === "block") {
-            return renderS(config, "block", entity.items, level);
+            return renderS(config, "block", entity.items, level, JSON.stringify(entity.start + entity.end));
         }else if(entity.kind === "binary") {
-            return renderS(config, "binary", entity.items, level);
+            // binary(a) op"+" (b)
+            return "binary" + entity.items.map(item => renderEntity(config, item, level, false)).join(" ");
         }else if(entity.kind === "ident") {
-            return renderS(config, "ident", [JSON.stringify(entity.str)], level);
+            return "@" + entity.str;
         }else if(entity.kind === "op") {
-            return renderS(config, "op", [JSON.stringify(entity.op)], level);
+            return "op" + JSON.stringify(entity.op);
         }else if(entity.kind === "opSeg") {
-            return renderS(config, "opSeg", entity.items, level);
+            return renderS(config, "", entity.items, level, undefined, true);
         }else if(entity.kind === "strSeg") {
-            return renderS(config, "strSeg", [JSON.stringify(entity.str)], level);
+            return renderS(config, "strSeg", [], level, JSON.stringify(entity.str));
         }else if(entity.kind === "ws") {
-            return renderS(config, "ws", [entity.nl ? JSON.stringify("\n") : JSON.stringify(" ")], level);
+            return entity.nl ? "<spc>" : "<nl>";
         }else{
             return renderS(config, (entity as SyntaxNode).kind, [], level);
         }
