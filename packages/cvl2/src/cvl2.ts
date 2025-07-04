@@ -448,7 +448,7 @@ export function tokenize(source: Source): TokenizationResult {
 
 interface RenderConfig {
     indent: string;
-    style?: "s";
+    style?: "s" | "s2";
 }
 
 function renderEntityList(config: RenderConfig, entities: SyntaxNode[], level: number, isTopLevel: boolean): string {
@@ -529,8 +529,32 @@ function renderEntityJ(entity: SyntaxNode): unknown {
         TODO: true,
     };
 }
+function renderS(config: RenderConfig, tag: string, s: (SyntaxNode | string)[], level: number): string {
+    const sub = (itm: string | SyntaxNode, level: number) => (typeof itm === "string" ? itm : renderEntity(config, itm, level, false));
+    if(s.length === 0) return `${tag}()`;
+    if(s.length === 1) return `${tag}(${sub(s[0]!, level)})`;
+    return tag + "(" + s.map(itm => "\n" + config.indent.repeat(level + 1) + sub(itm, level + 1)).join("") + "\n" + config.indent.repeat(level) + ")";
+}
 function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, isTopLevel: boolean): string {
-    if (config.style === "s") {
+    if(config.style === "s2") {
+        if(entity.kind === "block") {
+            return renderS(config, "block", entity.items, level);
+        }else if(entity.kind === "binary") {
+            return renderS(config, "binary", entity.items, level);
+        }else if(entity.kind === "ident") {
+            return renderS(config, "ident", [JSON.stringify(entity.str)], level);
+        }else if(entity.kind === "op") {
+            return renderS(config, "op", [JSON.stringify(entity.op)], level);
+        }else if(entity.kind === "opSeg") {
+            return renderS(config, "opSeg", entity.items, level);
+        }else if(entity.kind === "strSeg") {
+            return renderS(config, "strSeg", [JSON.stringify(entity.str)], level);
+        }else if(entity.kind === "ws") {
+            return renderS(config, "ws", [entity.nl ? JSON.stringify("\n") : JSON.stringify(" ")], level);
+        }else{
+            return renderS(config, (entity as SyntaxNode).kind, [], level);
+        }
+    }else if (config.style === "s") {
         if (entity.kind === "block") {
             return `(${JSON.stringify(entity.start + entity.end)} ` + renderEntityList(config, entity.items, level, false) + ")";
         } else if (entity.kind === "binary") {
@@ -621,11 +645,13 @@ function prettyPrintErrors(source: Source, errors: TokenizationError[]): string 
 export function renderTokenizedOutput(tokenizationResult: TokenizationResult, source: Source): string {
     const formattedCode = renderEntityList({ indent: "  " }, tokenizationResult.result, 0, true);
     const sExpression = renderEntityList({ indent: "  ", style: "s" }, tokenizationResult.result, 0, true);
+    const s2Expression = renderEntityList({ indent: "  ", style: "s2" }, tokenizationResult.result, 0, true);
     const jsonCode = JSON.stringify(tokenizationResult.result.map(renderEntityJ), null, 1);
     const prettyErrors = prettyPrintErrors(source, tokenizationResult.errors);
     
     return (
         `// json:\n${jsonCode}\n\n` +
+        `// s2-expr:\n${s2Expression}\n\n` +
         `// s-expr:\n${sExpression}\n\n` +
         `// formatted\n${formattedCode}\n\n` +
         `// errors:\n${prettyErrors}`
