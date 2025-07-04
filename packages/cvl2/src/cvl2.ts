@@ -6,6 +6,7 @@ type Config = {
     style: "open" | "close" | "join",
     prec: number,
     close?: string,
+    autoOpen?: boolean,
 };
 const config: Record<string, Config> = {
     "(": {style: "open", prec: 0, close: ")"},
@@ -20,6 +21,7 @@ const config: Record<string, Config> = {
     "\n": {style: "join", prec: 2},
     ":": {style: "open", prec: 3},
     "=": {style: "join", prec: 4},
+    ".": {style: "close", prec: 5, autoOpen: true},
 
     // TODO: "=>"
     // TODO: "\()" as style open prec 0 autoclose display{open: "(", close: ")"}
@@ -110,6 +112,18 @@ interface OperatorToken {
     op: string;
 }
 
+interface OperatorSegmentToken {
+    kind: "opSeg";
+    pos: TokenPosition;
+    items: SyntaxNode[],
+}
+
+interface OperatorGroupToken {
+    kind: "opGroup";
+    pos: TokenPosition;
+    items: SyntaxNode[],
+}
+
 interface BlockToken {
     kind: "block";
     pos: TokenPosition;
@@ -125,13 +139,14 @@ interface BinaryExpressionToken {
     items: SyntaxNode[];
 }
 
-type SyntaxNode = IdentifierToken | WhitespaceToken | OperatorToken | BlockToken | BinaryExpressionToken;
+type SyntaxNode = IdentifierToken | WhitespaceToken | OperatorToken | BlockToken | BinaryExpressionToken | OperatorSegmentToken | OperatorGroupToken;
 
 interface TokenizerStackItem {
     pos: TokenPosition,
     char: string;
     indent: number;
     val: SyntaxNode[];
+    opSupVal?: SyntaxNode[];
     prec: number;
     autoClose?: boolean;
 }
@@ -183,7 +198,7 @@ export function tokenize(source: Source): TokenizationResult {
                 source.take();
             }
             currentToken = source.text.substring(start.idx, source.currentIndex).includes("\n") ? "\n" : " ";
-        }else if ("()[]{}:,;\"'`".includes(firstChar)) {
+        }else if ("()[]{}:,;\"'.`".includes(firstChar)) {
             currentToken = source.text.substring(start.idx, source.currentIndex);
         }else if(operatorChars.includes(firstChar)) {
             while (operatorChars.includes(source.peek())) {
@@ -228,16 +243,33 @@ export function tokenize(source: Source): TokenizationResult {
                     break;
                 }
 
-                if (lastStackItem.indent < currentIndent) {
-                    errors.push({
-                        entries: [{
-                            message: "extra close bracket",
-                            style: "error",
-                            pos: start,
-                        }],
-                        trace: [...referenceTrace],
-                    });
+                if (lastStackItem.indent < currentIndent || lastStackItem.prec < cfg.prec) {
                     parseStack.push(lastStackItem);
+                    if(cfg.autoOpen) {
+                        // right, we have to worry about operators
+                        let firstNonWs = 0;
+                        while(firstNonWs < lastStackItem.val.length) {
+                            if(lastStackItem.val[firstNonWs]?.kind !== "ws") break;
+                            firstNonWs += 1;
+                        }
+                        const prevItems = lastStackItem.val.splice(firstNonWs, lastStackItem.val.length - firstNonWs);
+                        lastStackItem.val.push({
+                            kind: "block",
+                            pos: start,
+                            start: "",
+                            end: currentToken,
+                            items: prevItems,
+                        });
+                    }else{
+                        errors.push({
+                            entries: [{
+                                message: "extra close bracket",
+                                style: "error",
+                                pos: start,
+                            }],
+                            trace: [...referenceTrace],
+                        });
+                    }
                     break;
                 } else {
                     if (!lastStackItem.autoClose) {
@@ -260,31 +292,28 @@ export function tokenize(source: Source): TokenizationResult {
         } else if (cfg?.style === "join") {
             const operatorPrecedence = cfg.prec;
             let targetCommaBlock: TokenizerStackItem | undefined;
-            console.log("BEGIN JOIN FOR '"+currentToken+"'");
 
             while (parseStack.length > 0) {
                 const lastStackItem = parseStack[parseStack.length - 1]!;
-                console.log("  check stack item '"+lastStackItem.char+"' @ "+lastStackItem.prec);
 
                 if (lastStackItem.prec === operatorPrecedence) {
-                    console.log("  -> set");
                     targetCommaBlock = lastStackItem;
                     break;
                 } else if (lastStackItem.prec < operatorPrecedence) {
-                    console.log("  -> lt; append");
                     let valStartIdx = 0;
-                    for(let i = lastStackItem.val.length; i > 0;) {
-                        i -= 1;
-                        const itm = lastStackItem.val[i]!;
-                        if(itm.kind === "op") {
-                            valStartIdx = i + 1;
-                            break;
-                        }
-                    }
+                    const val = lastStackItem.val.slice(0);
+                    const opSupVal: SyntaxNode[] = [
+                        {
+                            kind: "opSeg",
+                            pos: start,
+                            items: val,
+                        },
+                    ];
                     targetCommaBlock = {
                         pos: start,
                         char: currentToken,
-                        val: lastStackItem.val.slice(valStartIdx),
+                        val,
+                        opSupVal,
                         indent: lastStackItem.indent,
                         autoClose: true,
                         prec: operatorPrecedence,
@@ -294,11 +323,10 @@ export function tokenize(source: Source): TokenizationResult {
                         kind: "binary",
                         pos: start,
                         prec: operatorPrecedence,
-                        items: targetCommaBlock.val,
+                        items: opSupVal,
                     });
                     break;
                 } else {
-                    console.log("  -> gt; autoClose");
                     if (!lastStackItem.autoClose) {
                         errors.push({
                             entries: [{
@@ -320,15 +348,27 @@ export function tokenize(source: Source): TokenizationResult {
             if (!targetCommaBlock) {
                 throw new Error("Unreachable: No target block found for comma/semicolon.");
             }
+            if (!targetCommaBlock.opSupVal) {
+                throw new Error("Target block missing opSupVal? Is this reachable?");
+            }
 
-            currentSyntaxNodes = parseStack[parseStack.length - 1]!.val;
-            currentSyntaxNodes.push({
+
+            const nextVal: SyntaxNode[] = [];
+
+            targetCommaBlock.opSupVal!.push({
                 kind: "op",
                 pos: start,
                 op: currentToken,
+            }, {
+                kind: "opSeg",
+                pos: start,
+                items: nextVal,
             });
+            targetCommaBlock.val = nextVal;
+            currentSyntaxNodes = targetCommaBlock.val;
+
             if(currentToken === "\n") {
-                currentSyntaxNodes.push({
+                nextVal.push({
                     kind: "ws",
                     pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
                     nl: true,
@@ -365,6 +405,8 @@ function renderEntityList(config: RenderConfig, entities: SyntaxNode[], level: n
     let needsDeeperIndent = false;
     let didInsertNewline = false;
     let lastNewlineIndex = -1;
+
+    entities = entities.flatMap(nt => nt.kind === "opSeg" ? nt.items : [nt]); // hacky
 
     for (let i = 0; i < entities.length; i++) {
         const entity = entities[i]!;
@@ -403,6 +445,8 @@ function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, i
             return "$" + entity.str;
         } else if (entity.kind === "op") {
             return JSON.stringify(entity.op);
+        } else if (entity.kind === "opSeg") {
+            return "(" + renderEntityList(config, entity.items, level, isTopLevel) + ")";
         } else {
             return `(TODO $${(entity as {kind: string}).kind})`;
         }
@@ -418,6 +462,8 @@ function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, i
         } else if (entity.kind === "op") {
             if(entity.op === "\n") return "";
             return entity.op;
+        }else if (entity.kind === "opSeg") {
+            throw new Error("Unreachable: opSeg should be handled by renderEntityList.");
         } else {
             return `%TODO<${(entity as {kind: string}).kind}>%`;
         }
@@ -486,7 +532,7 @@ export function renderTokenizedOutput(tokenizationResult: TokenizationResult, so
 const src = `abc [
     def [jkl]
     if (
-            amazing
+            amazing.one()
     ] else {
             wow!
     }
@@ -496,6 +542,11 @@ const src = `abc [
     7, 8)
     commaExample(1, 2, 3, 4)
     colonExample(a: 1, b: c: 2, 3)
+    newlineCommaExample(
+        1, 2
+        3
+        4
+    )
     (a, b => c, d = e, f => g, h)
 ] ghi`;
 if (import.meta.main) {
