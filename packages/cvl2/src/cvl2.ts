@@ -2,30 +2,59 @@ function unreachable(): never {
     throw new Error("unreachable");
 }
 
+type TokenizerMode = "regular" | "in_string";
 type Config = {
     style: "open" | "close" | "join",
     prec: number,
     close?: string,
     autoOpen?: boolean,
+    setMode?: TokenizerMode,
 };
-const config: Record<string, Config> = {
-    "(": {style: "open", prec: 0, close: ")"},
-    "{": {style: "open", prec: 0, close: "}"},
-    "[": {style: "open", prec: 0, close: "]"},
-    ")": {style: "close", prec: 0},
-    "}": {style: "close", prec: 0},
-    "]": {style: "close", prec: 0},
-    "=>": {style: "join", prec: 1},
-    ",": {style: "join", prec: 2},
-    ";": {style: "join", prec: 2},
-    "\n": {style: "join", prec: 2},
-    ":": {style: "open", prec: 3},
-    "=": {style: "join", prec: 4},
-    ".": {style: "close", prec: 5, autoOpen: true},
+
+const mkconfig: Record<string, Omit<Config, "prec">>[] = [
+    {
+        "(": {style: "open", close: ")"},
+        "{": {style: "open", close: "}"},
+        "[": {style: "open", close: "]"},
+        ")": {style: "close"},
+        "}": {style: "close"},
+        "]": {style: "close"},
+    },
+    {
+        "::": {style: "join"},
+    },
+    {
+        "=>": {style: "join"},
+    },
+    {
+        ",": {style: "join"},
+        ";": {style: "join"},
+        "\n": {style: "join"},
+    },
+    {
+        ":": {style: "open"},
+    },
+    {
+        "=": {style: "join"},
+    },
+    {
+        ".": {style: "close", autoOpen: true},
+    },
+    {
+        "\"": {style: "open", close: "<in_string>\"", setMode: "in_string"},
+        "<in_string>\"": {style: "close", setMode: "regular"},
+    },
 
     // TODO: "=>"
     // TODO: "\()" as style open prec 0 autoclose display{open: "(", close: ")"}
-};
+];
+
+const config: Record<string, Config> = {};
+for(const [i, segment] of mkconfig.entries()) {
+    for(const [key, value] of Object.entries(segment)) {
+        config[key] = {...value, prec: i};
+    }
+}
 
 const referenceTrace: TokenPosition[] = [];
 function withReferenceTrace(pos: TokenPosition): {[Symbol.dispose]: () => void} {
@@ -139,7 +168,13 @@ interface BinaryExpressionToken {
     items: SyntaxNode[];
 }
 
-type SyntaxNode = IdentifierToken | WhitespaceToken | OperatorToken | BlockToken | BinaryExpressionToken | OperatorSegmentToken | OperatorGroupToken;
+interface StrSegToken {
+    kind: "strSeg";
+    pos: TokenPosition;
+    str: string;
+}
+
+type SyntaxNode = IdentifierToken | WhitespaceToken | OperatorToken | BlockToken | BinaryExpressionToken | OperatorSegmentToken | OperatorGroupToken | StrSegToken;
 
 interface TokenizerStackItem {
     pos: TokenPosition,
@@ -167,52 +202,74 @@ interface TokenizationResult {
 
 const identifierRegex = /^[a-zA-Z0-9]$/;
 const whitespaceRegex = /^\s$/;
-const operatorChars = [..."~!@#$%^&*-=+|/<>"];
+const operatorChars = [..."~!@#$%^&*-=+|/<>:"];
 
 export function tokenize(source: Source): TokenizationResult {
     let currentSyntaxNodes: SyntaxNode[] = [];
     const errors: TokenizationError[] = [];
     const parseStack: TokenizerStackItem[] = [];
+    let mode: TokenizerMode = "regular";
 
     parseStack.push({ pos: source.getPosition(), char: "", indent: -1, val: currentSyntaxNodes, prec: 0 });
 
     while (source.peek()) {
         const start = source.getPosition();
         const firstChar = source.take();
-
-        if (firstChar.match(identifierRegex)) {
-            while (source.peek().match(identifierRegex)) {
-                source.take();
-            }
-            currentSyntaxNodes.push({
-                kind: "ident",
-                pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
-                str: source.text.substring(start.idx, source.currentIndex),
-            });
-            continue;
-        }
         
         let currentToken: string;
-        if (firstChar.match(whitespaceRegex)) {
-            while (source.peek().match(whitespaceRegex)) {
-                source.take();
+        if(mode === "regular") {
+            if (firstChar.match(identifierRegex)) {
+                while (source.peek().match(identifierRegex)) {
+                    source.take();
+                }
+                currentSyntaxNodes.push({
+                    kind: "ident",
+                    pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
+                    str: source.text.substring(start.idx, source.currentIndex),
+                });
+                continue;
             }
-            currentToken = source.text.substring(start.idx, source.currentIndex).includes("\n") ? "\n" : " ";
-        }else if ("()[]{}:,;\"'.`".includes(firstChar)) {
-            currentToken = source.text.substring(start.idx, source.currentIndex);
-        }else if(operatorChars.includes(firstChar)) {
-            while (operatorChars.includes(source.peek())) {
-                source.take();
+
+            if (firstChar.match(whitespaceRegex)) {
+                while (source.peek().match(whitespaceRegex)) {
+                    source.take();
+                }
+                currentToken = source.text.substring(start.idx, source.currentIndex).includes("\n") ? "\n" : " ";
+            }else if ("()[]{},;\"'.`".includes(firstChar)) {
+                currentToken = source.text.substring(start.idx, source.currentIndex);
+            }else if(operatorChars.includes(firstChar)) {
+                while (operatorChars.includes(source.peek())) {
+                    source.take();
+                }
+                currentToken = source.text.substring(start.idx, source.currentIndex);
+            }else if(firstChar === "\\") {
+                // todo: if '\()' token = '\()'
+                currentToken = "\\";
+            }else{
+                currentToken = firstChar;
             }
-            currentToken = source.text.substring(start.idx, source.currentIndex);
-        }else if(firstChar === "\\") {
-            // todo: if '\()' token = '\()'
-            currentToken = "\\";
-        }else{
-            currentToken = firstChar;
-        }
+        }else if(mode === "in_string") {
+            if ((!"\"\\".includes(firstChar))) {
+                while (!"\"\\".includes(source.peek())) {
+                    source.take();
+                }
+                currentSyntaxNodes.push({
+                    kind: "strSeg",
+                    pos: { fyl: source.filename, idx: start.idx, lyn: start.lyn, col: start.col },
+                    str: source.text.substring(start.idx, source.currentIndex),
+                });
+                continue;
+            }
+
+            if(firstChar === "\"") {
+                currentToken = "<in_string>\"";
+            }else if(firstChar === "\\") {
+                throw new Error("TODO impl in_string '\\' char");
+            }else currentToken = firstChar;
+        }else throw new Error("TODO mode: "+mode);
 
         const cfg = config[currentToken];
+        if(cfg?.setMode) mode = cfg.setMode;
         if (cfg?.style === "open") {
             const newBlockItems: SyntaxNode[] = [];
             currentSyntaxNodes.push({
@@ -447,6 +504,8 @@ function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, i
             return JSON.stringify(entity.op);
         } else if (entity.kind === "opSeg") {
             return "(" + renderEntityList(config, entity.items, level, isTopLevel) + ")";
+        } else if (entity.kind === "strSeg") {
+            return JSON.stringify(entity.str);
         } else {
             return `(TODO $${(entity as {kind: string}).kind})`;
         }
@@ -464,6 +523,8 @@ function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, i
             return entity.op;
         }else if (entity.kind === "opSeg") {
             throw new Error("Unreachable: opSeg should be handled by renderEntityList.");
+        }else if (entity.kind === "strSeg") {
+            return entity.str;
         } else {
             return `%TODO<${(entity as {kind: string}).kind}>%`;
         }
