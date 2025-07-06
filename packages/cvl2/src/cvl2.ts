@@ -540,7 +540,7 @@ function renderEntity(config: RenderConfig, entity: SyntaxNode, level: number, i
         if(entity.kind === "block") {
             return renderS(config, "block", entity.items, level, JSON.stringify(entity.start + entity.end));
         }else if(entity.kind === "binary") {
-            return "binary" + entity.items.map(item => renderEntity(config, item, level, false)).join(" ");
+            return "binary " + entity.items.map(item => renderEntity(config, item, level, false)).join(" ");
         }else if(entity.kind === "ident") {
             return "@" + entity.str;
         }else if(entity.kind === "op") {
