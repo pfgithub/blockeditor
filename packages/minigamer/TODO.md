@@ -10,3 +10,5 @@ When stacking layers, partial transparency works.
 
 This means the program can have a total of 33 colors on screen, including the customizable background
 color.
+
+Try https://github.com/GasInfinity/zitrus
